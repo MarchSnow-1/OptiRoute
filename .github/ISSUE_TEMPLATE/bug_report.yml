@@ -16,7 +16,9 @@ body:
     id: description
     attributes:
       label: "🐛 Description / 描述"
-      placeholder: "Describe the bug / 请描述你遇到的 Bug"
+      placeholder: |
+        Describe the bug
+        请描述你遇到的 Bug
     validations:
       required: true
 
@@ -24,7 +26,9 @@ body:
     id: steps
     attributes:
       label: "🔄 Steps to Reproduce / 复现步骤"
-      placeholder: "How to reproduce / 如何复现此问题"
+      placeholder: |
+        How to reproduce
+        如何复现此问题
       value: |
         1.
         2.
@@ -36,7 +40,9 @@ body:
     id: expected
     attributes:
       label: "✅ Expected Behavior / 期望行为"
-      placeholder: "What you expected / 你期望发生什么"
+      placeholder: |
+        What you expected
+        你期望发生什么
     validations:
       required: true
 
@@ -44,7 +50,9 @@ body:
     id: actual
     attributes:
       label: "❌ Actual Behavior / 实际行为"
-      placeholder: "What actually happened / 实际发生了什么"
+      placeholder: |
+        What actually happened
+        实际发生了什么
     validations:
       required: true
 
@@ -63,7 +71,9 @@ body:
     attributes:
       label: "🏗️ Component & Environment / 组件与环境"
       description: "Briefly describe the affected component(s) and their runtime environment(s) / 简要描述出问题的组件及其运行环境(可填写多个)"
-      placeholder: "e.g. Center running on Docker (Ubuntu 22.04) / 例如 Center 运行在 Docker (Ubuntu 22.04)"
+      placeholder: |
+        e.g. Center running on Docker (Ubuntu 22.04)
+        例如 Center 运行在 Docker (Ubuntu 22.04)
     validations:
       required: true
 

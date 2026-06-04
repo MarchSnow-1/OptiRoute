@@ -52,6 +52,7 @@ type Config struct {
 	UpstreamAddr string `json:"upstream_addr"`  // 上游游戏服务器地址
 	UpstreamPort int    `json:"upstream_port"`  // 上游游戏服务器端口
 	LogRealIP    bool   `json:"log_real_ip"`    // 是否在日志中记录客户端真实 IP
+	ForwardRealIP bool `json:"forward_real_ip"` // 是否向上游注入 PPv2 包头以传递客户端真实 IP（需上游支持 Proxy Protocol v2）
 
 	// ── 通用超时 ──────────────────────────────────
 	ConnectTimeoutMs     int `json:"connect_timeout_ms"`      // 连接超时，默认 5000

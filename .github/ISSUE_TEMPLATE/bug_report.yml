@@ -1,0 +1,90 @@
+name: "🐛 Bug Report / 上报 Bug"
+description: "Report a bug / 报告 Bug"
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > 📖 Before submitting feedback or suggestions, please check the [documentation](https://github.com/MarchSnow-1/OptiRoute) or [Issues](https://github.com/MarchSnow-1/OptiRoute/issues) first to see if a similar topic already exists.
+        > 🔄 If you encounter an issue, please try updating to the latest version before reporting.
+        >
+        > 📖 在反馈问题或提出建议前，请先检查 [文档](https://github.com/MarchSnow-1/OptiRoute) 或 [Issues](https://github.com/MarchSnow-1/OptiRoute/issues) 中是否存在相关内容
+        > 🔄 如遇问题，请先尝试更新至最新版本后再反馈
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "🐛 Description / 描述"
+      placeholder: "Describe the bug / 请描述你遇到的 Bug"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "🔄 Steps to Reproduce / 复现步骤"
+      placeholder: "How to reproduce / 如何复现此问题"
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "✅ Expected Behavior / 期望行为"
+      placeholder: "What you expected / 你期望发生什么"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: "❌ Actual Behavior / 实际行为"
+      placeholder: "What actually happened / 实际发生了什么"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: "🧩 Affected Component / 问题组件"
+      options:
+        - Center
+        - Edge
+        - Client Agent
+        - Server Agent
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "🏗️ Component & Environment / 组件与环境"
+      description: "Briefly describe the affected component(s) and their runtime environment(s) / 简要描述出问题的组件及其运行环境(可填写多个)"
+      placeholder: "e.g. Center running on Docker (Ubuntu 22.04) / 例如 Center 运行在 Docker (Ubuntu 22.04)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: "📄 Config / 配置文件"
+      placeholder: |
+        Paste the affected component's config (redact comm_secret)
+        请粘贴相关组件的配置文件(请脱敏 comm_secret)
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "📋 Logs / 日志输出"
+      placeholder: |
+        Paste logs, wrap with ```logs ... ```
+        请粘贴日志，使用 ```logs ... ``` 包裹
+    validations:
+      required: false

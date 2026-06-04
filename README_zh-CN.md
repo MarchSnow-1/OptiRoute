@@ -239,6 +239,7 @@ go build -o dist/optiroute ./src/
   "upstream_port": 18000,
   "comm_secret": "your-32-byte-secret-key-here!!",
   "log_real_ip": true,
+  "forward_real_ip": false,
   "log_level": "info"
 }
 ```
@@ -253,6 +254,7 @@ go build -o dist/optiroute ./src/
 | upstream_port | 18000 | 第三方服务的服务端端口, 剥离 PPv2 包头后的原始数据转发至此 |
 | comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点一致 |
 | log_real_ip | true | 是否在日志中记录客户端真实 IP (从 PPv2 包头提取) |
+| forward_real_ip | false | 是否向上游注入 PPv2 包头以传递客户端真实 IP (需上游支持 Proxy Protocol v2) |
 | log_level | info | 日志级别: debug / info / warn / error |
 
 ### 完整配置项参考
@@ -319,6 +321,7 @@ go build -o dist/optiroute ./src/
 | upstream_port | int | — | 必填, 上游第三方服务端端口 |
 | comm_secret | string | — | 必填, 通信密钥, 必须恰好 32 字节 |
 | log_real_ip | bool | false | 是否在日志中记录客户端真实 IP |
+| forward_real_ip | bool | false | 是否向上游注入 PPv2 包头以传递客户端真实 IP (需上游支持 Proxy Protocol v2) |
 
 ### 连接流程示意图
 

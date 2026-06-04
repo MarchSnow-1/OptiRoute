@@ -231,6 +231,7 @@ Description:
   "upstream_port": 18000,
   "comm_secret": "your-32-byte-secret-key-here!!",
   "log_real_ip": true,
+  "forward_real_ip": false,
   "log_level": "info"
 }
 ```
@@ -245,6 +246,7 @@ Description:
 | upstream_port | 18000 | Third-party service port; raw data (after stripping the PPv2 header) is forwarded here |
 | comm_secret | your-32-byte-secret-key-here!! | Communication secret, must be exactly 32 bytes, must match edge nodes |
 | log_real_ip | true | Whether to log the client's real IP (extracted from the PPv2 header) |
+| forward_real_ip | false | Whether to inject a PPv2 header when forwarding to the upstream (requires the upstream to support Proxy Protocol v2) |
 | log_level | info | Log level: debug / info / warn / error |
 
 ### Complete Configuration Reference
@@ -311,6 +313,7 @@ Below is a full list of all available configuration fields, grouped by role. Unl
 | upstream_port | int | — | Required, Upstream third-party service port |
 | comm_secret | string | — | Required, Communication secret, must be exactly 32 bytes |
 | log_real_ip | bool | false | Whether to log the client's real IP |
+| forward_real_ip | bool | false | Whether to inject a PPv2 header when forwarding to the upstream (requires Proxy Protocol v2 support) |
 
 ### Connection Flow Diagram
 

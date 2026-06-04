@@ -31,9 +31,20 @@ body:
   - type: textarea
     id: config
     attributes:
-      label: "📎 Config or Logs / 相关配置或日志"
+      label: "📄 Config / 配置文件"
       placeholder: |
-        Redact comm_secret
-        请脱敏 comm_secret
+        Paste config or drag files here to upload (redact comm_secret)
+        请粘贴配置文件或拖动文件到此输入框以上传(请脱敏 comm_secret)
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "📋 Logs / 日志输出"
+      render: shell
+      placeholder: |
+        Paste relevant logs or drag files here to upload
+        请粘贴相关日志或拖动文件到此输入框以上传
     validations:
       required: false

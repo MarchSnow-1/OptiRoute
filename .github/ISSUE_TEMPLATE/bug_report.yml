@@ -54,7 +54,6 @@ body:
       label: "🧩 Affected Component / 问题组件"
       options:
         - label: Center
-          required: true
         - label: Edge
         - label: Client Agent
         - label: Server Agent
@@ -73,8 +72,8 @@ body:
     attributes:
       label: "📄 Config / 配置文件"
       placeholder: |
-        Paste the affected component's config (redact comm_secret)
-        请粘贴相关组件的配置文件(请脱敏 comm_secret)
+        Paste the affected component's config or drag files here to upload (redact comm_secret)
+        请粘贴相关组件的配置文件或拖动文件到此输入框以上传(请脱敏 comm_secret)
     validations:
       required: false
 
@@ -84,7 +83,7 @@ body:
       label: "📋 Logs / 日志输出"
       render: shell
       placeholder: |
-        Paste relevant logs
-        请粘贴相关日志
+        Paste relevant logs or drag files here to upload
+        请粘贴相关日志或拖动文件到此输入框以上传
     validations:
       required: false

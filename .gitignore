@@ -1,0 +1,21 @@
+# Binary
+*.exe
+dist/
+
+# Go
+vendor/
+
+# NPM
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+.dev/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config cache files
+topo_cache_*.json

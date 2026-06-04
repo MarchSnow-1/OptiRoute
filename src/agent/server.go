@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"sync"
 	"time"
 
 	logger "github.com/donnie4w/go-logger/logger"
@@ -113,18 +112,18 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	}
 	defer upstreamConn.Close()
 
+	// 4. 按配置决定是否向上游注入 Proxy Protocol v2 包头
+	if a.cfg.ForwardRealIP {
+		ppv2Hdr := protocol.BuildPPv2Header(clientIP, clientPort, net.IP{}, 0)
+		if _, err := upstreamConn.Write(ppv2Hdr); err != nil {
+			logger.Warn("[", remote, "] 写入 PPv2 包头至上游失败 err:", err)
+			return
+		}
+		logger.Info("[", remote, "] 已注入 PPv2 包头 client_ip:", clientIP.String())
+	}
+
 	logger.Info("[", remote, "] 转发通道已建立 client_ip:", clientIP.String(), " upstream:", upstreamAddr)
 
-	// 4. 双向透传
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		io.Copy(upstreamConn, conn)
-	}()
-	go func() {
-		defer wg.Done()
-		io.Copy(conn, upstreamConn)
-	}()
-	wg.Wait()
+	// 5. 双向透传
+	util.Relay(conn, upstreamConn, nil)
 }

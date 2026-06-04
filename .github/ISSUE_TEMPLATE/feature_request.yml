@@ -1,6 +1,6 @@
 name: "💡 Feature Request / 功能请求"
 description: "Suggest a new feature / 提出新功能建议"
-title: "[Feature]: "
+title: "[Feature] "
 labels: ["enhancement"]
 body:
   - type: markdown
@@ -32,6 +32,7 @@ body:
     id: priority
     attributes:
       label: "🔢 Priority / 优先级自评"
+      default: 1
       options:
         - "Low / 低"
         - "Medium / 中"

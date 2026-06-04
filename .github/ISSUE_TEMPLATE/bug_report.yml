@@ -48,17 +48,16 @@ body:
     validations:
       required: true
 
-  - type: dropdown
+  - type: checkboxes
     id: component
     attributes:
       label: "🧩 Affected Component / 问题组件"
       options:
-        - Center
-        - Edge
-        - Client Agent
-        - Server Agent
-    validations:
-      required: true
+        - label: Center
+          required: true
+        - label: Edge
+        - label: Client Agent
+        - label: Server Agent
 
   - type: textarea
     id: environment
@@ -83,8 +82,9 @@ body:
     id: logs
     attributes:
       label: "📋 Logs / 日志输出"
+      render: shell
       placeholder: |
-        Paste logs, wrap with ```logs ... ```
-        请粘贴日志，使用 ```logs ... ``` 包裹
+        Paste relevant logs
+        请粘贴相关日志
     validations:
       required: false

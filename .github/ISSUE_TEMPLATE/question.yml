@@ -1,6 +1,6 @@
 name: "❓ Question / 提问"
 description: "Ask a question / 提出问题或咨询"
-title: "[Question]: "
+title: "[Question] "
 labels: ["question"]
 body:
   - type: markdown

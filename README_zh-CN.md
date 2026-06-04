@@ -19,11 +19,8 @@
 
 </div>
 
-## 🚧 Development In Progress
-
 > [!WARNING]
 > This project is still under development. Features may change or be unstable.
-
 
 ## 项目简介
 

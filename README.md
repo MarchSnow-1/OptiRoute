@@ -19,11 +19,8 @@ A highly available, low-latency clustering reverse proxy and edge forwarding eng
 
 </div>
 
-## 🚧 Development In Progress
-
 > [!WARNING]
 > This project is still under development. Features may change or be unstable.
-
 
 ## Overview
 

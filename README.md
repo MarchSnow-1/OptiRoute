@@ -22,62 +22,67 @@ A highly available, low-latency clustering reverse proxy and edge forwarding eng
 > [!WARNING]
 > This project is still under development. Features may change or be unstable.
 
-## Overview
+## Project Overview
 
-OptiRoute is a distributed Layer-4 reverse proxy system written in Go.
+OptiRoute is a distributed Layer 4 reverse proxy system written in Go.
 
-A single binary supports four roles: **Center**, **Edge**, **Client Agent**, and **Server Agent**.
+The system consists of four roles: **Center Node**, **Edge Node**, **Client Agent**, and **Server Agent**.
 
-Together they form an intelligent routing network where each Edge node automatically selects the optimal node for every client based on end-to-end latency.
+**Core Features**
 
-**Key Features:**
+- **Origin IP Hiding** — All traffic is relayed through edge nodes; the origin server's IP is never exposed externally.
+- **Intelligent Routing** — The client actively measures RTT to all edge nodes, sends the results back, and combines them with each edge node's RTT to the origin. The system automatically selects the node with the lowest end-to-end latency.
+- **Dual-Stack Support** — Full IPv4/IPv6 dual-stack operation, making full use of existing infrastructure.
+- **Zero Modification** — Third-party clients and servers require no code changes; seamless integration is achieved through external Server and Client Agents.
+- **Low Cost** — Edge nodes perform Layer 4 forwarding only with no business logic, so even low-spec, high-bandwidth machines can run them.
 
-- **Origin IP Concealment** — All traffic is relayed through edge nodes, keeping the origin server IP completely hidden from the outside.
-- **Intelligent Routing** — On client connection, all edge nodes are probed concurrently. The system sums the client-to-edge and edge-to-origin RTT, and the Edge node automatically selects the lowest-latency path across the entire route.
-- **Zero Intrusion** — Neither the third-party client nor the third-party service requires any code changes. Seamless integration is achieved through the external Server Agent and Client Agent.
-- **Minimal Operational Overhead** — Edge nodes perform only Layer-4 forwarding with no business computation, allowing them to run on low-spec, high-bandwidth machines.
+---
 
-## Architecture
+## Architecture Overview
 
 | Role | Description |
 |------|-------------|
-| **Center** | Control plane, manages edge nodes, does not carry actual traffic |
-| **Edge** | Data plane, accepts client connections via business and bootstrap ports, performs token verification, Layer-4 forwarding to the origin, and injects Proxy Protocol v2 headers |
-| **Client Agent** | Runs on the player's local machine, listens on a local port, and triggers the full onboarding flow (probe, RTT report, redirect) each time a third-party client connects |
-| **Server Agent** | Runs on the origin server, parses and strips Proxy Protocol v2 headers to extract the client's real IP, then forwards the raw data to the third-party service |
+| **Center Node** | Control plane — manages edge nodes and carries no actual traffic |
+| **Edge Node** | Data plane — accepts client connections on business and probe ports, validates HMAC tokens, and forwards data to the origin; supports injecting Proxy Protocol v2 headers to preserve the client's real IP |
+| **Client Agent** | Runs on the player's local machine; listens on a local port and triggers the full onboarding flow whenever a third-party client connects |
+| **Server Agent** | Runs on the origin server; parses and strips the Proxy Protocol v2 header, extracts the client's real IP, and forwards the raw data to the third-party server |
 
-## Full Onboarding Flow
+---
+
+## Connection Flow
 
 1. **Bootstrap Connection**
-* The **Client Agent** connects to any online edge node (Edge) at random.
-* The first packet sends a **16-byte Magic identifier** to trigger bootstrap recognition.
+   - The **Client Agent** connects to any online Edge node at random.
+   - The first packet contains a **16-byte Magic identifier** that triggers bootstrap recognition.
 
-2. **Node List Retrieval**
-* The bootstrap node delivers a list of all online Edge nodes across the network.
-* The list contains only `IP` and `ProbePort` (probe port), no routing or latency data is included
+2. **Fetch Node List**
+   - The bootstrap node returns a list of all currently online Edge nodes.
+   - The list contains only each node's `IP` and `ProbePort` — no routing metrics.
 
 3. **Concurrent Probing**
-* The Client Agent simultaneously initiates TCP connections to the probe port of every Edge node.
-* The TCP three-way handshake duration serves as the metric for $RTT_{Client \to Edge}$.
+   - The Client Agent simultaneously opens TCP connections to every Edge node's probe port.
+   - The TCP three-way handshake round-trip time is used as $RTT_{Client \to Edge}$.
 
 4. **Intelligent Decision**
-* The client reports the measured RTT matrix back to the bootstrap Edge node.
-* The bootstrap node fetches all $Edge \to Origin$ backhaul latencies from the Center node in real time.
-* It then computes the optimal ranking based on $RTT_{Total}$:
+   - The client sends its measured RTT matrix back to the Edge node.
+   - The bootstrap node fetches all $Edge \to Origin$ back-leg latencies from the Center node.
+   - It then ranks nodes by total RTT:
 
 $$RTT_{Total} = RTT_{Client \to Edge} + RTT_{Edge \to Origin}$$
 
 5. **Token Issuance**
-* Once the optimal node is selected, the Edge generates a temporary token using **HMAC-SHA256**.
-* The **optimal node IP and token** are delivered to the client, after which the bootstrap connection is released.
+   - Once the optimal node is selected, the Edge generates a temporary token using **HMAC-SHA256**.
+   - The **optimal node's IP and token** are delivered to the client.
 
 6. **Business Connection**
-* Using the received IP and token, the client establishes an official business TCP connection to the designated optimal Edge node.
-* The Edge node performs local signature verification. Upon success, it responds with a `0x01` confirmation byte.
+   - The client uses the received IP and token to open a TCP connection to the designated best Edge node.
+   - The Edge node validates the token locally, then sends a confirmation.
 
-7. **Transparent Forwarding Established**
-* The Edge node asynchronously establishes a connection to the origin (Server Agent).
-* A standard **Proxy Protocol v2 header** is injected at the front of the data stream, followed by transparent data forwarding.
+7. **Transparent Tunnel**
+   - The Edge node asynchronously establishes a connection to the origin (Server Agent).
+   - An optional standard **Proxy Protocol v2 header** is injected at the front of the data stream, after which data is forwarded transparently.
+
+---
 
 ## Quick Start
 
@@ -87,10 +92,9 @@ Download the binary for your platform from [Releases](https://github.com/MarchSn
 
 ### Build from Source
 
-Windows
-
+**Windows**
 ```bash
-# Clone the repo
+# Clone the repository
 git clone https://github.com/MarchSnow-1/OptiRoute.git
 cd OptiRoute
 
@@ -104,10 +108,9 @@ go build -o dist/optiroute.exe ./src/
 ./dist/optiroute.exe --config-path=edge.json
 ```
 
-Linux / macOS
-
+**Linux / macOS**
 ```bash
-# Clone the repo
+# Clone the repository
 git clone https://github.com/MarchSnow-1/OptiRoute.git
 cd OptiRoute
 
@@ -120,6 +123,10 @@ go build -o dist/optiroute ./src/
 # Run
 ./dist/optiroute --config-path=edge.json
 ```
+
+---
+
+## Configuration
 
 ### Center Node
 
@@ -134,16 +141,16 @@ go build -o dist/optiroute ./src/
 }
 ```
 
-Description:
-
-| Field | Value | Purpose |
-|-------|-------|---------|
+| Field | Value | Description |
+|-------|-------|-------------|
 | role | center | Start as a center node |
-| center_listen_addr | empty | Listen address, empty = dual-stack (IPv4 + IPv6), or specify `0.0.0.0` / `::`; IPv6 must use brackets like `[::]` |
-| center_listen_port | 7000 | Listen port, edge nodes connect through this port |
-| comm_secret | your-32-byte-secret-key-here!! | Communication secret, must be exactly 32 bytes, must match edge and server agent |
-| secret_rotation_interval_s | 3600 | shared_secret rotation period (seconds). A new key is automatically generated upon expiry and pushed to all edge nodes |
+| center_listen_addr | (empty) | Listen address; empty = dual-stack (IPv4 + IPv6); can also be `0.0.0.0` or `[::]` |
+| center_listen_port | 7000 | Listen port; edge nodes connect here |
+| comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match all edge nodes and server agents |
+| secret_rotation_interval_s | 3600 | Secret rotation interval (seconds); a new key is generated and pushed to all edge nodes upon expiry |
 | log_level | info | Log level: debug / info / warn / error |
+
+---
 
 ### Edge Node
 
@@ -168,32 +175,31 @@ Description:
 }
 ```
 
-Description:
-
-| Field | Value | Purpose |
-|-------|-------|---------|
+| Field | Value | Description |
+|-------|-------|-------------|
 | role | edge | Start as an edge node |
-| name | edge-tokyo-01 | For distinguishing config files only, not actually read |
-| uuid | b09ad5e0-xxx | Edge node UUID; must be globally unique |
-| self_addr | x.x.x.x | Public entry IP or domain for this node, used for registration and failover self-identification; IPv6 must use brackets |
-| center_addr | y.y.y.y | IP address of the center node; IPv6 must use brackets |
-| center_port | 7000 | Port of the center node |
+| name | edge-tokyo-01 | Human-readable label for config management only; not used at runtime |
+| uuid | b09ad5e0-xxx | Unique identifier for this edge node; must be globally unique |
+| self_addr | x.x.x.x | Public entry IP or domain for this node; used for registration and failover self-identification; IPv6 must use brackets |
+| center_addr | y.y.y.y | Center node IP; IPv6 must use brackets |
+| center_port | 7000 | Center node port |
 | origin_addr | z.z.z.z | Origin server IP or domain; IPv6 must use brackets |
 | origin_port | 18000 | Origin server port |
-| probe_port | 20001 | Probe port for clients to measure RTT |
-| business_port | 18000 | Business port, carrying both bootstrap and business traffic |
-| comm_secret | your-32-byte-secret-key-here!! | Communication secret, must be exactly 32 bytes, must match center and server agent |
-| topo_cache_dir | ./cache | Topology cache directory, empty or omitted = no caching (recommended to leave empty in container environments) |
-| center_connect_retry_count | 3 | Number of retries when connecting to the center node at startup, after all retries are exhausted the system attempts to load the local cache |
+| probe_port | 20001 | Probe port used by clients to measure RTT |
+| business_port | 18000 | Business port; carries both bootstrap and data traffic |
+| comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match center node and server agent |
+| topo_cache_dir | ./cache | Topology cache directory; empty = no caching (recommended for container environments) |
+| center_connect_retry_count | 3 | Number of retries when connecting to the center node at startup |
 | center_connect_retry_interval_s | 5 | Interval between retries (seconds) |
-| monitor_probe_timeout_ms | 2000 | Monitor probe timeout (ms) |
+| monitor_probe_timeout_ms | 2000 | Monitor probe timeout (milliseconds) |
 | log_level | info | Log level: debug / info / warn / error |
 
-**Startup Behavior:** On startup, the system retries connecting to the center node up to `center_connect_retry_count` times. If all retries fail:
-- If `topo_cache_dir` is configured and a local cache file exists:
-  - The cache is loaded and the system enters **degraded mode**. It continuously attempts to reconnect to the center node in the background and automatically switches back to normal mode once reconnection succeeds.
-- If no cache directory is configured or no cache file exists:
-  - The program exits.
+**Startup behavior:** On startup the node retries connecting to the center node up to `center_connect_retry_count` times. If all attempts fail:
+
+- If `topo_cache_dir` is configured and a local cache file exists → load the cache and enter **degraded mode**; the node continues attempting to reconnect in the background and automatically switches back to normal mode once the connection is restored.
+- If no cache directory is configured or no cache file exists → the process exits.
+
+---
 
 ### Client Agent
 
@@ -209,17 +215,17 @@ Description:
 }
 ```
 
-Description:
-
-| Field | Value | Purpose |
-|-------|-------|---------|
+| Field | Value | Description |
+|-------|-------|-------------|
 | role | client | Start as a client agent |
-| local_port | 18000 | Local listen port; the third-party client connects to this address (127.0.0.1:local_port) |
-| bootstrap_addr | x.x.x.x | Bootstrap node address (IP or domain); can be any online edge node; IPv6 must use brackets |
-| bootstrap_port | 18000 | Business port of the edge node (business_port) |
-| connect_timeout_ms | 5000 | Connection timeout (ms) |
-| probe_timeout_ms | 2000 | Probe timeout (ms); per-node TCP dial timeout during concurrent probing |
+| local_port | 18000 | Local listen port; third-party clients connect to `127.0.0.1:local_port` |
+| bootstrap_addr | x.x.x.x | Bootstrap node address (IP or domain); any online edge node works; IPv6 must use brackets |
+| bootstrap_port | 18000 | Edge node's business port (`business_port`) |
+| connect_timeout_ms | 5000 | Connection timeout (milliseconds) |
+| probe_timeout_ms | 2000 | Probe timeout (milliseconds); per-node TCP dial timeout during concurrent probing |
 | log_level | info | Log level: debug / info / warn / error |
+
+---
 
 ### Server Agent
 
@@ -236,134 +242,142 @@ Description:
 }
 ```
 
-Description:
-
-| Field | Value | Purpose |
-|-------|-------|---------|
+| Field | Value | Description |
+|-------|-------|-------------|
 | role | server | Start as a server agent |
-| listen_port | 18001 | Listen port; edge nodes connect to this port |
-| upstream_addr | 127.0.0.1 | Third-party service address; defaults to localhost; IPv6 must use brackets |
-| upstream_port | 18000 | Third-party service port; raw data (after stripping the PPv2 header) is forwarded here |
-| comm_secret | your-32-byte-secret-key-here!! | Communication secret, must be exactly 32 bytes, must match edge nodes |
+| listen_port | 18001 | Listen port; edge nodes connect here |
+| upstream_addr | 127.0.0.1 | Address of the third-party server; defaults to localhost; IPv6 must use brackets |
+| upstream_port | 18000 | Third-party server port; raw data (after PPv2 header is stripped) is forwarded here |
+| comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match edge nodes |
 | log_real_ip | true | Whether to log the client's real IP (extracted from the PPv2 header) |
-| forward_real_ip | false | Whether to inject a PPv2 header when forwarding to the upstream (requires the upstream to support Proxy Protocol v2) |
+| forward_real_ip | false | Whether to inject a PPv2 header when forwarding to upstream (requires upstream Proxy Protocol v2 support) |
 | log_level | info | Log level: debug / info / warn / error |
 
-### Complete Configuration Reference
+---
 
-Below is a full list of all available configuration fields, grouped by role. Unlisted fields can be left at their zero value, `defaults()` will automatically fill in recommended defaults.
+## Full Configuration Reference
 
-**General (All Roles)**
+All available fields are listed below, grouped by role. Fields not listed can be left at their zero values; `defaults()` will automatically fill in recommended defaults.
+
+**Common (all roles)**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| role | string | — | Required, run role: center / edge / client / server |
-| connect_timeout_ms | int | 5000 | Connection timeout (ms) |
+| role | string | — | Required; runtime role: center / edge / client / server |
+| connect_timeout_ms | int | 5000 | Connection timeout (milliseconds) |
 | log_level | string | info | Log level: debug / info / warn / error |
 
 **Center Node**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| center_listen_addr | string | empty | Listen address, empty = dual-stack (IPv4 + IPv6); IPv6 must use brackets like `[::]` |
-| center_listen_port | int | — | Required, Listen port |
-| comm_secret | string | — | Required, Communication secret, must be exactly 32 bytes |
-| secret_rotation_interval_s | int | 3600 | shared_secret rotation period (seconds) |
+| center_listen_addr | string | (empty) | Listen address; empty = dual-stack (IPv4 + IPv6); IPv6 must use brackets e.g. `[::]` |
+| center_listen_port | int | — | Required; listen port |
+| comm_secret | string | — | Required; communication secret; must be exactly 32 bytes |
+| secret_rotation_interval_s | int | 3600 | Secret rotation interval (seconds) |
 
 **Edge Node**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| uuid | string | — | Required, unique identifier for this node, must not be duplicated globally |
-| self_addr | string | — | Required, Public entry IP or domain for this node; IPv6 must use brackets |
-| center_addr | string | — | Required, Center node address; IPv6 must use brackets |
-| center_port | int | — | Required, Center node port |
-| origin_addr | string | — | Required, Origin server IP or domain; IPv6 must use brackets |
-| origin_port | int | — | Required, Origin server port |
-| probe_port | int | — | Required, Probe port |
-| business_port | int | — | Required, Business port (carries bootstrap + business traffic) |
-| comm_secret | string | — | Required, Communication secret, must be exactly 32 bytes |
-| topo_cache_dir | string | empty | Topology cache directory, empty = no caching, recommended to leave empty in container environments |
-| center_connect_retry_count | int | 3 | Number of retries when connecting to the center node at startup |
+| uuid | string | — | Required; globally unique node identifier |
+| self_addr | string | — | Required; public entry IP or domain for this node; IPv6 must use brackets |
+| center_addr | string | — | Required; center node address; IPv6 must use brackets |
+| center_port | int | — | Required; center node port |
+| origin_addr | string | — | Required; origin server IP or domain; IPv6 must use brackets |
+| origin_port | int | — | Required; origin server port |
+| probe_port | int | — | Required; probe port |
+| business_port | int | — | Required; business port (carries bootstrap + data traffic) |
+| comm_secret | string | — | Required; communication secret; must be exactly 32 bytes |
+| topo_cache_dir | string | (empty) | Topology cache directory; empty = no caching; recommended empty for containers |
+| center_connect_retry_count | int | 3 | Retry count when connecting to center node at startup |
 | center_connect_retry_interval_s | int | 5 | Interval between retries (seconds) |
 | topo_sync_interval_s | int | 10 | Topology sync interval (seconds) |
-| topo_sync_jitter_ms | int | 2000 | Topology sync jitter upper bound (ms), set to 0 to disable jitter |
+| topo_sync_jitter_ms | int | 2000 | Max jitter for topology sync (milliseconds); 0 = no jitter |
 | rtt_window_s | int | 30 | RTT sliding window size (seconds) |
-| loss_rate_threshold | float | 0.40 | Packet loss rate threshold to trigger instability detection |
-| token_ttl_s | int | 30 | Token validity time window (seconds) |
-| monitor_probe_timeout_ms | int | 2000 | Monitor probe timeout (ms) |
+| loss_rate_threshold | float | 0.40 | Packet loss rate threshold for instability detection |
+| token_ttl_s | int | 30 | Token validity window (seconds) |
+| monitor_probe_timeout_ms | int | 2000 | Monitor probe timeout (milliseconds) |
 
 **Client Agent**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | local_addr | string | 127.0.0.1 | Local listen address; IPv6 must use brackets |
-| local_port | int | — | Required, Local listen port |
-| bootstrap_addr | string | — | Required, Bootstrap node address (IP or domain); IPv6 must use brackets |
-| bootstrap_port | int | — | Required, Bootstrap node port |
-| probe_timeout_ms | int | 2000 | Probe timeout (ms) |
+| local_port | int | — | Required; local listen port |
+| bootstrap_addr | string | — | Required; bootstrap node address (IP or domain); IPv6 must use brackets |
+| bootstrap_port | int | — | Required; bootstrap node port |
+| probe_timeout_ms | int | 2000 | Probe timeout (milliseconds) |
 
 **Server Agent**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| listen_addr | string | empty | Listen address, empty = dual-stack (IPv4 + IPv6); IPv6 must use brackets like `[::]` |
-| listen_port | int | — | Required, Listen port |
-| upstream_addr | string | 127.0.0.1 | Upstream third-party service address; IPv6 must use brackets |
-| upstream_port | int | — | Required, Upstream third-party service port |
-| comm_secret | string | — | Required, Communication secret, must be exactly 32 bytes |
+| listen_addr | string | (empty) | Listen address; empty = dual-stack (IPv4 + IPv6); IPv6 must use brackets e.g. `[::]` |
+| listen_port | int | — | Required; listen port |
+| upstream_addr | string | 127.0.0.1 | Upstream third-party server address; IPv6 must use brackets |
+| upstream_port | int | — | Required; upstream third-party server port |
+| comm_secret | string | — | Required; communication secret; must be exactly 32 bytes |
 | log_real_ip | bool | false | Whether to log the client's real IP |
-| forward_real_ip | bool | false | Whether to inject a PPv2 header when forwarding to the upstream (requires Proxy Protocol v2 support) |
+| forward_real_ip | bool | false | Whether to inject a PPv2 header upstream to pass the client's real IP (requires upstream Proxy Protocol v2 support) |
 
-### Connection Flow Diagram
+---
+
+## Connection Flow Diagram
 
 ```
-Third-party Client
-  Connects to 127.0.0.1:18000 (player's local Client Agent)
+Third-party client
+  connects to 127.0.0.1:18000 (Client Agent on the player's machine)
         ↓ TCP
 Client Agent
-  Sends the Magic bootstrap packet to the bootstrap node, receives the delivered node list
-  Concurrently probes all edge nodes, reports latency data for every node back to the bootstrap node
-  The bootstrap node computes RTT_total to select the optimal node, issues a Token, and delivers it to the client
-  Upon receiving the Token, the client initiates a business connection to the designated node
-        ↓ TCP (first packet carries HMAC Token)
+  sends Magic first-packet to bootstrap node, receives list of edge nodes
+  concurrently probes all edge nodes, reports all latency measurements
+  bootstrap node computes RTT_total, selects optimal node, issues token
+  client receives token and opens business connection to that node
+        ↓ TCP (first packet carries HMAC token)
 Designated Edge Node
-  Client carries the Token; local signature verification passes
-  Connects to the origin, injects a Proxy Protocol v2 header carrying the player's real IP
+  token validated locally
+  connects to origin, injects Proxy Protocol v2 header carrying player's real IP
         ↓ TCP (raw data + PPv2 header)
-Server Agent (origin, listening on 18001)
-  Reads and strips the Proxy Protocol v2 header, extracts the player's real IP
-  Forwards raw data to the local third-party service
+Server Agent (on origin, listening on 18001)
+  reads and strips Proxy Protocol v2 header, extracts player's real IP
+  forwards raw data to the local game server
         ↓ TCP
-Third-party Service (listening on 18000)
+Third-party server (listening on 18000)
 
-The third-party service is completely unaware of the proxy layer, handling connections and logic normally with zero modifications required
+The server is completely unaware of the proxy; it handles connections normally with no modifications required.
 ```
+
+---
 
 ## Proxy Protocol Support
 
-When Edge nodes forward traffic to the origin, they inject a standard Proxy Protocol v2 header at the beginning of the data stream, carrying the client's real IP and port. IPv4 headers are 28 bytes, IPv6 headers are 52 bytes. The header format is automatically selected based on the client's address family.
+When forwarding traffic to the origin, the Edge node injects a standard Proxy Protocol v2 header at the front of the data stream, carrying the client's real IP and port.
 
-The Server Agent on the origin side parses and strips this header (supporting both IPv4 and IPv6), then relays the raw data to the third-party service.
+IPv4 headers are 28 bytes; IPv6 headers are 52 bytes. The format is selected automatically based on the client's address family.
+
+The Server Agent on the origin side parses and strips the header, then forwards the raw data transparently to the server.
+
+---
 
 ## IPv6 Support
 
-OptiRoute fully supports IPv4/IPv6 dual-stack operation.
+OptiRoute supports full IPv4/IPv6 dual-stack operation.
 
-All `_addr` configuration fields accept IPv4 addresses, domain names, and bracketed IPv6 addresses. Mixed scenarios are supported, for example:
+All `_addr` configuration fields accept IPv4 addresses, domain names, and bracket-enclosed IPv6 addresses. Mixed scenarios are fully supported, for example:
 
-- IPv6 client → IPv4 origin (IPv6 access, IPv4 upstream)
-- IPv4 client → IPv6 origin (IPv4 access, IPv6 upstream)
+- IPv6 client → IPv4 origin (IPv6 ingress, IPv4 egress)
+- IPv4 client → IPv6 origin (IPv4 ingress, IPv6 egress)
 - Pure IPv6 end-to-end
 - Pure IPv4 end-to-end
 
-**IPv6 addresses must use bracket format**, e.g. `[::1]`, `[2001:db8::1]`, `[::]`.
+**IPv6 addresses must use bracket notation**, e.g. `[::1]`, `[2001:db8::1]`, `[::]`.
 
-An unbracketed IPv6 address will cause startup validation to fail.
+Domain names and IPv4 addresses are entered directly without brackets.
 
-Domain names and IPv4 addresses can be entered directly.
+An empty listen address binds to all IPv4 and IPv6 interfaces simultaneously.
 
-Listening addresses default to empty string, which binds to both IPv4 and IPv6 on all interfaces.
+---
 
 ## License
 

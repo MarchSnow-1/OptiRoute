@@ -26,8 +26,8 @@ type Node struct {
 
 func NewNode(cfg *config.Config) *Node {
 	cachePath := ""
-	if cfg.TopoCacheDir != "" {
-		cachePath = filepath.Join(cfg.TopoCacheDir, "topo_cache_"+cfg.UUID+".json")
+	if cfg.Self.TopoCacheDir != "" {
+		cachePath = filepath.Join(cfg.Self.TopoCacheDir, "topo_cache_"+cfg.Self.UUID+".json")
 	}
 	return &Node{
 		cfg:  cfg,
@@ -46,7 +46,7 @@ func (n *Node) ccClient() *CenterClient {
 func (n *Node) Start(ctx context.Context) error {
 	// Phase 0: 创建 Monitor 和 BandwidthTracker
 	n.monitor = NewMonitor(n)
-	n.bwTracker = NewBandwidthTracker(n.cfg.MaxBandwidthMbps, n.cfg.BWWarningRatio, n.cfg.BWOverloadRatio)
+	n.bwTracker = NewBandwidthTracker(n.cfg.Self.MaxBandwidthMbps, n.cfg.Self.BWWarningRatio, n.cfg.Self.BWOverloadRatio)
 	go n.bwTracker.Run(ctx)
 
 	n.cc = NewCenterClient(n.cfg, n.topo, n.auth)
@@ -55,15 +55,15 @@ func (n *Node) Start(ctx context.Context) error {
 
 	// Phase 1: 重试连接中心节点
 	connected := false
-	for attempt := 1; attempt <= n.cfg.CenterConnectRetryCount; attempt++ {
-		logger.Info("连接中心节点 第", attempt, "/", n.cfg.CenterConnectRetryCount, "次")
+	for attempt := 1; attempt <= n.cfg.Self.CenterConnectRetryCount; attempt++ {
+		logger.Info("连接中心节点 第", attempt, "/", n.cfg.Self.CenterConnectRetryCount, "次")
 		if err := n.cc.Connect(ctx); err != nil {
 			logger.Warn("连接中心节点失败 err:", err)
-			if attempt < n.cfg.CenterConnectRetryCount {
+			if attempt < n.cfg.Self.CenterConnectRetryCount {
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
-				case <-time.After(time.Duration(n.cfg.CenterConnectRetryIntervalS) * time.Second):
+				case <-time.After(time.Duration(n.cfg.Self.CenterConnectRetryIntervalS) * time.Second):
 				}
 			}
 			continue
@@ -108,7 +108,7 @@ func (n *Node) Start(ctx context.Context) error {
 
 // backgroundReconnect 降级模式下后台指数退避重连中心节点
 func (n *Node) backgroundReconnect(ctx context.Context) {
-	backoff := time.Duration(n.cfg.CenterConnectRetryIntervalS) * time.Second
+	backoff := time.Duration(n.cfg.Self.CenterConnectRetryIntervalS) * time.Second
 	maxBackoff := 60 * time.Second
 
 	for {

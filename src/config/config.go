@@ -19,94 +19,200 @@ const (
 	RoleServer Role = "server"
 )
 
-// Config 是所有角色共用的配置结构体，未用到的字段留零值即可
-type Config struct {
+// SelfConfig 本节点自身的配置
+type SelfConfig struct {
 	Role Role `json:"role"` // 必填
 
-	// ── 中心节点 ──────────────────────────────────
-	CenterListenAddr string `json:"center_listen_addr"` // 中心节点监听地址，默认 ""（双栈）
-	CenterListenPort int    `json:"center_listen_port"` // 中心节点监听端口
+	// 身份
+	UUID        string `json:"uuid,omitempty"`
+	Addr        string `json:"addr,omitempty"`       // 本节点公网入口 IP（edge）
+	ListenAddr  string `json:"listen_addr,omitempty"` // 监听地址（center/client/server）
+	ListenPort  int    `json:"listen_port,omitempty"` // 监听端口（center/client/server）
+	ProbePort   int    `json:"probe_port,omitempty"`
+	BusinessPort int   `json:"business_port,omitempty"`
+	TopoCacheDir string `json:"topo_cache_dir,omitempty"`
 
-	// ── 边缘节点 ──────────────────────────────────
-	UUID         string `json:"uuid"`          // 本节点唯一标识（边缘节点填写，全局唯一）
-	SelfAddr     string `json:"self_addr"`      // 本节点公网 IP（边缘节点填写，用于注册和故障转移自识别）
-	CenterAddr   string `json:"center_addr"`    // 中心节点地址（边缘节点填写）
-	CenterPort   int    `json:"center_port"`    // 中心节点端口
-	OriginAddr   string `json:"origin_addr"`    // 源站地址（边缘节点填写）
-	OriginPort   int    `json:"origin_port"`    // 源站端口
-	ProbePort    int    `json:"probe_port"`     // 本节点探测端口
-	BusinessPort int    `json:"business_port"`  // 本节点业务端口
-	TopoCacheDir string `json:"topo_cache_dir"` // 拓扑缓存目录，空值=不缓存（容器环境推荐留空）
-	CenterConnectRetryCount    int `json:"center_connect_retry_count"`    // 启动时连接中心节点的重试次数，默认 3
-	CenterConnectRetryIntervalS int `json:"center_connect_retry_interval_s"` // 每次重试间隔（秒），默认 5
+	// 带宽控制
+	MaxBandwidthMbps float64 `json:"max_bandwidth_mbps,omitempty"`
+	BWWarningRatio   float64 `json:"bw_warning_ratio,omitempty"`
+	BWOverloadRatio  float64 `json:"bw_overload_ratio,omitempty"`
 
-	// ── Client Agent ──────────────────────────────
-	LocalAddr     string `json:"local_addr"`      // 本地监听地址，默认 "127.0.0.1"（仅本机可访问）
-	LocalPort     int    `json:"local_port"`      // 本地监听端口
-	BootstrapAddr string `json:"bootstrap_addr"`  // 引导节点地址
-	BootstrapPort int    `json:"bootstrap_port"`  // 引导节点端口
+	// 连接参数
+	CenterConnectRetryCount    int `json:"center_connect_retry_count,omitempty"`
+	CenterConnectRetryIntervalS int `json:"center_connect_retry_interval_s,omitempty"`
+	ConnectTimeoutMs     int `json:"connect_timeout_ms,omitempty"`
+	ProbeTimeoutMs       int `json:"probe_timeout_ms,omitempty"`
+	MonitorProbeTimeoutMs int `json:"monitor_probe_timeout_ms,omitempty"`
 
-	// ── Server Agent ──────────────────────────────
-	ListenAddr   string `json:"listen_addr"`    // Server Agent 监听地址，默认 "0.0.0.0"
-	ListenPort   int    `json:"listen_port"`    // Server Agent 监听端口
-	UpstreamAddr string `json:"upstream_addr"`  // 上游游戏服务器地址
-	UpstreamPort int    `json:"upstream_port"`  // 上游游戏服务器端口
-	LogRealIP    bool   `json:"log_real_ip"`    // 是否在日志中记录客户端真实 IP
-	ForwardRealIP bool `json:"forward_real_ip"` // 是否向上游注入 PPv2 包头以传递客户端真实 IP（需上游支持 Proxy Protocol v2）
+	// 链路质量
+	TopoSyncIntervalS int     `json:"topo_sync_interval_s,omitempty"`
+	TopoSyncJitterMs  int     `json:"topo_sync_jitter_ms,omitempty"`
+	RTTWindowS        int     `json:"rtt_window_s,omitempty"`
+	LossRateThreshold float64 `json:"loss_rate_threshold,omitempty"`
 
-	// ── 通用超时 ──────────────────────────────────
-	ConnectTimeoutMs     int `json:"connect_timeout_ms"`      // 连接超时，默认 5000
-	ProbeTimeoutMs       int `json:"probe_timeout_ms"`        // 探测超时，默认 2000
-	MonitorProbeTimeoutMs int `json:"monitor_probe_timeout_ms"` // Monitor 探测超时，默认 2000
+	// 鉴权（center 为密钥管理方）
+	TokenTTLS            int    `json:"token_ttl_s,omitempty"`
+	SecretRotationIntervalS int `json:"secret_rotation_interval_s,omitempty"`
+	CommSecret           string `json:"comm_secret,omitempty"` // center 用
 
-	// ── 链路质量 ──────────────────────────────────
-	TopoSyncIntervalS      int     `json:"topo_sync_interval_s"`      // 拓扑同步间隔（秒），默认 10
-	TopoSyncJitterMs       int     `json:"topo_sync_jitter_ms"`       // 拓扑同步抖动上限（毫秒），默认 2000
-	RTTWindowS             int     `json:"rtt_window_s"`              // RTT 滑动窗口大小（秒），默认 30
-	LossRateThreshold      float64 `json:"loss_rate_threshold"`       // 丢包率触发不稳定阈值，默认 0.40
-
-	// ── 带宽控制 ──────────────────────────────────
-	MaxBandwidthMbps float64 `json:"max_bandwidth_mbps"` // 边缘节点带宽上限（Mbps），0=不限制
-	BWWarningRatio   float64 `json:"bw_warning_ratio"`   // 带宽使用率触发 warning 阈值，默认 0.80
-	BWOverloadRatio  float64 `json:"bw_overload_ratio"`  // 带宽使用率触发 overloaded 阈值，默认 0.95
-	BWWarningPenalty float64 `json:"bw_warning_penalty"` // 中心下发：warning 节点 RTT 惩罚乘数，默认 1.15
-
-	// ── 鉴权 ──────────────────────────────────────
-	TokenTTLS               int    `json:"token_ttl_s"`                // Token 有效时间窗口（秒），默认 30
-	SecretRotationIntervalS int    `json:"secret_rotation_interval_s"` // shared_secret 轮转周期（秒），默认 3600
-	CommSecret              string `json:"comm_secret"`                // 通信密钥（Center/Edge/Server 必填，32 字节）
-
-	// ── 日志 ──────────────────────────────────────
-	LogLevel string `json:"log_level"` // debug/info/warn/error，默认 info
+	// 可观测性
+	LogRealIP     bool   `json:"log_real_ip,omitempty"`
+	ForwardRealIP bool   `json:"forward_real_ip,omitempty"`
+	LogLevel      string `json:"log_level,omitempty"`
 }
 
-// defaults 填充未配置项的推荐默认值
+// RemoteConfig 连接远端组件的配置
+type RemoteConfig struct {
+	CenterAddr    string `json:"center_addr,omitempty"`
+	CenterPort    int    `json:"center_port,omitempty"`
+	OriginAddr    string `json:"origin_addr,omitempty"`
+	OriginPort    int    `json:"origin_port,omitempty"`
+	BootstrapAddr string `json:"bootstrap_addr,omitempty"`
+	BootstrapPort int    `json:"bootstrap_port,omitempty"`
+	UpstreamAddr  string `json:"upstream_addr,omitempty"`
+	UpstreamPort  int    `json:"upstream_port,omitempty"`
+	CommSecret    string `json:"comm_secret,omitempty"` // edge/client/server 用
+	BWWarningPenalty float64 `json:"bw_warning_penalty,omitempty"`
+}
+
+// Config 嵌套配置结构体
+type Config struct {
+	Self   SelfConfig   `json:"self"`
+	Remote RemoteConfig `json:"remote"`
+}
+
 func (c *Config) defaults() {
-	if c.ConnectTimeoutMs == 0       { c.ConnectTimeoutMs = 5000 }
-	if c.ProbeTimeoutMs == 0         { c.ProbeTimeoutMs = 2000 }
-	if c.MonitorProbeTimeoutMs == 0  { c.MonitorProbeTimeoutMs = 2000 }
-	if c.TopoSyncIntervalS == 0      { c.TopoSyncIntervalS = 10 }
-	if c.TopoSyncJitterMs == 0       { c.TopoSyncJitterMs = 2000 }
-	if c.RTTWindowS == 0             { c.RTTWindowS = 30 }
-	if c.LossRateThreshold == 0      { c.LossRateThreshold = 0.40 }
-	if c.TokenTTLS == 0              { c.TokenTTLS = 30 }
-	if c.SecretRotationIntervalS == 0 { c.SecretRotationIntervalS = 3600 }
-	if c.LogLevel == ""              { c.LogLevel = "info" }
-	if c.UpstreamAddr == ""          { c.UpstreamAddr = "127.0.0.1" }
-	if c.LocalAddr == ""             { c.LocalAddr = "127.0.0.1" }
-	// ListenAddr 默认为空字符串 = 双栈绑定（同时监听 IPv4 和 IPv6）
-	if c.CenterConnectRetryCount == 0     { c.CenterConnectRetryCount = 3 }
-	if c.CenterConnectRetryIntervalS == 0 { c.CenterConnectRetryIntervalS = 5 }
-	if c.BWWarningRatio == 0       { c.BWWarningRatio = 0.80 }
-	if c.BWOverloadRatio == 0      { c.BWOverloadRatio = 0.95 }
-	if c.BWWarningPenalty == 0     { c.BWWarningPenalty = 1.15 }
+	if c.Self.ConnectTimeoutMs == 0       { c.Self.ConnectTimeoutMs = 5000 }
+	if c.Self.ProbeTimeoutMs == 0         { c.Self.ProbeTimeoutMs = 2000 }
+	if c.Self.MonitorProbeTimeoutMs == 0  { c.Self.MonitorProbeTimeoutMs = 2000 }
+	if c.Self.TopoSyncIntervalS == 0      { c.Self.TopoSyncIntervalS = 10 }
+	if c.Self.TopoSyncJitterMs == 0       { c.Self.TopoSyncJitterMs = 2000 }
+	if c.Self.RTTWindowS == 0             { c.Self.RTTWindowS = 30 }
+	if c.Self.LossRateThreshold == 0      { c.Self.LossRateThreshold = 0.40 }
+	if c.Self.TokenTTLS == 0              { c.Self.TokenTTLS = 30 }
+	if c.Self.SecretRotationIntervalS == 0 { c.Self.SecretRotationIntervalS = 3600 }
+	if c.Self.LogLevel == ""              { c.Self.LogLevel = "info" }
+	if c.Self.CenterConnectRetryCount == 0     { c.Self.CenterConnectRetryCount = 3 }
+	if c.Self.CenterConnectRetryIntervalS == 0 { c.Self.CenterConnectRetryIntervalS = 5 }
+	if c.Self.BWWarningRatio == 0       { c.Self.BWWarningRatio = 0.80 }
+	if c.Self.BWOverloadRatio == 0      { c.Self.BWOverloadRatio = 0.95 }
+	if c.Remote.BWWarningPenalty == 0   { c.Remote.BWWarningPenalty = 1.15 }
+
+	// 角色相关默认值
+	switch c.Self.Role {
+	case RoleClient:
+		if c.Self.ListenAddr == "" { c.Self.ListenAddr = "127.0.0.1" }
+	case RoleServer:
+		if c.Remote.UpstreamAddr == "" { c.Remote.UpstreamAddr = "127.0.0.1" }
+	}
 }
 
-// Load 按优先级加载配置：命令行左序 > config.json
+// legacyConfig 用于解析旧的平铺格式
+type legacyConfig struct {
+	Role                       string  `json:"role"`
+	CenterListenAddr           string  `json:"center_listen_addr"`
+	CenterListenPort           int     `json:"center_listen_port"`
+	UUID                       string  `json:"uuid"`
+	SelfAddr                   string  `json:"self_addr"`
+	CenterAddr                 string  `json:"center_addr"`
+	CenterPort                 int     `json:"center_port"`
+	OriginAddr                 string  `json:"origin_addr"`
+	OriginPort                 int     `json:"origin_port"`
+	ProbePort                  int     `json:"probe_port"`
+	BusinessPort               int     `json:"business_port"`
+	TopoCacheDir               string  `json:"topo_cache_dir"`
+	CenterConnectRetryCount    int     `json:"center_connect_retry_count"`
+	CenterConnectRetryIntervalS int    `json:"center_connect_retry_interval_s"`
+	LocalAddr                  string  `json:"local_addr"`
+	LocalPort                  int     `json:"local_port"`
+	BootstrapAddr              string  `json:"bootstrap_addr"`
+	BootstrapPort              int     `json:"bootstrap_port"`
+	ListenAddr                 string  `json:"listen_addr"`
+	ListenPort                 int     `json:"listen_port"`
+	UpstreamAddr               string  `json:"upstream_addr"`
+	UpstreamPort               int     `json:"upstream_port"`
+	LogRealIP                  bool    `json:"log_real_ip"`
+	ForwardRealIP              bool    `json:"forward_real_ip"`
+	ConnectTimeoutMs           int     `json:"connect_timeout_ms"`
+	ProbeTimeoutMs             int     `json:"probe_timeout_ms"`
+	MonitorProbeTimeoutMs      int     `json:"monitor_probe_timeout_ms"`
+	TopoSyncIntervalS          int     `json:"topo_sync_interval_s"`
+	TopoSyncJitterMs           int     `json:"topo_sync_jitter_ms"`
+	RTTWindowS                 int     `json:"rtt_window_s"`
+	LossRateThreshold          float64 `json:"loss_rate_threshold"`
+	MaxBandwidthMbps           float64 `json:"max_bandwidth_mbps"`
+	BWWarningRatio             float64 `json:"bw_warning_ratio"`
+	BWOverloadRatio            float64 `json:"bw_overload_ratio"`
+	BWWarningPenalty           float64 `json:"bw_warning_penalty"`
+	TokenTTLS                  int     `json:"token_ttl_s"`
+	SecretRotationIntervalS    int     `json:"secret_rotation_interval_s"`
+	CommSecret                 string  `json:"comm_secret"`
+	LogLevel                   string  `json:"log_level"`
+}
+
+// toConfig 将旧格式映射到新结构
+func (lc *legacyConfig) toConfig() *Config {
+	c := &Config{
+		Self: SelfConfig{
+			Role:                       Role(lc.Role),
+			UUID:                       lc.UUID,
+			TopoCacheDir:               lc.TopoCacheDir,
+			MaxBandwidthMbps:           lc.MaxBandwidthMbps,
+			BWWarningRatio:             lc.BWWarningRatio,
+			BWOverloadRatio:            lc.BWOverloadRatio,
+			CenterConnectRetryCount:    lc.CenterConnectRetryCount,
+			CenterConnectRetryIntervalS: lc.CenterConnectRetryIntervalS,
+			ConnectTimeoutMs:           lc.ConnectTimeoutMs,
+			ProbeTimeoutMs:             lc.ProbeTimeoutMs,
+			MonitorProbeTimeoutMs:      lc.MonitorProbeTimeoutMs,
+			TopoSyncIntervalS:          lc.TopoSyncIntervalS,
+			TopoSyncJitterMs:           lc.TopoSyncJitterMs,
+			RTTWindowS:                 lc.RTTWindowS,
+			LossRateThreshold:          lc.LossRateThreshold,
+			TokenTTLS:                  lc.TokenTTLS,
+			SecretRotationIntervalS:    lc.SecretRotationIntervalS,
+			LogRealIP:                  lc.LogRealIP,
+			ForwardRealIP:              lc.ForwardRealIP,
+			LogLevel:                   lc.LogLevel,
+		},
+		Remote: RemoteConfig{
+			CenterAddr:      lc.CenterAddr,
+			CenterPort:      lc.CenterPort,
+			OriginAddr:      lc.OriginAddr,
+			OriginPort:      lc.OriginPort,
+			BootstrapAddr:   lc.BootstrapAddr,
+			BootstrapPort:   lc.BootstrapPort,
+			UpstreamAddr:    lc.UpstreamAddr,
+			UpstreamPort:    lc.UpstreamPort,
+			BWWarningPenalty: lc.BWWarningPenalty,
+			CommSecret:      lc.CommSecret,
+		},
+	}
+
+	// 按角色映射本地监听地址/端口
+	switch Role(lc.Role) {
+	case RoleCenter:
+		c.Self.ListenAddr = lc.CenterListenAddr
+		c.Self.ListenPort = lc.CenterListenPort
+		c.Self.CommSecret = lc.CommSecret // center 管理密钥
+	case RoleEdge:
+		c.Self.Addr = lc.SelfAddr
+		c.Self.ProbePort = lc.ProbePort
+		c.Self.BusinessPort = lc.BusinessPort
+	case RoleClient:
+		c.Self.ListenAddr = lc.LocalAddr
+		c.Self.ListenPort = lc.LocalPort
+	case RoleServer:
+		c.Self.ListenAddr = lc.ListenAddr
+		c.Self.ListenPort = lc.ListenPort
+	}
+
+	return c
+}
+
+// Load 按优先级加载配置
 func Load() (*Config, error) {
 	args := os.Args[1:]
-
-	// 1. 扫描命令行，取第一个出现的配置源
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "--config-path=") {
 			path := strings.TrimPrefix(arg, "--config-path=")
@@ -117,8 +223,6 @@ func Load() (*Config, error) {
 			return loadFromBase64(b64)
 		}
 	}
-
-	// 2. 兜底：根目录 config.json
 	return loadFromFile("config.json")
 }
 
@@ -139,86 +243,103 @@ func loadFromBase64(b64 string) (*Config, error) {
 }
 
 func parse(data []byte) (*Config, error) {
-	var c Config
-	if err := json.Unmarshal(data, &c); err != nil {
+	// 检测是否为新格式（有 self/remote key）
+	var probe struct {
+		Self   json.RawMessage `json:"self"`
+		Remote json.RawMessage `json:"remote"`
+	}
+	if err := json.Unmarshal(data, &probe); err == nil && probe.Self != nil {
+		// 新格式
+		var c Config
+		if err := json.Unmarshal(data, &c); err != nil {
+			return nil, fmt.Errorf("JSON 解析失败: %w", err)
+		}
+		c.defaults()
+		return &c, nil
+	}
+
+	// 旧格式（平铺）
+	var lc legacyConfig
+	if err := json.Unmarshal(data, &lc); err != nil {
 		return nil, fmt.Errorf("JSON 解析失败: %w", err)
 	}
+	c := lc.toConfig()
 	c.defaults()
-	return &c, nil
+	return c, nil
 }
 
-// Validate 每个角色在启动时调用，缺失必填项立即退出
+// Validate 校验配置完整性
 func (c *Config) Validate() error {
-	if c.Role == "" {
+	if c.Self.Role == "" {
 		return fmt.Errorf("必填字段缺失: role")
 	}
-	switch c.Role {
+	switch c.Self.Role {
 	case RoleCenter:
-		if c.CenterListenPort == 0 {
-			return fmt.Errorf("center 角色必须配置 center_listen_port")
+		if c.Self.ListenPort == 0 {
+			return fmt.Errorf("center 角色必须配置 self.listen_port")
 		}
-		if err := validateAddr(c.CenterListenAddr, "center_listen_addr"); err != nil {
+		if err := validateAddr(c.Self.ListenAddr, "self.listen_addr"); err != nil {
 			return err
 		}
-		if err := validateCommSecret(c.CommSecret, "center"); err != nil {
+		if err := validateCommSecret(c.Self.CommSecret, "center"); err != nil {
 			return err
 		}
 	case RoleEdge:
-		if c.UUID == "" {
-			return fmt.Errorf("edge 角色必须配置 uuid")
+		if c.Self.UUID == "" {
+			return fmt.Errorf("edge 角色必须配置 self.uuid")
 		}
-		if c.SelfAddr == "" {
-			return fmt.Errorf("edge 角色必须配置 self_addr")
+		if c.Self.Addr == "" {
+			return fmt.Errorf("edge 角色必须配置 self.addr")
 		}
-		if err := validateAddr(c.SelfAddr, "self_addr"); err != nil {
+		if err := validateAddr(c.Self.Addr, "self.addr"); err != nil {
 			return err
 		}
-		if c.CenterAddr == "" || c.CenterPort == 0 {
-			return fmt.Errorf("edge 角色必须配置 center_addr 和 center_port")
+		if c.Remote.CenterAddr == "" || c.Remote.CenterPort == 0 {
+			return fmt.Errorf("edge 角色必须配置 remote.center_addr 和 remote.center_port")
 		}
-		if err := validateAddr(c.CenterAddr, "center_addr"); err != nil {
+		if err := validateAddr(c.Remote.CenterAddr, "remote.center_addr"); err != nil {
 			return err
 		}
-		if c.OriginAddr == "" || c.OriginPort == 0 {
-			return fmt.Errorf("edge 角色必须配置 origin_addr 和 origin_port")
+		if c.Remote.OriginAddr == "" || c.Remote.OriginPort == 0 {
+			return fmt.Errorf("edge 角色必须配置 remote.origin_addr 和 remote.origin_port")
 		}
-		if err := validateAddr(c.OriginAddr, "origin_addr"); err != nil {
+		if err := validateAddr(c.Remote.OriginAddr, "remote.origin_addr"); err != nil {
 			return err
 		}
-		if c.ProbePort == 0 || c.BusinessPort == 0 {
-			return fmt.Errorf("edge 角色必须配置 probe_port 和 business_port")
+		if c.Self.ProbePort == 0 || c.Self.BusinessPort == 0 {
+			return fmt.Errorf("edge 角色必须配置 self.probe_port 和 self.business_port")
 		}
-		if err := validateCommSecret(c.CommSecret, "edge"); err != nil {
+		if err := validateCommSecret(c.Remote.CommSecret, "edge"); err != nil {
 			return err
 		}
 	case RoleClient:
-		if c.LocalPort == 0 {
-			return fmt.Errorf("client 角色必须配置 local_port")
+		if c.Self.ListenPort == 0 {
+			return fmt.Errorf("client 角色必须配置 self.listen_port")
 		}
-		if err := validateAddr(c.LocalAddr, "local_addr"); err != nil {
+		if err := validateAddr(c.Self.ListenAddr, "self.listen_addr"); err != nil {
 			return err
 		}
-		if c.BootstrapAddr == "" || c.BootstrapPort == 0 {
-			return fmt.Errorf("client 角色必须配置 bootstrap_addr 和 bootstrap_port")
+		if c.Remote.BootstrapAddr == "" || c.Remote.BootstrapPort == 0 {
+			return fmt.Errorf("client 角色必须配置 remote.bootstrap_addr 和 remote.bootstrap_port")
 		}
-		if err := validateAddr(c.BootstrapAddr, "bootstrap_addr"); err != nil {
+		if err := validateAddr(c.Remote.BootstrapAddr, "remote.bootstrap_addr"); err != nil {
 			return err
 		}
 	case RoleServer:
-		if c.ListenPort == 0 || c.UpstreamPort == 0 {
-			return fmt.Errorf("server 角色必须配置 listen_port 和 upstream_port")
+		if c.Self.ListenPort == 0 || c.Remote.UpstreamPort == 0 {
+			return fmt.Errorf("server 角色必须配置 self.listen_port 和 remote.upstream_port")
 		}
-		if err := validateAddr(c.ListenAddr, "listen_addr"); err != nil {
+		if err := validateAddr(c.Self.ListenAddr, "self.listen_addr"); err != nil {
 			return err
 		}
-		if err := validateAddr(c.UpstreamAddr, "upstream_addr"); err != nil {
+		if err := validateAddr(c.Remote.UpstreamAddr, "remote.upstream_addr"); err != nil {
 			return err
 		}
-		if err := validateCommSecret(c.CommSecret, "server"); err != nil {
+		if err := validateCommSecret(c.Remote.CommSecret, "server"); err != nil {
 			return err
 		}
 	default:
-		return fmt.Errorf("未知角色: %s", c.Role)
+		return fmt.Errorf("未知角色: %s", c.Self.Role)
 	}
 	return nil
 }
@@ -233,12 +354,10 @@ func validateCommSecret(secret, role string) error {
 	return nil
 }
 
-// validateAddr 校验 _addr 字段：IPv6 必须带方括号，裸 IPv6 或格式错误的地址视为非法
 func validateAddr(addr, field string) error {
 	if addr == "" {
 		return nil
 	}
-	// 已有方括号 → 括号内必须是合法 IPv6
 	if strings.HasPrefix(addr, "[") {
 		if !strings.HasSuffix(addr, "]") {
 			return fmt.Errorf("%s 方括号未闭合: %s", field, addr)
@@ -250,15 +369,12 @@ func validateAddr(addr, field string) error {
 		}
 		return nil
 	}
-	// 无方括号：合法 IPv4 → OK
 	ip := net.ParseIP(addr)
 	if ip != nil && ip.To4() != nil {
 		return nil
 	}
-	// 含冒号但无方括号 → 裸 IPv6，拒绝
 	if strings.Contains(addr, ":") {
 		return fmt.Errorf("%s IPv6 地址必须加方括号: [%s]", field, addr)
 	}
-	// 其余视为域名，OK
 	return nil
 }

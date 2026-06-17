@@ -14,7 +14,7 @@ import (
 )
 
 func (n *Node) runBusinessServer(ctx context.Context) {
-	addr := util.JoinHostPort("", n.cfg.BusinessPort)
+	addr := util.JoinHostPort("", n.cfg.Self.BusinessPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		logger.Fatal("业务端口监听失败 err:", err)

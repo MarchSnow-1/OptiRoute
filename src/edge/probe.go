@@ -9,7 +9,7 @@ import (
 )
 
 func (n *Node) runProbeServer(ctx context.Context) {
-	addr := util.JoinHostPort("", n.cfg.ProbePort)
+	addr := util.JoinHostPort("", n.cfg.Self.ProbePort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		logger.Fatal("探测端口监听失败 err:", err)

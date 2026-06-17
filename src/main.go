@@ -32,8 +32,8 @@ func main() {
 	}
 
 	// 3. 初始化日志
-	initLogger(cfg.LogLevel)
-	logger.Info("OptiRoute v", version, " 启动 role:", cfg.Role)
+	initLogger(cfg.Self.LogLevel)
+	logger.Info("OptiRoute v", version, " 启动 role:", cfg.Self.Role)
 
 	// 4. 监听系统信号，优雅退出
 	ctx, cancel := context.WithCancel(context.Background())
@@ -47,7 +47,7 @@ func main() {
 
 	// 5. 启动对应服务
 	var runErr error
-	switch cfg.Role {
+	switch cfg.Self.Role {
 	case config.RoleCenter:
 		s := center.New(cfg)
 		runErr = s.Start(ctx)
@@ -65,7 +65,7 @@ func main() {
 		runErr = a.Start(ctx)
 
 	default:
-		fmt.Fprintf(os.Stderr, "未知角色: %s\n", cfg.Role)
+		fmt.Fprintf(os.Stderr, "未知角色: %s\n", cfg.Self.Role)
 		os.Exit(1)
 	}
 

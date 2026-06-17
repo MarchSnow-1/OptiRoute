@@ -64,16 +64,16 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte) {
 		return
 	}
 
-	if !n.auth.VerifyToken(fp.Token, fp.Timestamp, n.ccClient().GetSelfUUID(), n.cfg.TokenTTLS) {
+	if !n.auth.VerifyToken(fp.Token, fp.Timestamp, n.ccClient().GetSelfUUID(), n.cfg.Self.TokenTTLS) {
 		logger.Warn("[", remote, "] Token 验签失败，丢弃连接")
 		return
 	}
 
 	conn.Write([]byte{0x01})
 
-	originAddr := util.JoinHostPort(n.cfg.OriginAddr, n.cfg.OriginPort)
+	originAddr := util.JoinHostPort(n.cfg.Remote.OriginAddr, n.cfg.Remote.OriginPort)
 	originConn, err := net.DialTimeout("tcp", originAddr,
-		time.Duration(n.cfg.ConnectTimeoutMs)*time.Millisecond)
+		time.Duration(n.cfg.Self.ConnectTimeoutMs)*time.Millisecond)
 	if err != nil {
 		logger.Warn("[", remote, "] 连接源站失败 err:", err)
 		return
@@ -91,7 +91,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte) {
 		return
 	}
 	// 写入通信密钥（Server Agent 验证）
-	if _, err := originConn.Write([]byte(n.cfg.CommSecret)); err != nil {
+	if _, err := originConn.Write([]byte(n.cfg.Remote.CommSecret)); err != nil {
 		logger.Warn("[", remote, "] 写入通信密钥失败 err:", err)
 		return
 	}

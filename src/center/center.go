@@ -80,7 +80,7 @@ func (s *CenterServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/edge", func(w http.ResponseWriter, r *http.Request) {
 		token := r.URL.Query().Get("token")
-		if token == "" || token != s.cfg.CommSecret {
+		if token == "" || token != s.cfg.Self.CommSecret {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -93,7 +93,7 @@ func (s *CenterServer) Start(ctx context.Context) error {
 	})
 
 	srv := &http.Server{
-		Addr:    util.JoinHostPort(s.cfg.CenterListenAddr, s.cfg.CenterListenPort),
+		Addr:    util.JoinHostPort(s.cfg.Self.ListenAddr, s.cfg.Self.ListenPort),
 		Handler: mux,
 	}
 
@@ -104,7 +104,7 @@ func (s *CenterServer) Start(ctx context.Context) error {
 		srv.Close()
 	}()
 
-	logger.Info("中心节点启动 addr:", util.JoinHostPort(s.cfg.CenterListenAddr, s.cfg.CenterListenPort))
+	logger.Info("中心节点启动 addr:", util.JoinHostPort(s.cfg.Self.ListenAddr, s.cfg.Self.ListenPort))
 	err := srv.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil
@@ -128,7 +128,7 @@ func (s *CenterServer) rotateSecret() error {
 }
 
 func (s *CenterServer) secretRotationLoop(ctx context.Context) {
-	interval := time.Duration(s.cfg.SecretRotationIntervalS) * time.Second
+	interval := time.Duration(s.cfg.Self.SecretRotationIntervalS) * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -277,7 +277,7 @@ func (s *CenterServer) handleTopoQuery(conn *websocket.Conn) {
 	s.mu.RUnlock()
 	s.sendMsg(conn, protocol.MsgTypeTopoResponse, protocol.TopoResponse{
 		Nodes:            nodes,
-		BWWarningPenalty: s.cfg.BWWarningPenalty,
+		BWWarningPenalty: s.cfg.Remote.BWWarningPenalty,
 	})
 }
 

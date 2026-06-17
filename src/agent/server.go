@@ -23,7 +23,7 @@ func NewServerAgent(cfg *config.Config) *ServerAgent {
 }
 
 func (a *ServerAgent) Start(ctx context.Context) error {
-	addr := util.JoinHostPort(a.cfg.ListenAddr, a.cfg.ListenPort)
+	addr := util.JoinHostPort(a.cfg.Self.ListenAddr, a.cfg.Self.ListenPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("Server Agent 监听失败 %s: %w", addr, err)
@@ -54,7 +54,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 
 	// 读取并验证通信密钥
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	secretBuf := make([]byte, len(a.cfg.CommSecret))
+	secretBuf := make([]byte, len(a.cfg.Remote.CommSecret))
 	if _, err := io.ReadFull(conn, secretBuf); err != nil {
 		if err != io.EOF {
 			logger.Warn("[", remote, "] 读取通信密钥失败 err:", err)
@@ -62,7 +62,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 		conn.Close()
 		return
 	}
-	if string(secretBuf) != a.cfg.CommSecret {
+	if string(secretBuf) != a.cfg.Remote.CommSecret {
 		logger.Warn("[", remote, "] 通信密钥认证失败")
 		conn.Close()
 		return
@@ -97,14 +97,14 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 		return
 	}
 
-	if a.cfg.LogRealIP {
+	if a.cfg.Self.LogRealIP {
 		logger.Info("[", remote, "] 客户端真实地址 ip:", clientIP.String(), " port:", clientPort)
 	}
 
 	// 3. 连接上游游戏服务器
-	upstreamAddr := util.JoinHostPort(a.cfg.UpstreamAddr, a.cfg.UpstreamPort)
+	upstreamAddr := util.JoinHostPort(a.cfg.Remote.UpstreamAddr, a.cfg.Remote.UpstreamPort)
 	upstreamConn, err := net.DialTimeout("tcp", upstreamAddr,
-		time.Duration(a.cfg.ConnectTimeoutMs)*time.Millisecond)
+		time.Duration(a.cfg.Self.ConnectTimeoutMs)*time.Millisecond)
 	if err != nil {
 		logger.Warn("[", remote, "] 连接游戏服务器失败 err:", err)
 		conn.Close()
@@ -113,7 +113,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	defer upstreamConn.Close()
 
 	// 4. 按配置决定是否向上游注入 Proxy Protocol v2 包头
-	if a.cfg.ForwardRealIP {
+	if a.cfg.Self.ForwardRealIP {
 		ppv2Hdr := protocol.BuildPPv2Header(clientIP, clientPort, net.IP{}, 0)
 		if _, err := upstreamConn.Write(ppv2Hdr); err != nil {
 			logger.Warn("[", remote, "] 写入 PPv2 包头至上游失败 err:", err)

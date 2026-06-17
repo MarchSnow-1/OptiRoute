@@ -22,7 +22,7 @@ func NewClientAgent(cfg *config.Config) *ClientAgent {
 }
 
 func (a *ClientAgent) Start(ctx context.Context) error {
-	addr := util.JoinHostPort(a.cfg.LocalAddr, a.cfg.LocalPort)
+	addr := util.JoinHostPort(a.cfg.Self.ListenAddr, a.cfg.Self.ListenPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("本地端口监听失败 %s: %w", addr, err)
@@ -64,7 +64,7 @@ func (a *ClientAgent) handleLocalConn(ctx context.Context, localConn net.Conn) {
 }
 
 func (a *ClientAgent) connectWithToken(targetIP string, businessPort int, token string, timestamp int64) (net.Conn, error) {
-	timeout := time.Duration(a.cfg.ConnectTimeoutMs) * time.Millisecond
+	timeout := time.Duration(a.cfg.Self.ConnectTimeoutMs) * time.Millisecond
 
 	targetAddr := util.JoinHostPort(targetIP, businessPort)
 	edgeConn, err := net.DialTimeout("tcp", targetAddr, timeout)
@@ -98,9 +98,9 @@ func (a *ClientAgent) connectWithToken(targetIP string, businessPort int, token 
 }
 
 func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn, error) {
-	timeout := time.Duration(a.cfg.ConnectTimeoutMs) * time.Millisecond
+	timeout := time.Duration(a.cfg.Self.ConnectTimeoutMs) * time.Millisecond
 
-	bootstrapAddr := util.JoinHostPort(a.cfg.BootstrapAddr, a.cfg.BootstrapPort)
+	bootstrapAddr := util.JoinHostPort(a.cfg.Remote.BootstrapAddr, a.cfg.Remote.BootstrapPort)
 	bootstrapConn, err := net.DialTimeout("tcp", bootstrapAddr, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("连接引导节点失败: %w", err)
@@ -121,7 +121,7 @@ func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn
 	}
 	logger.Debug("[", remote, "] 收到节点列表 count:", len(nodes))
 
-	probeTimeout := time.Duration(a.cfg.ProbeTimeoutMs) * time.Millisecond
+	probeTimeout := time.Duration(a.cfg.Self.ProbeTimeoutMs) * time.Millisecond
 	rttMatrix := a.probeNodes(nodes, probeTimeout)
 	if len(rttMatrix) == 0 {
 		return nil, fmt.Errorf("所有节点探测均失败")

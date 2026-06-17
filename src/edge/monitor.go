@@ -51,10 +51,10 @@ func runMonitor(ctx context.Context, m *Monitor) {
 
 func (m *Monitor) probe() {
 	cfg := m.node.cfg
-	addr := util.JoinHostPort(cfg.OriginAddr, cfg.OriginPort)
+	addr := util.JoinHostPort(cfg.Remote.OriginAddr, cfg.Remote.OriginPort)
 
 	start := time.Now()
-	timeout := time.Duration(cfg.MonitorProbeTimeoutMs) * time.Millisecond
+	timeout := time.Duration(cfg.Self.MonitorProbeTimeoutMs) * time.Millisecond
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	rtt := time.Since(start).Milliseconds()
 
@@ -70,7 +70,7 @@ func (m *Monitor) probe() {
 	}
 
 	// 统一裁剪滑动窗口
-	maxSamples := cfg.RTTWindowS
+	maxSamples := cfg.Self.RTTWindowS
 	if len(m.rttWindow) > maxSamples {
 		m.rttWindow = m.rttWindow[len(m.rttWindow)-maxSamples:]
 	}
@@ -87,8 +87,8 @@ func (m *Monitor) probe() {
 			}
 		}
 		lossRate := float64(lossCount) / float64(len(m.probeResults))
-		if lossRate > cfg.LossRateThreshold {
-			logger.Warn("链路丢包率超阈值 loss_rate:", lossRate, " threshold:", cfg.LossRateThreshold)
+		if lossRate > cfg.Self.LossRateThreshold {
+			logger.Warn("链路丢包率超阈值 loss_rate:", lossRate, " threshold:", cfg.Self.LossRateThreshold)
 		}
 	}
 }

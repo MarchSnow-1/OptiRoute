@@ -43,13 +43,13 @@ func NewCenterClient(cfg *config.Config, topo *TopoCache, authMgr *auth.AuthMana
 		auth:     authMgr,
 		writeCh:  make(chan []byte, 256),
 		done:     make(chan struct{}),
-		selfUUID: cfg.UUID,
+		selfUUID: cfg.Self.UUID,
 	}
 }
 
 // Connect 建立与中心节点的 WebSocket 长连接，注册并启动所有后台循环
 func (c *CenterClient) Connect(ctx context.Context) error {
-	wsURL := fmt.Sprintf("ws://%s/edge?token=%s", util.JoinHostPort(c.cfg.CenterAddr, c.cfg.CenterPort), url.QueryEscape(c.cfg.CommSecret))
+	wsURL := fmt.Sprintf("ws://%s/edge?token=%s", util.JoinHostPort(c.cfg.Remote.CenterAddr, c.cfg.Remote.CenterPort), url.QueryEscape(c.cfg.Remote.CommSecret))
 	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
 		return err
@@ -61,9 +61,9 @@ func (c *CenterClient) Connect(ctx context.Context) error {
 	go c.readLoop(ctx)
 	c.sendMsg(protocol.MsgTypeRegister, protocol.RegisterPayload{
 		UUID:         c.selfUUID,
-		IP:           c.cfg.SelfAddr,
-		ProbePort:    c.cfg.ProbePort,
-		BusinessPort: c.cfg.BusinessPort,
+		IP:           c.cfg.Self.Addr,
+		ProbePort:    c.cfg.Self.ProbePort,
+		BusinessPort: c.cfg.Self.BusinessPort,
 	})
 	go c.heartbeatLoop(ctx)
 	go c.rttReportLoop(ctx)
@@ -155,7 +155,7 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 			return
 		}
 		secret, _ := hex.DecodeString(p.Secret)
-		c.auth.UpdateSecret(secret, c.cfg.TokenTTLS)
+		c.auth.UpdateSecret(secret, c.cfg.Self.TokenTTLS)
 		logger.Info("shared_secret 已更新")
 	}
 }
@@ -218,11 +218,11 @@ func (c *CenterClient) bwReportLoop(ctx context.Context) {
 
 func (c *CenterClient) topoSyncLoop(ctx context.Context) {
 	defer c.wg.Done()
-	interval := time.Duration(c.cfg.TopoSyncIntervalS) * time.Second
+	interval := time.Duration(c.cfg.Self.TopoSyncIntervalS) * time.Second
 	for {
 		var jitter time.Duration
-		if c.cfg.TopoSyncJitterMs > 0 {
-			jitter = time.Duration(rand.Intn(c.cfg.TopoSyncJitterMs)) * time.Millisecond
+		if c.cfg.Self.TopoSyncJitterMs > 0 {
+			jitter = time.Duration(rand.Intn(c.cfg.Self.TopoSyncJitterMs)) * time.Millisecond
 		}
 		select {
 		case <-ctx.Done():

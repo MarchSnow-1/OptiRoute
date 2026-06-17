@@ -226,7 +226,7 @@ go build -o dist/optiroute ./src/
 |-------|-------|-------------|
 | self.role | client | Start as a client agent |
 | self.listen_addr | 127.0.0.1 | Local listen address; IPv6 must use brackets |
-| self.listen_port | 18000 | Local listen port; third-party clients connect to `127.0.0.1:listen_port` |
+| self.listen_port | 18000 | Local listen port |
 | self.log_level | info | Log level: debug / info / warn / error |
 | remote.bootstrap_addr | x.x.x.x | Bootstrap node address (IP or domain); any online edge node works; IPv6 must use brackets |
 | remote.bootstrap_port | 18001 | Edge node's business port (`business_port`) |
@@ -321,7 +321,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 
 ```
 Third-party client
-  connects to 127.0.0.1:18000 (Client Agent on the player's machine)
+  connects to 127.0.0.1:18000 (player's local Client Agent self.listen_addr:self.listen_port)
         ↓ TCP
 Client Agent
   sends Magic first-packet to bootstrap node, receives list of edge nodes
@@ -333,7 +333,7 @@ Designated Edge Node
   token validated locally
   connects to origin, injects Proxy Protocol v2 header carrying player's real IP
         ↓ TCP (raw data + PPv2 header)
-Server Agent (on origin, listening on 18001)
+Server Agent (listening on 18001)
   reads and strips Proxy Protocol v2 header, extracts player's real IP
   forwards raw data to the local game server
         ↓ TCP

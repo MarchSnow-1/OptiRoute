@@ -229,7 +229,7 @@ go build -o dist/optiroute ./src/
 |--------|------|------|
 | self.role | client | 作为客户端代理启动 |
 | self.listen_addr | 127.0.0.1 | 本地监听地址, IPv6 需加方括号 |
-| self.listen_port | 18000 | 本地监听端口, 第三方服务的客户端连接此地址 (127.0.0.1:listen_port) |
+| self.listen_port | 18000 | 本地监听端口 |
 | self.log_level | info | 日志级别: debug / info / warn / error |
 | remote.bootstrap_addr | x.x.x.x | 引导节点地址 (IP 或域名), 可填任一在线边缘节点, IPv6 需加方括号 |
 | remote.bootstrap_port | 18001 | 边缘节点的业务端口 (business_port) |
@@ -320,7 +320,7 @@ go build -o dist/optiroute ./src/
 
 ```
 某程序客户端
-  连接 127.0.0.1:18000 (玩家本机的客户端代理)
+  连接 127.0.0.1:18000 (玩家本机 Client Agent 的 self.listen_addr:self.listen_port)
         ↓ TCP
 客户端代理
   向引导节点发送 Magic 首包, 获取引导节点下发的节点列表

@@ -132,23 +132,25 @@ go build -o dist/optiroute ./src/
 
 ```json
 {
-  "role": "center",
-  "center_listen_addr": "",
-  "center_listen_port": 7000,
-  "comm_secret": "your-32-byte-secret-key-here!!",
-  "secret_rotation_interval_s": 3600,
-  "log_level": "info"
+  "self": {
+    "role": "center",
+    "listen_addr": "",
+    "listen_port": 7000,
+    "comm_secret": "your-32-byte-secret-key-here!!",
+    "secret_rotation_interval_s": 3600,
+    "log_level": "info"
+  }
 }
 ```
 
 | Field | Value | Description |
 |-------|-------|-------------|
-| role | center | Start as a center node |
-| center_listen_addr | (empty) | Listen address; empty = dual-stack (IPv4 + IPv6); can also be `0.0.0.0` or `[::]` |
-| center_listen_port | 7000 | Listen port; edge nodes connect here |
-| comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match all edge nodes and server agents |
-| secret_rotation_interval_s | 3600 | Secret rotation interval (seconds); a new key is generated and pushed to all edge nodes upon expiry |
-| log_level | info | Log level: debug / info / warn / error |
+| self.role | center | Start as a center node |
+| self.listen_addr | (empty) | Listen address; empty = dual-stack (IPv4 + IPv6); IPv6 must use brackets e.g. `[::]` |
+| self.listen_port | 7000 | Listen port; edge nodes connect here |
+| self.comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match all edge nodes and server agents |
+| self.secret_rotation_interval_s | 3600 | Secret rotation interval (seconds); a new key is generated and pushed to all edge nodes upon expiry |
+| self.log_level | info | Log level: debug / info / warn / error |
 
 ---
 
@@ -156,47 +158,49 @@ go build -o dist/optiroute ./src/
 
 ```json
 {
-  "role": "edge",
-  "name": "edge-tokyo-01",
-  "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
-  "self_addr": "x.x.x.x",
-  "center_addr": "y.y.y.y",
-  "center_port": 7000,
-  "origin_addr": "z.z.z.z",
-  "origin_port": 18000,
-  "probe_port": 20001,
-  "business_port": 18000,
-  "comm_secret": "your-32-byte-secret-key-here!!",
-  "topo_cache_dir": "./cache",
-  "center_connect_retry_count": 3,
-  "center_connect_retry_interval_s": 5,
-  "monitor_probe_timeout_ms": 2000,
-  "log_level": "info"
+  "self": {
+    "role": "edge",
+    "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
+    "addr": "x.x.x.x",
+    "probe_port": 20001,
+    "business_port": 18001,
+    "topo_cache_dir": "./cache",
+    "center_connect_retry_count": 3,
+    "center_connect_retry_interval_s": 5,
+    "monitor_probe_timeout_ms": 2000,
+    "log_level": "info"
+  },
+  "remote": {
+    "center_addr": "y.y.y.y",
+    "center_port": 7000,
+    "origin_addr": "z.z.z.z",
+    "origin_port": 18000,
+    "comm_secret": "your-32-byte-secret-key-here!!"
+  }
 }
 ```
 
 | Field | Value | Description |
 |-------|-------|-------------|
-| role | edge | Start as an edge node |
-| name | edge-tokyo-01 | Human-readable label for config management only; not used at runtime |
-| uuid | b09ad5e0-xxx | Unique identifier for this edge node; must be globally unique |
-| self_addr | x.x.x.x | Public entry IP or domain for this node; used for registration and failover self-identification; IPv6 must use brackets |
-| center_addr | y.y.y.y | Center node IP; IPv6 must use brackets |
-| center_port | 7000 | Center node port |
-| origin_addr | z.z.z.z | Origin server IP or domain; IPv6 must use brackets |
-| origin_port | 18000 | Origin server port |
-| probe_port | 20001 | Probe port used by clients to measure RTT |
-| business_port | 18000 | Business port; carries both bootstrap and data traffic |
-| comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match center node and server agent |
-| topo_cache_dir | ./cache | Topology cache directory; empty = no caching (recommended for container environments) |
-| center_connect_retry_count | 3 | Number of retries when connecting to the center node at startup |
-| center_connect_retry_interval_s | 5 | Interval between retries (seconds) |
-| monitor_probe_timeout_ms | 2000 | Monitor probe timeout (milliseconds) |
-| log_level | info | Log level: debug / info / warn / error |
+| self.role | edge | Start as an edge node |
+| self.uuid | b09ad5e0-xxx | Unique identifier for this edge node; must be globally unique |
+| self.addr | x.x.x.x | Public entry IP or domain for this node; used for registration and failover self-identification; IPv6 must use brackets |
+| self.probe_port | 20001 | Probe port used by clients to measure RTT |
+| self.business_port | 18001 | Business port; carries both bootstrap and data traffic |
+| self.topo_cache_dir | ./cache | Topology cache directory; empty = no caching (recommended for container environments) |
+| self.center_connect_retry_count | 3 | Number of retries when connecting to the center node at startup |
+| self.center_connect_retry_interval_s | 5 | Interval between retries (seconds) |
+| self.monitor_probe_timeout_ms | 2000 | Monitor probe timeout (milliseconds) |
+| self.log_level | info | Log level: debug / info / warn / error |
+| remote.center_addr | y.y.y.y | Center node IP; IPv6 must use brackets |
+| remote.center_port | 7000 | Center node port |
+| remote.origin_addr | z.z.z.z | Server Agent IP or domain; IPv6 must use brackets |
+| remote.origin_port | 18000 | Server Agent port |
+| remote.comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match center node and server agent |
 
-**Startup behavior:** On startup the node retries connecting to the center node up to `center_connect_retry_count` times. If all attempts fail:
+**Startup behavior:** On startup the node retries connecting to the center node up to `self.center_connect_retry_count` times. If all attempts fail:
 
-- If `topo_cache_dir` is configured and a local cache file exists → load the cache and enter **degraded mode**; the node continues attempting to reconnect in the background and automatically switches back to normal mode once the connection is restored.
+- If `self.topo_cache_dir` is configured and a local cache file exists → load the cache and enter **degraded mode**; the node continues attempting to reconnect in the background and automatically switches back to normal mode once the connection is restored.
 - If no cache directory is configured or no cache file exists → the process exits.
 
 ---
@@ -205,25 +209,27 @@ go build -o dist/optiroute ./src/
 
 ```json
 {
-  "role": "client",
-  "local_port": 18000,
-  "bootstrap_addr": "x.x.x.x",
-  "bootstrap_port": 18000,
-  "connect_timeout_ms": 5000,
-  "probe_timeout_ms": 2000,
-  "log_level": "info"
+  "self": {
+    "role": "client",
+    "listen_addr": "127.0.0.1",
+    "listen_port": 18000,
+    "log_level": "info"
+  },
+  "remote": {
+    "bootstrap_addr": "x.x.x.x",
+    "bootstrap_port": 18001
+  }
 }
 ```
 
 | Field | Value | Description |
 |-------|-------|-------------|
-| role | client | Start as a client agent |
-| local_port | 18000 | Local listen port; third-party clients connect to `127.0.0.1:local_port` |
-| bootstrap_addr | x.x.x.x | Bootstrap node address (IP or domain); any online edge node works; IPv6 must use brackets |
-| bootstrap_port | 18000 | Edge node's business port (`business_port`) |
-| connect_timeout_ms | 5000 | Connection timeout (milliseconds) |
-| probe_timeout_ms | 2000 | Probe timeout (milliseconds); per-node TCP dial timeout during concurrent probing |
-| log_level | info | Log level: debug / info / warn / error |
+| self.role | client | Start as a client agent |
+| self.listen_addr | 127.0.0.1 | Local listen address; IPv6 must use brackets |
+| self.listen_port | 18000 | Local listen port; third-party clients connect to `127.0.0.1:listen_port` |
+| self.log_level | info | Log level: debug / info / warn / error |
+| remote.bootstrap_addr | x.x.x.x | Bootstrap node address (IP or domain); any online edge node works; IPv6 must use brackets |
+| remote.bootstrap_port | 18001 | Edge node's business port (`business_port`) |
 
 ---
 
@@ -231,95 +237,83 @@ go build -o dist/optiroute ./src/
 
 ```json
 {
-  "role": "server",
-  "listen_port": 18001,
-  "upstream_addr": "127.0.0.1",
-  "upstream_port": 18000,
-  "comm_secret": "your-32-byte-secret-key-here!!",
-  "log_real_ip": true,
-  "forward_real_ip": false,
-  "log_level": "info"
+  "self": {
+    "role": "server",
+    "listen_port": 18002,
+    "log_real_ip": true,
+    "forward_real_ip": true,
+    "log_level": "info"
+  },
+  "remote": {
+    "upstream_addr": "127.0.0.1",
+    "upstream_port": 18000,
+    "comm_secret": "your-32-byte-secret-key-here!!"
+  }
 }
 ```
 
 | Field | Value | Description |
 |-------|-------|-------------|
-| role | server | Start as a server agent |
-| listen_port | 18001 | Listen port; edge nodes connect here |
-| upstream_addr | 127.0.0.1 | Address of the third-party server; defaults to localhost; IPv6 must use brackets |
-| upstream_port | 18000 | Third-party server port; raw data (after PPv2 header is stripped) is forwarded here |
-| comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match edge nodes |
-| log_real_ip | true | Whether to log the client's real IP (extracted from the PPv2 header) |
-| forward_real_ip | false | Whether to inject a PPv2 header when forwarding to upstream (requires upstream Proxy Protocol v2 support) |
-| log_level | info | Log level: debug / info / warn / error |
+| self.role | server | Start as a server agent |
+| self.listen_port | 18002 | Listen port; edge nodes connect here |
+| self.log_real_ip | true | Whether to log the client's real IP (extracted from the PPv2 header) |
+| self.forward_real_ip | true | Whether to inject a PPv2 header when forwarding to upstream (requires upstream Proxy Protocol v2 support) |
+| self.log_level | info | Log level: debug / info / warn / error |
+| remote.upstream_addr | 127.0.0.1 | Address of the third-party server; defaults to localhost; IPv6 must use brackets |
+| remote.upstream_port | 18000 | Third-party server port; raw data (after PPv2 header is stripped) is forwarded here |
+| remote.comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match edge nodes |
 
 ---
 
 ## Full Configuration Reference
 
-All available fields are listed below, grouped by role. Fields not listed can be left at their zero values; `defaults()` will automatically fill in recommended defaults.
+All available fields are listed below, grouped by `self` / `remote`. Fields not listed can be left at their zero values; `defaults()` will automatically fill in recommended defaults.
 
-**Common (all roles)**
+**self (this node's config)**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | role | string | — | Required; runtime role: center / edge / client / server |
+| uuid | string | — | Required for edge; globally unique node identifier |
+| addr | string | — | Required for edge; public entry IP or domain; IPv6 must use brackets |
+| listen_addr | string | (empty) | Listen address for center/client/server; empty = dual-stack; IPv6 must use brackets e.g. `[::]` |
+| listen_port | int | — | Required for center/client/server; listen port |
+| probe_port | int | — | Required for edge; probe port |
+| business_port | int | — | Required for edge; business port (carries bootstrap + data traffic) |
+| topo_cache_dir | string | (empty) | Edge topology cache directory; empty = no caching |
+| max_bandwidth_mbps | float | 0 | Edge bandwidth limit (Mbps); 0 = unlimited |
+| bw_warning_ratio | float | 0.80 | Edge bandwidth usage warning threshold |
+| bw_overload_ratio | float | 0.95 | Edge bandwidth usage overloaded threshold |
+| center_connect_retry_count | int | 3 | Edge retry count when connecting to center at startup |
+| center_connect_retry_interval_s | int | 5 | Edge interval between retries (seconds) |
 | connect_timeout_ms | int | 5000 | Connection timeout (milliseconds) |
+| probe_timeout_ms | int | 2000 | Client probe timeout (milliseconds) |
+| monitor_probe_timeout_ms | int | 2000 | Edge monitor probe timeout (milliseconds) |
+| topo_sync_interval_s | int | 10 | Edge topology sync interval (seconds) |
+| topo_sync_jitter_ms | int | 2000 | Edge max jitter for topology sync (milliseconds) |
+| rtt_window_s | int | 30 | Edge RTT sliding window size (seconds) |
+| loss_rate_threshold | float | 0.40 | Edge packet loss rate threshold |
+| token_ttl_s | int | 30 | Edge token validity window (seconds) |
+| secret_rotation_interval_s | int | 3600 | Center secret rotation interval (seconds) |
+| comm_secret | string | — | Required for center; communication secret; must be exactly 32 bytes |
+| log_real_ip | bool | false | Server: whether to log the client's real IP |
+| forward_real_ip | bool | false | Server: whether to inject PPv2 header upstream |
 | log_level | string | info | Log level: debug / info / warn / error |
 
-**Center Node**
+**remote (connecting to remote components)**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| center_listen_addr | string | (empty) | Listen address; empty = dual-stack (IPv4 + IPv6); IPv6 must use brackets e.g. `[::]` |
-| center_listen_port | int | — | Required; listen port |
-| comm_secret | string | — | Required; communication secret; must be exactly 32 bytes |
-| secret_rotation_interval_s | int | 3600 | Secret rotation interval (seconds) |
-
-**Edge Node**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| uuid | string | — | Required; globally unique node identifier |
-| self_addr | string | — | Required; public entry IP or domain for this node; IPv6 must use brackets |
-| center_addr | string | — | Required; center node address; IPv6 must use brackets |
-| center_port | int | — | Required; center node port |
-| origin_addr | string | — | Required; origin server IP or domain; IPv6 must use brackets |
-| origin_port | int | — | Required; origin server port |
-| probe_port | int | — | Required; probe port |
-| business_port | int | — | Required; business port (carries bootstrap + data traffic) |
-| comm_secret | string | — | Required; communication secret; must be exactly 32 bytes |
-| topo_cache_dir | string | (empty) | Topology cache directory; empty = no caching; recommended empty for containers |
-| center_connect_retry_count | int | 3 | Retry count when connecting to center node at startup |
-| center_connect_retry_interval_s | int | 5 | Interval between retries (seconds) |
-| topo_sync_interval_s | int | 10 | Topology sync interval (seconds) |
-| topo_sync_jitter_ms | int | 2000 | Max jitter for topology sync (milliseconds); 0 = no jitter |
-| rtt_window_s | int | 30 | RTT sliding window size (seconds) |
-| loss_rate_threshold | float | 0.40 | Packet loss rate threshold for instability detection |
-| token_ttl_s | int | 30 | Token validity window (seconds) |
-| monitor_probe_timeout_ms | int | 2000 | Monitor probe timeout (milliseconds) |
-
-**Client Agent**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| local_addr | string | 127.0.0.1 | Local listen address; IPv6 must use brackets |
-| local_port | int | — | Required; local listen port |
-| bootstrap_addr | string | — | Required; bootstrap node address (IP or domain); IPv6 must use brackets |
-| bootstrap_port | int | — | Required; bootstrap node port |
-| probe_timeout_ms | int | 2000 | Probe timeout (milliseconds) |
-
-**Server Agent**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| listen_addr | string | (empty) | Listen address; empty = dual-stack (IPv4 + IPv6); IPv6 must use brackets e.g. `[::]` |
-| listen_port | int | — | Required; listen port |
-| upstream_addr | string | 127.0.0.1 | Upstream third-party server address; IPv6 must use brackets |
-| upstream_port | int | — | Required; upstream third-party server port |
-| comm_secret | string | — | Required; communication secret; must be exactly 32 bytes |
-| log_real_ip | bool | false | Whether to log the client's real IP |
-| forward_real_ip | bool | false | Whether to inject a PPv2 header upstream to pass the client's real IP (requires upstream Proxy Protocol v2 support) |
+| center_addr | string | — | Required for edge; center node address; IPv6 must use brackets |
+| center_port | int | — | Required for edge; center node port |
+| origin_addr | string | — | Required for edge; Server Agent IP or domain; IPv6 must use brackets |
+| origin_port | int | — | Required for edge; Server Agent port |
+| bootstrap_addr | string | — | Required for client; bootstrap node address; IPv6 must use brackets |
+| bootstrap_port | int | — | Required for client; bootstrap node port |
+| upstream_addr | string | 127.0.0.1 | Server upstream third-party server address; IPv6 must use brackets |
+| upstream_port | int | — | Required for server; upstream third-party server port |
+| comm_secret | string | — | Required for edge/server; communication secret; must be exactly 32 bytes |
+| bw_warning_penalty | float | 1.15 | Center: warning node RTT penalty multiplier |
 
 ---
 

@@ -129,12 +129,14 @@ go build -o dist/optiroute ./src/
 
 ```json
 {
-  "role": "center",
-  "center_listen_addr": "",
-  "center_listen_port": 7000,
-  "comm_secret": "your-32-byte-secret-key-here!!",
-  "secret_rotation_interval_s": 3600,
-  "log_level": "info"
+  "self": {
+    "role": "center",
+    "listen_addr": "",
+    "listen_port": 7000,
+    "comm_secret": "your-32-byte-secret-key-here!!",
+    "secret_rotation_interval_s": 3600,
+    "log_level": "info"
+  }
 }
 ```
 
@@ -142,33 +144,36 @@ go build -o dist/optiroute ./src/
 
 | 配置项 | 值 | 用途 |
 |--------|------|------|
-| role | center | 作为中心节点启动 |
-| center_listen_addr | 空 | 监听地址, 空值=双栈绑定 (IPv4 + IPv6), 也可指定 `0.0.0.0` 或 `::`；IPv6 需加方括号如 `[::]` |
-| center_listen_port | 7000 | 监听端口, 边缘节点通过此端口连接 |
-| comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点和服务端代理一致 |
-| secret_rotation_interval_s | 3600 | shared_secret 轮转周期 (秒), 到期后自动生成新密钥并推送至所有边缘节点 |
-| log_level | info | 日志级别: debug / info / warn / error |
+| self.role | center | 作为中心节点启动 |
+| self.listen_addr | 空 | 监听地址, 空值=双栈绑定 (IPv4 + IPv6)；IPv6 需加方括号如 `[::]` |
+| self.listen_port | 7000 | 监听端口, 边缘节点通过此端口连接 |
+| self.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点和服务端代理一致 |
+| self.secret_rotation_interval_s | 3600 | shared_secret 轮转周期 (秒), 到期后自动生成新密钥并推送至所有边缘节点 |
+| self.log_level | info | 日志级别: debug / info / warn / error |
 
 ### 边缘节点
 
 ```json
 {
-  "role": "edge",
-  "name": "edge-tokyo-01",
-  "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
-  "self_addr": "x.x.x.x",
-  "center_addr": "y.y.y.y",
-  "center_port": 7000,
-  "origin_addr": "z.z.z.z",
-  "origin_port": 18000,
-  "probe_port": 20001,
-  "business_port": 18000,
-  "comm_secret": "your-32-byte-secret-key-here!!",
-  "topo_cache_dir": "./cache",
-  "center_connect_retry_count": 3,
-  "center_connect_retry_interval_s": 5,
-  "monitor_probe_timeout_ms": 2000,
-  "log_level": "info"
+  "self": {
+    "role": "edge",
+    "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
+    "addr": "x.x.x.x",
+    "probe_port": 20001,
+    "business_port": 18001,
+    "topo_cache_dir": "./cache",
+    "center_connect_retry_count": 3,
+    "center_connect_retry_interval_s": 5,
+    "monitor_probe_timeout_ms": 2000,
+    "log_level": "info"
+  },
+  "remote": {
+    "center_addr": "y.y.y.y",
+    "center_port": 7000,
+    "origin_addr": "z.z.z.z",
+    "origin_port": 18000,
+    "comm_secret": "your-32-byte-secret-key-here!!"
+  }
 }
 ```
 
@@ -176,26 +181,25 @@ go build -o dist/optiroute ./src/
 
 | 配置项 | 值 | 用途 |
 |--------|------|------|
-| role | edge | 作为边缘节点启动 |
-| name | edge-tokyo-01 | 仅为了方便区分配置文件, 实际不读取 |
-| uuid | b09ad5e0-xxx | 边缘节点的 UUID, 不可重复 |
-| self_addr | x.x.x.x | 访问本节点的入口 IP 或域名, 用于注册和故障转移自识别, IPv6 需加方括号 |
-| center_addr | y.y.y.y | 中心节点的 IP 地址, IPv6 需加方括号 |
-| center_port | 7000 | 中心节点的端口 |
-| origin_addr | z.z.z.z | 源站 IP 或域名, IPv6 需加方括号 |
-| origin_port | 18000 | 源站端口 |
-| probe_port | 20001 | 探测端口, 供客户端测量 RTT |
-| business_port | 18000 | 业务端口, 承载引导和业务流量 |
-| comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与中心节点和服务端代理一致 |
-| topo_cache_dir | ./cache | 拓扑缓存目录, 空值或不填=不缓存 (容器环境推荐留空) |
-| center_connect_retry_count | 3 | 启动时连接中心节点的重试次数, 超过后尝试加载本地缓存 |
-| center_connect_retry_interval_s | 5 | 每次重试间隔 (秒) |
-| monitor_probe_timeout_ms | 2000 | Monitor 探测超时 (毫秒) |
-| log_level | info | 日志级别: debug / info / warn / error |
+| self.role | edge | 作为边缘节点启动 |
+| self.uuid | b09ad5e0-xxx | 边缘节点的 UUID, 不可重复 |
+| self.addr | x.x.x.x | 访问本节点的入口 IP 或域名, 用于注册和故障转移自识别, IPv6 需加方括号 |
+| self.probe_port | 20001 | 探测端口, 供客户端测量 RTT |
+| self.business_port | 18001 | 业务端口, 承载引导和业务流量 |
+| self.topo_cache_dir | ./cache | 拓扑缓存目录, 空值或不填=不缓存 (容器环境推荐留空) |
+| self.center_connect_retry_count | 3 | 启动时连接中心节点的重试次数, 超过后尝试加载本地缓存 |
+| self.center_connect_retry_interval_s | 5 | 每次重试间隔 (秒) |
+| self.monitor_probe_timeout_ms | 2000 | Monitor 探测超时 (毫秒) |
+| self.log_level | info | 日志级别: debug / info / warn / error |
+| remote.center_addr | y.y.y.y | 中心节点的 IP 地址, IPv6 需加方括号 |
+| remote.center_port | 7000 | 中心节点的端口 |
+| remote.origin_addr | z.z.z.z | 服务端代理 (Server Agent) IP 或域名, IPv6 需加方括号 |
+| remote.origin_port | 18000 | 服务端代理 (Server Agent) 端口 |
+| remote.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与中心节点和服务端代理一致 |
 
-**启动说明:** 启动时会按 `center_connect_retry_count` 次重试连接中心节点, 若全部失败:
+**启动说明:** 启动时会按 `self.center_connect_retry_count` 次重试连接中心节点, 若全部失败:
 
-- 配置了 `topo_cache_dir` 且本地存在缓存文件
+- 配置了 `self.topo_cache_dir` 且本地存在缓存文件
   - 加载缓存, 进入**降级模式**运行, 后台持续尝试重连中心节点, 重连成功后自动切回正常模式
 
 - 未配置缓存目录或缓存文件不存在
@@ -206,13 +210,16 @@ go build -o dist/optiroute ./src/
 
 ```json
 {
-  "role": "client",
-  "local_port": 18000,
-  "bootstrap_addr": "x.x.x.x",
-  "bootstrap_port": 18000,
-  "connect_timeout_ms": 5000,
-  "probe_timeout_ms": 2000,
-  "log_level": "info"
+  "self": {
+    "role": "client",
+    "listen_addr": "127.0.0.1",
+    "listen_port": 18000,
+    "log_level": "info"
+  },
+  "remote": {
+    "bootstrap_addr": "x.x.x.x",
+    "bootstrap_port": 18001
+  }
 }
 ```
 
@@ -220,26 +227,29 @@ go build -o dist/optiroute ./src/
 
 | 配置项 | 值 | 用途 |
 |--------|------|------|
-| role | client | 作为客户端代理启动 |
-| local_port | 18000 | 本地监听端口, 第三方服务的客户端连接此地址 (127.0.0.1:local_port) |
-| bootstrap_addr | x.x.x.x | 引导节点地址 (IP 或域名), 可填任一在线边缘节点, IPv6 需加方括号 |
-| bootstrap_port | 18000 | 边缘节点的业务端口 (business_port) |
-| connect_timeout_ms | 5000 | 连接超时时间 (毫秒) |
-| probe_timeout_ms | 2000 | 探测超时时间 (毫秒), 并发探测各节点时的单次 TCP 拨号超时 |
-| log_level | info | 日志级别: debug / info / warn / error |
+| self.role | client | 作为客户端代理启动 |
+| self.listen_addr | 127.0.0.1 | 本地监听地址, IPv6 需加方括号 |
+| self.listen_port | 18000 | 本地监听端口, 第三方服务的客户端连接此地址 (127.0.0.1:listen_port) |
+| self.log_level | info | 日志级别: debug / info / warn / error |
+| remote.bootstrap_addr | x.x.x.x | 引导节点地址 (IP 或域名), 可填任一在线边缘节点, IPv6 需加方括号 |
+| remote.bootstrap_port | 18001 | 边缘节点的业务端口 (business_port) |
 
 ### 服务端代理
 
 ```json
 {
-  "role": "server",
-  "listen_port": 18001,
-  "upstream_addr": "127.0.0.1",
-  "upstream_port": 18000,
-  "comm_secret": "your-32-byte-secret-key-here!!",
-  "log_real_ip": true,
-  "forward_real_ip": false,
-  "log_level": "info"
+  "self": {
+    "role": "server",
+    "listen_port": 18002,
+    "log_real_ip": true,
+    "forward_real_ip": true,
+    "log_level": "info"
+  },
+  "remote": {
+    "upstream_addr": "127.0.0.1",
+    "upstream_port": 18000,
+    "comm_secret": "your-32-byte-secret-key-here!!"
+  }
 }
 ```
 
@@ -247,80 +257,64 @@ go build -o dist/optiroute ./src/
 
 | 配置项 | 值 | 用途 |
 |--------|------|------|
-| role | server | 作为服务端代理启动 |
-| listen_port | 18001 | 监听端口, 边缘节点接入此端口 |
-| upstream_addr | 127.0.0.1 | 第三方服务的服务端地址, 默认本机, IPv6 需加方括号 |
-| upstream_port | 18000 | 第三方服务的服务端端口, 剥离 PPv2 包头后的原始数据转发至此 |
-| comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点一致 |
-| log_real_ip | true | 是否在日志中记录客户端真实 IP (从 PPv2 包头提取) |
-| forward_real_ip | false | 是否向上游注入 PPv2 包头以传递客户端真实 IP (需上游支持 Proxy Protocol v2) |
-| log_level | info | 日志级别: debug / info / warn / error |
+| self.role | server | 作为服务端代理启动 |
+| self.listen_port | 18002 | 监听端口, 边缘节点接入此端口 |
+| self.log_real_ip | true | 是否在日志中记录客户端真实 IP (从 PPv2 包头提取) |
+| self.forward_real_ip | true | 是否向上游注入 PPv2 包头以传递客户端真实 IP (需上游支持 Proxy Protocol v2) |
+| self.log_level | info | 日志级别: debug / info / warn / error |
+| remote.upstream_addr | 127.0.0.1 | 第三方服务的服务端地址, 默认本机, IPv6 需加方括号 |
+| remote.upstream_port | 18000 | 第三方服务的服务端端口, 剥离 PPv2 包头后的原始数据转发至此 |
+| remote.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点一致 |
 
 ### 完整配置项参考
 
-以下列出所有可用配置项, 按角色分组, 未列出的字段保持零值即可, `defaults()` 会自动填充推荐默认值
+以下列出所有可用配置项, 按 `self` / `remote` 分组, 未列出的字段保持零值即可, `defaults()` 会自动填充推荐默认值
 
-**通用 (所有角色)**
+**self (本节点配置)**
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | role | string | — | 必填, 运行角色: center / edge / client / server |
+| uuid | string | — | edge 必填, 本节点唯一标识, 全局不可重复 |
+| addr | string | — | edge 必填, 本节点公网入口 IP 或域名, IPv6 需加方括号 |
+| listen_addr | string | 空 | center/client/server 监听地址, 空值=双栈绑定, IPv6 需加方括号如 `[::]` |
+| listen_port | int | — | center/client/server 必填, 监听端口 |
+| probe_port | int | — | edge 必填, 探测端口 |
+| business_port | int | — | edge 必填, 业务端口 (承载引导+业务流量) |
+| topo_cache_dir | string | 空 | edge 拓扑缓存目录, 空值=不缓存 |
+| max_bandwidth_mbps | float | 0 | edge 带宽上限 (Mbps), 0=不限制 |
+| bw_warning_ratio | float | 0.80 | edge 带宽使用率触发 warning 阈值 |
+| bw_overload_ratio | float | 0.95 | edge 带宽使用率触发 overloaded 阈值 |
+| center_connect_retry_count | int | 3 | edge 启动时连接中心节点的重试次数 |
+| center_connect_retry_interval_s | int | 5 | edge 每次重试间隔 (秒) |
 | connect_timeout_ms | int | 5000 | 连接超时 (毫秒) |
+| probe_timeout_ms | int | 2000 | client 探测超时 (毫秒) |
+| monitor_probe_timeout_ms | int | 2000 | edge Monitor 探测超时 (毫秒) |
+| topo_sync_interval_s | int | 10 | edge 拓扑同步间隔 (秒) |
+| topo_sync_jitter_ms | int | 2000 | edge 拓扑同步抖动上限 (毫秒) |
+| rtt_window_s | int | 30 | edge RTT 滑动窗口大小 (秒) |
+| loss_rate_threshold | float | 0.40 | edge 丢包率触发不稳定阈值 |
+| token_ttl_s | int | 30 | edge Token 有效时间窗口 (秒) |
+| secret_rotation_interval_s | int | 3600 | center shared_secret 轮转周期 (秒) |
+| comm_secret | string | — | center 必填, 通信密钥, 必须恰好 32 字节 |
+| log_real_ip | bool | false | server 是否在日志中记录客户端真实 IP |
+| forward_real_ip | bool | false | server 是否向上游注入 PPv2 包头 |
 | log_level | string | info | 日志级别: debug / info / warn / error |
 
-**中心节点**
+**remote (连接远端配置)**
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| center_listen_addr | string | 空 | 监听地址, 空值=双栈绑定 (IPv4 + IPv6), IPv6 需加方括号如 `[::]` |
-| center_listen_port | int | — | 必填, 监听端口 |
-| comm_secret | string | — | 必填, 通信密钥, 必须恰好 32 字节 |
-| secret_rotation_interval_s | int | 3600 | shared_secret 轮转周期 (秒) |
-
-**边缘节点**
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| uuid | string | — | 必填, 本节点唯一标识, 全局不可重复 |
-| self_addr | string | — | 必填, 本节点公网入口 IP 或域名, IPv6 需加方括号 |
-| center_addr | string | — | 必填, 中心节点地址, IPv6 需加方括号 |
-| center_port | int | — | 必填, 中心节点端口 |
-| origin_addr | string | — | 必填, 源站 IP 或域名, IPv6 需加方括号 |
-| origin_port | int | — | 必填, 源站端口 |
-| probe_port | int | — | 必填, 探测端口 |
-| business_port | int | — | 必填, 业务端口 (承载引导+业务流量) |
-| comm_secret | string | — | 必填, 通信密钥, 必须恰好 32 字节 |
-| topo_cache_dir | string | 空 | 拓扑缓存目录, 空值=不缓存, 推荐容器环境留空 |
-| center_connect_retry_count | int | 3 | 启动时连接中心节点的重试次数 |
-| center_connect_retry_interval_s | int | 5 | 每次重试间隔 (秒) |
-| topo_sync_interval_s | int | 10 | 拓扑同步间隔 (秒) |
-| topo_sync_jitter_ms | int | 2000 | 拓扑同步抖动上限 (毫秒), 设为 0 则不抖动 |
-| rtt_window_s | int | 30 | RTT 滑动窗口大小 (秒) |
-| loss_rate_threshold | float | 0.40 | 丢包率触发不稳定阈值 |
-| token_ttl_s | int | 30 | Token 有效时间窗口 (秒) |
-| monitor_probe_timeout_ms | int | 2000 | Monitor 探测超时 (毫秒) |
-
-**客户端代理**
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| local_addr | string | 127.0.0.1 | 本地监听地址, IPv6 需加方括号 |
-| local_port | int | — | 必填, 本地监听端口 |
-| bootstrap_addr | string | — | 必填, 引导节点地址 (IP 或域名), IPv6 需加方括号 |
-| bootstrap_port | int | — | 必填, 引导节点端口 |
-| probe_timeout_ms | int | 2000 | 探测超时 (毫秒) |
-
-**服务端代理**
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| listen_addr | string | 空 | 监听地址, 空值=双栈绑定 (IPv4 + IPv6), IPv6 需加方括号如 `[::]` |
-| listen_port | int | — | 必填, 监听端口 |
-| upstream_addr | string | 127.0.0.1 | 上游第三方服务端地址, IPv6 需加方括号 |
-| upstream_port | int | — | 必填, 上游第三方服务端端口 |
-| comm_secret | string | — | 必填, 通信密钥, 必须恰好 32 字节 |
-| log_real_ip | bool | false | 是否在日志中记录客户端真实 IP |
-| forward_real_ip | bool | false | 是否向上游注入 PPv2 包头以传递客户端真实 IP (需上游支持 Proxy Protocol v2) |
+| center_addr | string | — | edge 必填, 中心节点地址, IPv6 需加方括号 |
+| center_port | int | — | edge 必填, 中心节点端口 |
+| origin_addr | string | — | edge 必填, 服务端代理 (Server Agent) IP 或域名, IPv6 需加方括号 |
+| origin_port | int | — | edge 必填, 服务端代理 (Server Agent) 端口 |
+| bootstrap_addr | string | — | client 必填, 引导节点地址, IPv6 需加方括号 |
+| bootstrap_port | int | — | client 必填, 引导节点端口 |
+| upstream_addr | string | 127.0.0.1 | server 上游第三方服务端地址, IPv6 需加方括号 |
+| upstream_port | int | — | server 必填, 上游第三方服务端端口 |
+| comm_secret | string | — | edge/client/server 必填, 通信密钥, 必须恰好 32 字节 |
+| bw_warning_penalty | float | 1.15 | center 下发, warning 节点 RTT 惩罚乘数 |
 
 ### 连接流程示意图
 

@@ -29,8 +29,7 @@ type EdgeRecord struct {
 	ProbeProto    string                       // 本机探测协议 tcp/udp/icmp
 	ProbeMode     string                       // 探测模式 direct/fakeip/mixed
 	Version       string                       // 边缘节点自身版本（注册时上报）
-	ServerVersion string                       // Server Agent 版本（确认帧转报）
-	ServerIP      string                       // Server Agent IP（edge 视角）
+	ServerUUID    string                       // 本 edge 连到的 Server Agent UUID
 	ClientInfos   []protocol.ClientVersionReport // 客户端接入信息（有界列表，开关开启时记录）
 	FakeItems     []protocol.FakeItemReport    // 有效 FAKE-IP（健康检查筛选结果）
 	FakeRTTs      map[string]int64             // ip → f2n 实测
@@ -63,15 +62,19 @@ type CenterServer struct {
 	edges      map[string]*EdgeRecord      // key: UUID → 边缘节点记录
 	uuidByConn map[*websocket.Conn]string   // 连接 → UUID 反向索引，断开时快速清理
 
+	serverMu      sync.RWMutex
+	serverRecords map[string]*ServerRecord // key: Server Agent UUID → 去重记录（多 edge 共享）
+
 	secretMu      sync.RWMutex
 	currentSecret []byte // 32 字节随机密钥
 }
 
 func New(cfg *config.Config) *CenterServer {
 	return &CenterServer{
-		cfg:        cfg,
-		edges:      make(map[string]*EdgeRecord),
-		uuidByConn: make(map[*websocket.Conn]string),
+		cfg:           cfg,
+		edges:         make(map[string]*EdgeRecord),
+		uuidByConn:    make(map[*websocket.Conn]string),
+		serverRecords: make(map[string]*ServerRecord),
 	}
 }
 
@@ -341,9 +344,22 @@ func (s *CenterServer) handleVersionReport(conn *websocket.Conn, raw json.RawMes
 	}
 
 	record.mu.Lock()
-	if report.Server != nil {
-		record.ServerVersion = report.Server.Version
-		record.ServerIP = report.Server.IP
+	if report.Server != nil && report.Server.UUID != "" {
+		record.ServerUUID = report.Server.UUID
+		// 按 UUID 写入全局表（同一 Server Agent 只保留一份，Edges 列表聚合连接它的 edge）
+		s.serverMu.Lock()
+		sr, ok := s.serverRecords[report.Server.UUID]
+		if !ok {
+			sr = &ServerRecord{UUID: report.Server.UUID}
+			s.serverRecords[report.Server.UUID] = sr
+		}
+		sr.IP = report.Server.IP
+		sr.Version = report.Server.Version
+		sr.UpdatedAt = time.Now().Unix()
+		if !containsString(sr.Edges, uuid) {
+			sr.Edges = append(sr.Edges, uuid)
+		}
+		s.serverMu.Unlock()
 	}
 	if s.cfg.Self.CollectClientInfo && len(report.Clients) > 0 {
 		record.ClientInfos = append(record.ClientInfos, report.Clients...)
@@ -354,7 +370,26 @@ func (s *CenterServer) handleVersionReport(conn *websocket.Conn, raw json.RawMes
 	}
 	record.mu.Unlock()
 
-	logger.Debug("版本上报 uuid:", uuid, " clients:", len(report.Clients), " server_v:", report.Server)
+	logger.Debug("版本上报 uuid:", uuid, " clients:", len(report.Clients), " server_uuid:", report.Server)
+}
+
+// ServerRecord 全局 Server Agent 记录（按 UUID 去重）
+type ServerRecord struct {
+	UUID      string
+	IP        string
+	Version   string
+	UpdatedAt int64
+	Edges     []string // 连接该 server 的 edge UUID 列表
+}
+
+// containsString 判断 slice 是否含目标字符串
+func containsString(s []string, target string) bool {
+	for _, v := range s {
+		if v == target {
+			return true
+		}
+	}
+	return false
 }
 
 // handleBWReport 更新边缘节点的带宽状态
@@ -473,12 +508,20 @@ func (s *CenterServer) apiAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // apiEdgeSummary 单节点版本/统计摘要（API 响应结构）
 type apiEdgeSummary struct {
-	UUID          string `json:"uuid"`
-	IP            string `json:"ip"`
-	Version       string `json:"version"`
-	ServerIP      string `json:"server_ip,omitempty"`
-	ServerVersion string `json:"server_version,omitempty"`
-	ClientCount   int    `json:"client_count"`
+	UUID        string `json:"uuid"`
+	IP          string `json:"ip"`
+	Version     string `json:"version"`
+	ServerUUID  string `json:"server_uuid,omitempty"`
+	ClientCount int    `json:"client_count"`
+}
+
+// apiServerSummary 去重后的 Server Agent 摘要（API 响应结构）
+type apiServerSummary struct {
+	UUID      string   `json:"uuid"`
+	IP        string   `json:"ip"`
+	Version   string   `json:"version"`
+	UpdatedAt int64    `json:"updated_at"`
+	Edges     []string `json:"edges"`
 }
 
 // handleAPIVersion GET /api/version — 组件版本汇总
@@ -489,12 +532,11 @@ func (s *CenterServer) handleAPIVersion(w http.ResponseWriter, r *http.Request) 
 	for _, rec := range s.edges {
 		rec.mu.Lock()
 		edges = append(edges, apiEdgeSummary{
-			UUID:          rec.UUID,
-			IP:            rec.IP,
-			Version:       rec.Version,
-			ServerIP:      rec.ServerIP,
-			ServerVersion: rec.ServerVersion,
-			ClientCount:   len(rec.ClientInfos),
+			UUID:        rec.UUID,
+			IP:          rec.IP,
+			Version:     rec.Version,
+			ServerUUID:  rec.ServerUUID,
+			ClientCount: len(rec.ClientInfos),
 		})
 		for _, c := range rec.ClientInfos {
 			if c.Version != "" {
@@ -505,8 +547,23 @@ func (s *CenterServer) handleAPIVersion(w http.ResponseWriter, r *http.Request) 
 	}
 	s.mu.RUnlock()
 
+	// 全局 Server 去重记录
+	s.serverMu.RLock()
+	servers := make([]apiServerSummary, 0, len(s.serverRecords))
+	for _, sr := range s.serverRecords {
+		servers = append(servers, apiServerSummary{
+			UUID:      sr.UUID,
+			IP:        sr.IP,
+			Version:   sr.Version,
+			UpdatedAt: sr.UpdatedAt,
+			Edges:     sr.Edges,
+		})
+	}
+	s.serverMu.RUnlock()
+
 	writeJSON(w, map[string]any{
-		"edges":          edges,
+		"edges":           edges,
+		"servers":         servers,
 		"client_versions": clientVersions,
 	})
 }

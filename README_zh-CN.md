@@ -7,7 +7,7 @@
 <!-- Badges -->
 
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=for-the-badge)](https://github.com/MarchSnow-1/OptiRoute)
-[![Golang](https://img.shields.io/badge/Golang-1.22%2B-green?style=for-the-badge)](https://go.dev)
+[![Golang](https://img.shields.io/badge/Golang-1.26%2B-green?style=for-the-badge)](https://go.dev)
 [![License](https://img.shields.io/badge/License-Apache%202.0-orange?style=for-the-badge)](LICENSE)
 <br>
 [![GitHub Release](https://img.shields.io/github/v/release/MarchSnow-1/OptiRoute?style=for-the-badge)](https://github.com/MarchSnow-1/OptiRoute/releases)
@@ -31,7 +31,8 @@ OptiRoute 是一套使用 Go 编写的分布式四层反向代理系统
 **核心特性**
 
 - **隐藏源站 IP** — 所有流量经边缘节点中转, 源站 IP 对外完全不可见
-- **智能选路** — 客户端主动测量到全部边缘节点的 RTT, 回传后与全部 Edge 节点到源站的 RTT 相叠加, 自动选出全链路延迟最低的节点
+- **防打击设计** — FAKE-IP 探测模式下, 客户端在延迟测试阶段无法区分真实节点, 可规避大规模恶意攻击
+- **智能选路** — 客户端主动测量到全部边缘节点的 RTT（多协议 tcp/udp/icmp）, 回传后与全部 Edge 节点到源站的 RTT 相叠加, 自动选出全链路延迟最低的节点
 - **双栈支持** — 支持 IPv4 与 IPv6 混合使用, 充分利用现有资源
 - **零修改** — 第三方客户端和服务端无需修改任何代码, 通过外置 Server 与 Client Agent 即可实现无缝接入
 - **低成本** — 边缘节点只做四层转发, 不做任何业务计算, 低配高带宽机器也可运行
@@ -52,26 +53,30 @@ OptiRoute 是一套使用 Go 编写的分布式四层反向代理系统
 * 首包发送 **16 字节 Magic 标识**, 触发引导识别
 
 
-2. **获取列表**
-* 引导节点下发全网在线的 Edge 节点列表
-* 清单仅包含 `IP` 和 `ProbePort` (探测端口), 不含任何路由路况
+2. **获取探测列表**
+* 引导节点下发本节点拓扑中的全部探测项列表
+* 探测项按各边缘节点自身模式上报: `direct` 仅上报节点真实IP, `fakeip` 仅上报 FAKE-IP 项, `mixed`上报真实 IP 与 FAKE-IP 混合后的列表
+* 每项带一次性随机编码, 客户端全程无法区分哪个是真实节点
+* 每项仅含 `IP`, 探测协议 (tcp/udp/icmp) 与 端口, 不含任何路由路况
 
 
 3. **并发探测**
-* 客户端代理同时向所有 Edge 节点的探测端口发起 TCP 连接
-* 以 TCP 三次握手耗时作为 $RTT_{Client \to Edge}$ 衡量标尺
+* 客户端代理同时对所有探测项按协议发起探测
+* TCP / UDP 不通自动降级 ICMP, ICMP 不通视为该节点不可达
+* 以探测往返耗时作为 $RTT_{Client \to Edge}$ 衡量标尺
 
 
 4. **智能决策**
-* 客户端将测得的 RTT 矩阵回传给 Edge 节点
-* 引导节点向中心节点调取全部 $Edge \to Origin$ 的后段延迟
-* 并完成 $RTT_{Total}$ 最优解排序：
+* 客户端将测得的结果 (编码 + 延迟) 回传给 Edge 节点
+* 引导节点解码还原各探测项对应的节点, 按类型计算全链路延迟并取最优:
+  - 真实项: $RTT_{Total} = RTT_{Client \to Edge} \times weight + RTT_{Edge \to Origin}$
+  - FAKE 项: $RTT_{Total} = (RTT_{Client \to FakeIP} + RTT_{FakeIP \to Edge}) \times weight + RTT_{Edge \to Origin}$
+* 延迟计算细节与权重/带宽惩罚规则详见 [FAKE-IP 探测模式](#fake-ip-探测模式)
 
-$$RTT_{Total} = RTT_{Client \to Edge} + RTT_{Edge \to Origin}$$
 
 5. **签发 Token**
 * 选出最优节点后, Edge 使用 **HMAC-SHA256** 生成临时 Token
-* 将 **最优节点 IP 与 Token** 下发给客户端
+* 将 **最优节点的真实 IP 与 Token** 下发给客户端
 
 
 6. **业务接入**
@@ -81,7 +86,7 @@ $$RTT_{Total} = RTT_{Client \to Edge} + RTT_{Edge \to Origin}$$
 
 7. **透传建立**
 * Edge 节点异步向源站 (服务端代理)建立连接
-* 在数据流最前端注入标准 **Proxy Protocol v2 数据包头** (可选), 随后透传数据
+* 在数据流最前端注入标准 **Proxy Protocol v2 数据包头**, 随后透传数据 (Edge→源站一跳为无条件注入; Server→上游是否注入按 `forward_real_ip` 配置)
 
 ## 快速开始
 
@@ -102,7 +107,7 @@ cd OptiRoute
 go mod tidy
 
 # 构建
-go build -o dist/optiroute.exe ./src/
+cd src && go build -o ../dist/optiroute.exe . && cd ..
 
 # 运行
 ./dist/optiroute.exe --config-path=edge.json
@@ -119,238 +124,32 @@ cd OptiRoute
 go mod tidy
 
 # 构建
-go build -o dist/optiroute ./src/
+cd src && go build -o ../dist/optiroute . && cd ..
 
 # 运行
 ./dist/optiroute --config-path=edge.json
 ```
 
-### 中心节点
+### 配置指南
 
-```json
-{
-  "self": {
-    "role": "center",
-    "listen_addr": "",
-    "listen_port": 7000,
-    "comm_secret": "your-32-byte-secret-key-here!!",
-    "secret_rotation_interval_s": 3600,
-    "log_level": "info"
-  }
-}
-```
+配置示例 与 完整配置项参考 请查看 [配置指南](docs/Configuration_zh-CN.md)
 
-说明:
+## FAKE-IP 模式
 
-| 配置项 | 值 | 用途 |
-|--------|------|------|
-| self.role | center | 作为中心节点启动 |
-| self.listen_addr | 空 | 监听地址, 空值=双栈绑定 (IPv4 + IPv6)；IPv6 需加方括号如 `[::]` |
-| self.listen_port | 7000 | 监听端口, 边缘节点通过此端口连接 |
-| self.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点和服务端代理一致 |
-| self.secret_rotation_interval_s | 3600 | shared_secret 轮转周期 (秒), 到期后自动生成新密钥并推送至所有边缘节点 |
-| self.log_level | info | 日志级别: debug / info / warn / error |
+用于探测阶段隐藏 EDGE 真实 IP, 尽可能规避大规模恶意攻击
 
-### 边缘节点
+详见 [FAKE-IP 探测模式介绍](docs/FAKE-IP_zh-CN.md) — 探测模式 / 编码机制 / FAKE-IP 配置 / 选路计算 / 注意与限制
 
-```json
-{
-  "self": {
-    "role": "edge",
-    "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
-    "addr": "x.x.x.x",
-    "group": "asia-east-1",
-    "probe_port": 20001,
-    "business_port": 18001,
-    "topo_cache_dir": "./cache",
-    "center_connect_retry_count": 3,
-    "center_connect_retry_interval_s": 5,
-    "monitor_probe_timeout_ms": 2000,
-    "log_level": "info"
-  },
-  "remote": {
-    "center_addr": "y.y.y.y",
-    "center_port": 7000,
-    "origin_addr": "z.z.z.z",
-    "origin_port": 18000,
-    "comm_secret": "your-32-byte-secret-key-here!!"
-  }
-}
-```
+## Proxy Protocol v2 支持
 
-说明:
+Edge 节点在转发流量至源站时, 在数据流最前端注入标准 Proxy Protocol v2 包头, 携带客户端真实 IP 和端口
 
-| 配置项 | 值 | 用途 |
-|--------|------|------|
-| self.role | edge | 作为边缘节点启动 |
-| self.uuid | b09ad5e0-xxx | 边缘节点的 UUID, 不可重复 |
-| self.addr | x.x.x.x | 访问本节点的入口 IP 或域名, 用于注册和故障转移自识别, IPv6 需加方括号 |
-| self.probe_port | 20001 | 探测端口, 供客户端测量 RTT |
-| self.business_port | 18001 | 业务端口, 承载引导和业务流量 |
-| self.group | asia-east-1 | 节点分组, 未填=default |
-| self.topo_cache_dir | ./cache | 拓扑缓存目录, 空值或不填=不缓存 (容器环境推荐留空) |
-| self.center_connect_retry_count | 3 | 启动时连接中心节点的重试次数, 超过后尝试加载本地缓存 |
-| self.center_connect_retry_interval_s | 5 | 每次重试间隔 (秒) |
-| self.monitor_probe_timeout_ms | 2000 | Monitor 探测超时 (毫秒) |
-| self.log_level | info | 日志级别: debug / info / warn / error |
-| remote.center_addr | y.y.y.y | 中心节点的 IP 地址, IPv6 需加方括号 |
-| remote.center_port | 7000 | 中心节点的端口 |
-| remote.origin_addr | z.z.z.z | 服务端代理 (Server Agent) IP 或域名, IPv6 需加方括号 |
-| remote.origin_port | 18000 | 服务端代理 (Server Agent) 端口 |
-| remote.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与中心节点和服务端代理一致 |
+详见 [Proxy Protocol v2 协议介绍](docs/PPv2_zh-CN.md) — 包头结构 / 数据链路 / 配置 / 安全说明
 
-**启动说明:** 启动时会按 `self.center_connect_retry_count` 次重试连接中心节点, 若全部失败:
+## 安全说明
 
-- 配置了 `self.topo_cache_dir` 且本地存在缓存文件
-  - 加载缓存, 进入**降级模式**运行, 后台持续尝试重连中心节点, 重连成功后自动切回正常模式
-
-- 未配置缓存目录或缓存文件不存在
-  - 程序退出
-
-
-### 客户端代理
-
-```json
-{
-  "self": {
-    "role": "client",
-    "listen_addr": "127.0.0.1",
-    "listen_port": 18000,
-    "log_level": "info"
-  },
-  "remote": {
-    "bootstrap_addr": "x.x.x.x",
-    "bootstrap_port": 18001
-  }
-}
-```
-
-说明:
-
-| 配置项 | 值 | 用途 |
-|--------|------|------|
-| self.role | client | 作为客户端代理启动 |
-| self.listen_addr | 127.0.0.1 | 本地监听地址, IPv6 需加方括号 |
-| self.listen_port | 18000 | 本地监听端口 |
-| self.log_level | info | 日志级别: debug / info / warn / error |
-| remote.bootstrap_addr | x.x.x.x | 引导节点地址 (IP 或域名), 可填任一在线边缘节点, IPv6 需加方括号 |
-| remote.bootstrap_port | 18001 | 边缘节点的业务端口 (business_port) |
-
-### 服务端代理
-
-```json
-{
-  "self": {
-    "role": "server",
-    "listen_port": 18002,
-    "log_real_ip": true,
-    "forward_real_ip": true,
-    "log_level": "info"
-  },
-  "remote": {
-    "upstream_addr": "127.0.0.1",
-    "upstream_port": 18000,
-    "comm_secret": "your-32-byte-secret-key-here!!"
-  }
-}
-```
-
-说明:
-
-| 配置项 | 值 | 用途 |
-|--------|------|------|
-| self.role | server | 作为服务端代理启动 |
-| self.listen_port | 18002 | 监听端口, 边缘节点接入此端口 |
-| self.log_real_ip | true | 是否在日志中记录客户端真实 IP (从 PPv2 包头提取) |
-| self.forward_real_ip | true | 是否向上游注入 PPv2 包头以传递客户端真实 IP (需上游支持 Proxy Protocol v2) |
-| self.log_level | info | 日志级别: debug / info / warn / error |
-| remote.upstream_addr | 127.0.0.1 | 第三方服务的服务端地址, 默认本机, IPv6 需加方括号 |
-| remote.upstream_port | 18000 | 第三方服务的服务端端口, 剥离 PPv2 包头后的原始数据转发至此 |
-| remote.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点一致 |
-
-### 完整配置项参考
-
-以下列出所有可用配置项, 按 `self` / `remote` 分组, 未列出的字段保持零值即可, `defaults()` 会自动填充推荐默认值
-
-**self (本节点配置)**
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| role | string | — | 必填, 运行角色: center / edge / client / server |
-| uuid | string | — | edge 必填, 本节点唯一标识, 全局不可重复 |
-| addr | string | — | edge 必填, 本节点公网入口 IP 或域名, IPv6 需加方括号 |
-| listen_addr | string | 空 | center/client/server 监听地址, 空值=双栈绑定, IPv6 需加方括号如 `[::]` |
-| listen_port | int | — | center/client/server 必填, 监听端口 |
-| probe_port | int | — | edge 必填, 探测端口 |
-| business_port | int | — | edge 必填, 业务端口 (承载引导+业务流量) |
-| topo_cache_dir | string | 空 | edge 拓扑缓存目录, 空值=不缓存 |
-| group | string | default | 节点分组, 未填=default |
-| max_bandwidth_mbps | float | 0 | edge 带宽上限 (Mbps), 0=不限制 |
-| bw_warning_ratio | float | 0.80 | edge 带宽使用率触发 warning 阈值 |
-| bw_overload_ratio | float | 0.95 | edge 带宽使用率触发 overloaded 阈值 |
-| center_connect_retry_count | int | 3 | edge 启动时连接中心节点的重试次数 |
-| center_connect_retry_interval_s | int | 5 | edge 每次重试间隔 (秒) |
-| connect_timeout_ms | int | 5000 | 连接超时 (毫秒) |
-| probe_timeout_ms | int | 2000 | client 探测超时 (毫秒) |
-| monitor_probe_timeout_ms | int | 2000 | edge Monitor 探测超时 (毫秒) |
-| topo_sync_interval_s | int | 10 | edge 拓扑同步间隔 (秒) |
-| topo_sync_jitter_ms | int | 2000 | edge 拓扑同步抖动上限 (毫秒) |
-| rtt_window_s | int | 30 | edge RTT 滑动窗口大小 (秒) |
-| loss_rate_threshold | float | 0.40 | edge 丢包率触发不稳定阈值 |
-| token_ttl_s | int | 30 | edge Token 有效时间窗口 (秒) |
-| secret_rotation_interval_s | int | 3600 | center shared_secret 轮转周期 (秒) |
-| comm_secret | string | — | center 必填, 通信密钥, 必须恰好 32 字节 |
-| log_real_ip | bool | false | server 是否在日志中记录客户端真实 IP |
-| forward_real_ip | bool | false | server 是否向上游注入 PPv2 包头 |
-| log_level | string | info | 日志级别: debug / info / warn / error |
-
-**remote (连接远端配置)**
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| center_addr | string | — | edge 必填, 中心节点地址, IPv6 需加方括号 |
-| center_port | int | — | edge 必填, 中心节点端口 |
-| origin_addr | string | — | edge 必填, 服务端代理 (Server Agent) IP 或域名, IPv6 需加方括号 |
-| origin_port | int | — | edge 必填, 服务端代理 (Server Agent) 端口 |
-| bootstrap_addr | string | — | client 必填, 引导节点地址, IPv6 需加方括号 |
-| bootstrap_port | int | — | client 必填, 引导节点端口 |
-| upstream_addr | string | 127.0.0.1 | server 上游第三方服务端地址, IPv6 需加方括号 |
-| upstream_port | int | — | server 必填, 上游第三方服务端端口 |
-| comm_secret | string | — | edge/client/server 必填, 通信密钥, 必须恰好 32 字节 |
-| bw_warning_penalty | float | 1.15 | center 下发, warning 节点 RTT 惩罚乘数 |
-
-### 连接流程示意图
-
-```
-某程序客户端
-  连接 127.0.0.1:18000 (玩家本机 Client Agent 的 self.listen_addr:self.listen_port)
-        ↓ TCP
-客户端代理
-  向引导节点发送 Magic 首包, 获取引导节点下发的节点列表
-  并发探测所有边缘节点, 回传所有节点的延迟信息
-  引导节点计算 RTT_total 后筛选最优节点, 签发 Token 并下发给客户端
-  客户端收到 Token 后向该节点发起业务连接
-        ↓ TCP (首包携带 HMAC Token)
-被指定的边缘节点
-  客户端携带 Token, 本地验签通过
-  连接源站, 注入携带玩家真实 IP 的 Proxy Protocol v2 数据包头
-        ↓ TCP (原始数据 + PPv2 包头)
-服务端代理 (源站, 监听 18001)
-  读取并剥离 Proxy Protocol v2 数据包头, 提取玩家真实 IP
-  将原始数据转发至本机服务器
-        ↓ TCP
-某程序服务端 (监听 18000)
-
-服务端对代理过程完全无感知, 正常处理连接和逻辑, 无需任何修改
-```
-
-## Proxy Protocol 支持
-
-Edge 节点在转发流量至源站时, 在数据流开头注入标准 Proxy Protocol v2 包头, 携带客户端真实 IP 和端口
-
-IPv4 包头 28 字节, IPv6 包头 52 字节, 根据客户端地址族自动选择格式
-
-源站侧的服务端代理解析并剥离该数据包头后, 将原始数据透传给服务端
+- **通信密钥单点风险**: 当前所有节点共享一个 32 字节 `comm_secret` (既是中心入口凭证也是数据面认证密钥)。若任一节点被攻破导致密钥泄露, 攻击者可冒充任意节点注册并污染拓扑。独立密钥体系规划中, 当前为已知限制, 建议对节点做强隔离与密钥轮换管理。
+- **ICMP 权限**: Windows 上客户端 ICMP 探测需管理员权限; Linux 需 CAP_NET_RAW 或非特权 ping socket
 
 ## IPv6 支持
 

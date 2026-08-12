@@ -13,6 +13,7 @@ const (
 	MsgTypeBWReport  MsgType = "bw_report"   // 带宽上报（当前带宽 + 上限 + 状态）
 	MsgTypeTopoQuery MsgType = "topo_query"  // 拓扑查询（含各节点 RTT）
 	MsgTypeFakeUpdate MsgType = "fake_update" // FAKE-IP 列表变化上报（健康检查筛选结果）
+	MsgTypeVersionReport MsgType = "version_report" // 版本/IP 信息批量上报（客户端 + Server Agent）
 
 	// 中心节点 → 边缘节点
 	MsgTypeRegistered   MsgType = "registered"    // 注册成功确认
@@ -37,6 +38,7 @@ type RegisterPayload struct {
 	Group        string           `json:"group"`         // 节点分组（配置留空=default）
 	ProbeProto   string           `json:"probe_proto"`   // 本机探测协议 tcp/udp/icmp
 	ProbeMode    string           `json:"probe_mode"`    // 探测模式 direct/fakeip/mixed
+	Version      string           `json:"version,omitempty"` // 边缘节点自身版本（ldflags 注入）
 	FakeItems    []FakeItemReport `json:"fake_items,omitempty"` // 筛选后的有效 FAKE-IP
 }
 
@@ -132,8 +134,35 @@ func (i ProbeItemInfo) EffectiveRTT() int64 {
 
 // TopoResponse 中心节点下发的全网拓扑
 type TopoResponse struct {
-	Nodes            []NodeInfo `json:"nodes"`
-	BWWarningPenalty float64    `json:"bw_warning_penalty"` // 中心下发的 warning 节点 RTT 惩罚乘数
+	Nodes              []NodeInfo `json:"nodes"`
+	BWWarningPenalty   float64    `json:"bw_warning_penalty"`   // 中心下发的 warning 节点 RTT 惩罚乘数
+	CollectClientInfo  bool       `json:"collect_client_info"`  // 中心是否采集客户端版本/IP（edge 据此决定是否上报）
+}
+
+// ── 版本/IP 信息采集 ─────────────────────────────────
+
+// ServerAck Server Agent 在密钥校验后回给 Edge 的确认帧（framing 层，非 WS 消息）
+type ServerAck struct {
+	Version string `json:"version"` // Server Agent 自身版本
+}
+
+// ClientVersionReport 单条客户端接入信息（edge → center）
+type ClientVersionReport struct {
+	IP        string `json:"ip"`        // 客户端 IP（edge 视角的 TCP 源 IP）
+	Version   string `json:"version"`   // Client Agent 版本
+	Timestamp int64  `json:"timestamp"` // 接入时间（Unix 秒）
+}
+
+// ServerVersionReport Server Agent 信息（edge → center，随 version_report 上报）
+type ServerVersionReport struct {
+	IP      string `json:"ip"`      // Server Agent IP（edge 从 originConn.RemoteAddr() 获取）
+	Version string `json:"version"` // Server Agent 版本（确认帧）
+}
+
+// VersionReportPayload edge → center 的版本/IP 批量上报
+type VersionReportPayload struct {
+	Clients []ClientVersionReport `json:"clients,omitempty"` // 本次上报的客户端接入信息
+	Server  *ServerVersionReport  `json:"server,omitempty"`  // Server Agent 信息（有变化时携带）
 }
 
 // ── 客户端可见的探测项（真实 IP 与 FAKE-IP 混合，不标记类型） ────────

@@ -42,6 +42,7 @@ func (a *ClientAgent) Start(ctx context.Context) error {
 				return nil
 			default:
 				logger.Warn("Accept 错误 err:", err)
+				time.Sleep(100 * time.Millisecond) // 退避，避免 fd 耗尽等错误下忙循环空转
 				continue
 			}
 		}
@@ -87,11 +88,18 @@ func (a *ClientAgent) connectWithToken(targetIP string, businessPort int, token 
 
 	edgeConn.SetReadDeadline(time.Now().Add(timeout))
 	probe := make([]byte, 1)
-	_, err = edgeConn.Read(probe)
+	n, err := edgeConn.Read(probe)
 	edgeConn.SetReadDeadline(time.Time{})
 	if err != nil {
 		edgeConn.Close()
-		return nil, fmt.Errorf("等待验签超时: %w", err)
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			return nil, fmt.Errorf("等待验签超时: %w", err)
+		}
+		return nil, fmt.Errorf("等待验签失败（连接中断）: %w", err)
+	}
+	if n != 1 || probe[0] != 0x01 {
+		edgeConn.Close()
+		return nil, fmt.Errorf("验签未通过（服务端返回异常确认字节）")
 	}
 
 	return edgeConn, nil
@@ -115,21 +123,21 @@ func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn
 	if err != nil {
 		return nil, fmt.Errorf("接收节点列表失败: %w", err)
 	}
-	var nodes []protocol.ClientNodeInfo
-	if err := json.Unmarshal(listData, &nodes); err != nil {
-		return nil, fmt.Errorf("解析节点列表失败: %w", err)
+	var items []protocol.ProbeItem
+	if err := json.Unmarshal(listData, &items); err != nil {
+		return nil, fmt.Errorf("解析探测项列表失败: %w", err)
 	}
-	logger.Debug("[", remote, "] 收到节点列表 count:", len(nodes))
+	logger.Debug("[", remote, "] 收到探测项列表 count:", len(items))
 
 	probeTimeout := time.Duration(a.cfg.Self.ProbeTimeoutMs) * time.Millisecond
-	rttMatrix := a.probeNodes(nodes, probeTimeout)
-	if len(rttMatrix) == 0 {
-		return nil, fmt.Errorf("所有节点探测均失败")
+	results := a.probeItems(items, probeTimeout)
+	if len(results) == 0 {
+		return nil, fmt.Errorf("所有探测项均失败")
 	}
 
-	rttJSON, _ := json.Marshal(rttMatrix)
+	rttJSON, _ := json.Marshal(results)
 	if err := util.WriteFrame(bootstrapConn, rttJSON); err != nil {
-		return nil, fmt.Errorf("上报 RTT 失败: %w", err)
+		return nil, fmt.Errorf("上报探测结果失败: %w", err)
 	}
 
 	redirectData, err := util.ReadFrame(bootstrapConn, timeout)
@@ -145,40 +153,53 @@ func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn
 	return a.connectWithToken(cmd.TargetIP, cmd.BusinessPort, cmd.Token, cmd.Timestamp)
 }
 
-func (a *ClientAgent) probeNodes(nodes []protocol.ClientNodeInfo, timeout time.Duration) []protocol.RTTEntry {
+// probeItems 并发探测所有探测项，返回成功的探测结果（失败项不出现）
+func (a *ClientAgent) probeItems(items []protocol.ProbeItem, timeout time.Duration) []protocol.ProbeResult {
 	type result struct {
-		ip    string
-		port  int
+		code  string
 		rttMs int64
 		ok    bool
 	}
 
-	results := make(chan result, len(nodes))
-	for _, node := range nodes {
-		go func(n protocol.ClientNodeInfo) {
-			addr := util.JoinHostPort(n.IP, n.ProbePort)
-			start := time.Now()
-			conn, err := net.DialTimeout("tcp", addr, timeout)
-			if err != nil {
-				results <- result{ip: n.IP, port: n.ProbePort, ok: false}
-				return
-			}
-			rtt := time.Since(start).Milliseconds()
-			conn.Close()
-			results <- result{ip: n.IP, port: n.ProbePort, rttMs: rtt, ok: true}
-		}(node)
+	results := make(chan result, len(items))
+	for _, item := range items {
+		go func(item protocol.ProbeItem) {
+			rttMs, ok := probeOne(item, timeout)
+			results <- result{code: item.Code, rttMs: rttMs, ok: ok}
+		}(item)
 	}
 
-	matrix := make([]protocol.RTTEntry, 0, len(nodes))
-	for range nodes {
+	out := make([]protocol.ProbeResult, 0, len(items))
+	for range items {
 		r := <-results
 		if r.ok {
-			matrix = append(matrix, protocol.RTTEntry{
-				IP:             r.ip,
-				ProbePort:      r.port,
-				ClientToEdgeMs: r.rttMs,
-			})
+			out = append(out, protocol.ProbeResult{Code: r.code, RTTMs: r.rttMs})
 		}
 	}
-	return matrix
+	return out
+}
+
+// probeOne 按探测项协议探测；TCP/UDP 不通都降级 ICMP，ICMP 不通视为不可达
+func probeOne(item protocol.ProbeItem, timeout time.Duration) (rttMs int64, ok bool) {
+	addr := util.JoinHostPort(item.IP, item.Port)
+	switch item.Proto {
+	case "tcp":
+		if rttMs, ok := util.ProbeTCP(addr, timeout); ok {
+			return rttMs, true
+		}
+		return util.ProbeICMP(item.IP, timeout)
+	case "udp":
+		// UDP 丢包场景重试一次，仍不通降级 ICMP
+		if rttMs, ok := util.ProbeUDPEcho(addr, timeout); ok {
+			return rttMs, true
+		}
+		if rttMs, ok := util.ProbeUDPEcho(addr, timeout); ok {
+			return rttMs, true
+		}
+		return util.ProbeICMP(item.IP, timeout)
+	case "icmp":
+		return util.ProbeICMP(item.IP, timeout)
+	default:
+		return util.ProbeICMP(item.IP, timeout)
+	}
 }

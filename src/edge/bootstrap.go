@@ -2,8 +2,12 @@ package edge
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"sort"
 	"time"
@@ -13,11 +17,41 @@ import (
 	"github.com/MarchSnow-1/OptiRoute/util"
 )
 
-func (n *Node) runBusinessServer(ctx context.Context) {
+// newProbeCode 生成一次性随机编码（16 字节 = 128 位），防碰撞后返回。
+// 每次引导连接全新生成，无跨会话复用 → hacker 无法跨会话关联编码与节点。
+func newProbeCode(used map[string]struct{}) string {
+	for {
+		b := make([]byte, 16)
+		if _, err := rand.Read(b); err != nil {
+			continue
+		}
+		code := base64.RawURLEncoding.EncodeToString(b)
+		if _, dup := used[code]; dup {
+			continue
+		}
+		used[code] = struct{}{}
+		return code
+	}
+}
+
+// shuffle 用 crypto/rand 打乱切片顺序（避免真实项恒在首位的隐式标记）。
+// rand.Int 失败时跳过洗牌（保持原顺序，防御性降级）。
+func shuffle(items []protocol.ProbeItem) {
+	for i := len(items) - 1; i > 0; i-- {
+		j, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return
+		}
+		items[i], items[j.Int64()] = items[j.Int64()], items[i]
+	}
+}
+
+// runBusinessServer 启动业务端口监听，监听失败返回错误（由调用方正常退出）
+func (n *Node) runBusinessServer(ctx context.Context) error {
 	addr := util.JoinHostPort("", n.cfg.Self.BusinessPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		logger.Fatal("业务端口监听失败 err:", err)
+		return fmt.Errorf("业务端口监听失败 %s: %w", addr, err)
 	}
 	logger.Info("业务端口监听中 addr:", addr)
 
@@ -26,7 +60,7 @@ func (n *Node) runBusinessServer(ctx context.Context) {
 		if err != nil {
 			select {
 			case <-ctx.Done():
-				return
+				return nil
 			default:
 				logger.Warn("Accept 错误 err:", err)
 				continue
@@ -98,57 +132,100 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 		logger.Warn("[", remote, "] 降级模式下引导客户端，使用缓存拓扑")
 	}
 
-	// 1. 下发精简拓扑
-	clientNodes := n.topo.GetClientVisible()
-	nodeListJSON, _ := json.Marshal(clientNodes)
-	if err := util.WriteFrame(conn, nodeListJSON); err != nil {
-		logger.Warn("[", remote, "] 下发节点列表失败 err:", err)
+	// 1. 收集所有节点的探测项，为每项生成一次性随机编码（本连接局部，函数返回即清理）
+	fullTopo := n.topo.GetAll()
+	type codedItem struct {
+		code string
+		node protocol.NodeInfo
+		item protocol.ProbeItemInfo
+	}
+	usedCodes := make(map[string]struct{})
+	codeByItem := make(map[string]codedItem)
+	probeItems := make([]protocol.ProbeItem, 0, len(fullTopo))
+	// 相同 {IP,Proto,Port} 的探测项去重合并：code → 多候选（多节点共享同一 FAKE-IP 场景）
+	seenItems := make(map[string]bool)
+	for _, node := range fullTopo {
+		for _, item := range node.EffectiveItems() {
+			itemKey := util.JoinHostPort(item.IP, item.Port) + "/" + item.Proto
+			if seenItems[itemKey] {
+				continue
+			}
+			seenItems[itemKey] = true
+
+			code := newProbeCode(usedCodes)
+			codeByItem[code] = codedItem{code: code, node: node, item: item}
+			probeItems = append(probeItems, protocol.ProbeItem{
+				Code:  code,
+				IP:    item.IP,
+				Proto: item.Proto,
+				Port:  item.Port,
+			})
+		}
+	}
+	if len(probeItems) == 0 {
+		logger.Warn("[", remote, "] 无可用探测项")
 		return
 	}
 
-	// 2. 读取客户端上报的 RTT 矩阵
+	// 2. 洗牌打乱下发顺序（crypto/rand），避免"真实项恒在首位"的隐式标记
+	shuffle(probeItems)
+
+	// 3. 下发探测项列表
+	listJSON, _ := json.Marshal(probeItems)
+	if err := util.WriteFrame(conn, listJSON); err != nil {
+		logger.Warn("[", remote, "] 下发探测项列表失败 err:", err)
+		return
+	}
+
+	// 4. 读取客户端上报的探测结果
 	rttData, err := util.ReadFrame(conn, 5*time.Second)
 	if err != nil {
-		logger.Warn("[", remote, "] 读取 RTT 矩阵失败 err:", err)
+		logger.Warn("[", remote, "] 读取探测结果失败 err:", err)
 		return
 	}
-	var rttMatrix []protocol.RTTEntry
-	if err := json.Unmarshal(rttData, &rttMatrix); err != nil {
+	var results []protocol.ProbeResult
+	if err := json.Unmarshal(rttData, &results); err != nil {
+		logger.Warn("[", remote, "] 探测结果解析失败 err:", err)
 		return
 	}
-
-	// 3. 获取带 RTT 的完整拓扑
-	cc := n.ccClient()
-	fullTopo := cc.QueryTopoWithRTT()
-	bwPenalty := cc.GetBWWarningPenalty()
-	rttMap := make(map[string]int64, len(rttMatrix))
-	for _, e := range rttMatrix {
-		key := util.JoinHostPort(e.IP, e.ProbePort)
-		rttMap[key] = e.ClientToEdgeMs
+	rttByCode := make(map[string]int64, len(results))
+	for _, r := range results {
+		if _, ok := codeByItem[r.Code]; ok {
+			rttByCode[r.Code] = r.RTTMs
+		}
+		// 未知编码一律忽略（不 panic 不落库）
 	}
 
-	// 4. 计算全链路 RTT，选最优节点（带宽感知）
+	// 5. 计算全链路 RTT，选最优节点（双公式 + 节点级带宽惩罚）
+	bwPenalty := n.ccClient().GetBWWarningPenalty()
 	type candidate struct {
 		node     protocol.NodeInfo
 		totalRTT int64
 	}
-	candidates := make([]candidate, 0, len(fullTopo))
+	candidates := make([]candidate, 0, len(probeItems))
 	overloaded := make([]candidate, 0)
-	for _, node := range fullTopo {
-		key := util.JoinHostPort(node.IP, node.ProbePort)
-		clientEdge, ok := rttMap[key]
+	for _, ci := range codeByItem {
+		clientRTT, ok := rttByCode[ci.code]
 		if !ok {
+			continue // 该项不可达（缺省=失败）
+		}
+		var totalRTT int64
+		if ci.item.IsReal {
+			// 真实项：前端段 × weight_real，origin RTT 不乘权重
+			totalRTT = int64(float64(clientRTT)*ci.item.Weight) + ci.node.RTTToOriginMs
+		} else {
+			// FAKE 项：整个前端过程 × weight，origin RTT 不乘权重
+			totalRTT = int64(float64(clientRTT+ci.item.EffectiveRTT())*ci.item.Weight) + ci.node.RTTToOriginMs
+		}
+		if ci.node.BWStatus == "overloaded" {
+			overloaded = append(overloaded, candidate{node: ci.node, totalRTT: totalRTT})
 			continue
 		}
-		totalRTT := clientEdge + node.RTTToOriginMs
-		if node.BWStatus == "overloaded" {
-			overloaded = append(overloaded, candidate{node: node, totalRTT: totalRTT})
-			continue
-		}
-		if node.BWStatus == "warning" && bwPenalty > 0 {
+		// BW 惩罚是节点级：带宽受限影响该节点所有转发流量，与赢家项类型无关
+		if ci.node.BWStatus == "warning" && bwPenalty > 0 {
 			totalRTT = int64(float64(totalRTT) * bwPenalty)
 		}
-		candidates = append(candidates, candidate{node: node, totalRTT: totalRTT})
+		candidates = append(candidates, candidate{node: ci.node, totalRTT: totalRTT})
 	}
 	// 过滤后无可用节点，回退使用全部节点（含 overloaded）
 	if len(candidates) == 0 && len(overloaded) > 0 {
@@ -164,14 +241,14 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	})
 	best := candidates[0].node
 
-	// 5. 生成 Token
+	// 6. 生成 Token
 	token, ts, err := n.auth.GenerateToken(best.UUID)
 	if err != nil {
 		logger.Error("[", remote, "] Token 生成失败 err:", err)
 		return
 	}
 
-	// 6. 下发 Redirect 命令
+	// 7. 下发 Redirect 命令（真实业务 IP，客户端全程未见）
 	cmd := protocol.RedirectCommand{
 		TargetIP:     best.IP,
 		BusinessPort: best.BusinessPort,

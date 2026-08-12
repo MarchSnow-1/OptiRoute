@@ -19,6 +19,15 @@ var ppv2Signature = []byte{
 // BuildPPv2Header 构造 Proxy Protocol v2 包头，自动检测 IPv4/IPv6
 func BuildPPv2Header(srcIP net.IP, srcPort uint16, dstIP net.IP, dstPort uint16) []byte {
 	src4 := srcIP.To4()
+
+	// dstIP 为空时按 srcIP 地址族补全（net.IP{} 的 To4() 返回 nil，直接传入会误判为 IPv6）
+	if dstIP == nil {
+		if src4 != nil {
+			dstIP = net.IPv4zero
+		} else {
+			dstIP = net.IPv6zero
+		}
+	}
 	dst4 := dstIP.To4()
 
 	if src4 != nil && dst4 != nil {
@@ -66,6 +75,9 @@ func ParsePPv2Header(hdr []byte) (srcIP net.IP, srcPort uint16, err error) {
 
 	switch hdr[13] {
 	case 0x11: // IPv4/TCP
+		if binary.BigEndian.Uint16(hdr[14:16]) != 12 {
+			return nil, 0, fmt.Errorf("IPv4 包头长度字段不匹配: %d != 12", binary.BigEndian.Uint16(hdr[14:16]))
+		}
 		if len(hdr) < PPv2HeaderLenIPv4 {
 			return nil, 0, fmt.Errorf("IPv4 包头长度不足: %d < %d", len(hdr), PPv2HeaderLenIPv4)
 		}
@@ -73,6 +85,9 @@ func ParsePPv2Header(hdr []byte) (srcIP net.IP, srcPort uint16, err error) {
 		copy(srcIP, hdr[16:20])
 		srcPort = binary.BigEndian.Uint16(hdr[24:26])
 	case 0x21: // IPv6/TCP
+		if binary.BigEndian.Uint16(hdr[14:16]) != 36 {
+			return nil, 0, fmt.Errorf("IPv6 包头长度字段不匹配: %d != 36", binary.BigEndian.Uint16(hdr[14:16]))
+		}
 		if len(hdr) < PPv2HeaderLenIPv6 {
 			return nil, 0, fmt.Errorf("IPv6 包头长度不足: %d < %d", len(hdr), PPv2HeaderLenIPv6)
 		}

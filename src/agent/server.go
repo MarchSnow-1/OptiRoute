@@ -42,6 +42,8 @@ func (a *ServerAgent) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			default:
+				logger.Warn("Accept 错误 err:", err)
+				time.Sleep(100 * time.Millisecond) // 退避，避免 fd 耗尽等错误下忙循环空转
 				continue
 			}
 		}
@@ -50,6 +52,7 @@ func (a *ServerAgent) Start(ctx context.Context) error {
 }
 
 func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
+	defer conn.Close() // 任何分支退出都关闭进来的连接（含 ForwardRealIP 写失败提前 return 路径）
 	remote := conn.RemoteAddr().String()
 
 	// 读取并验证通信密钥

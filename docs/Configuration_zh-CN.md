@@ -225,16 +225,19 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
   按协议并发探测所有探测项, 回传编码与延迟
   引导节点解码编码还原节点, 按总延迟×权重筛选最优, 签发 Token 下发真实 IP
   客户端收到 Token 后向该节点发起业务连接
-        ↓ TCP (首包携带 HMAC Token)
+        ↓ TCP (首包携带 HMAC Token + 客户端版本号)
 被指定的边缘节点
   客户端携带 Token, 本地验签通过
   连接源站, 注入携带玩家真实 IP 的 Proxy Protocol v2 数据包头
         ↓ TCP (原始数据 + PPv2 包头)
 服务端代理 (源站, 监听 18002)
   读取并剥离 Proxy Protocol v2 数据包头, 提取玩家真实 IP
+  向 Edge 回传版本确认帧 (ServerAck)
   将原始数据转发至本机服务器
         ↓ TCP
 某程序服务端 (监听 18000)
 
 服务端对代理过程完全无感知, 正常处理连接和逻辑, 无需任何修改
+
+客户端版本 + IP / Server Agent 版本 / Edge 版本每 3s 批量上报中心节点
 ```

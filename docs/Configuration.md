@@ -222,16 +222,19 @@ Client Agent
   probes all items concurrently by protocol, reports codes and latencies
   bootstrap node decodes codes to recover nodes, picks optimal by total RTT × weight, issues token with real IP
   client receives token and opens business connection to that node
-        ↓ TCP (first packet carries HMAC token)
+        ↓ TCP (first packet carries HMAC token + client version)
 Designated Edge Node
   token validated locally
   connects to origin, injects Proxy Protocol v2 header carrying player's real IP
         ↓ TCP (raw data + PPv2 header)
 Server Agent (listening on 18002)
   reads and strips Proxy Protocol v2 header, extracts player's real IP
+  replies with a version ack frame (ServerAck)
   forwards raw data to the local game server
         ↓ TCP
 Third-party server (listening on 18000)
 
 The server is completely unaware of the proxy; it handles connections normally with no modifications required.
+
+Client version + IP / Server Agent version / Edge version are relayed to the Center in batches every 3s.
 ```

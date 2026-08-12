@@ -34,11 +34,17 @@ type CenterClient struct {
 	bwTracker *BandwidthTracker // 带宽追踪器
 	fakeMgr   *FakeIPManager // FAKE-IP 健康检查与筛选
 
+	version          string               // 自身版本（注册时上报）
+	collectClientInfo bool                // 中心是否采集客户端信息（拓扑响应下发）
+	clientInfos      []protocol.ClientVersionReport // 待批量上报的客户端接入信息
+	clientMu         sync.Mutex           // 保护 clientInfos
+	serverReport     *protocol.ServerVersionReport // Server Agent 信息（有变化时上报）
+
 	bwWarningPenalty float64 // 中心下发的 warning 节点 RTT 惩罚乘数
 	penaltyMu        sync.RWMutex // 保护 bwWarningPenalty 并发读写
 }
 
-func NewCenterClient(cfg *config.Config, topo *TopoCache, authMgr *auth.AuthManager) *CenterClient {
+func NewCenterClient(cfg *config.Config, topo *TopoCache, authMgr *auth.AuthManager, version string) *CenterClient {
 	return &CenterClient{
 		cfg:      cfg,
 		topo:     topo,
@@ -46,6 +52,7 @@ func NewCenterClient(cfg *config.Config, topo *TopoCache, authMgr *auth.AuthMana
 		writeCh:  make(chan []byte, 256),
 		done:     make(chan struct{}),
 		selfUUID: cfg.Self.UUID,
+		version:  version,
 	}
 }
 
@@ -58,7 +65,7 @@ func (c *CenterClient) Connect(ctx context.Context) error {
 	}
 	c.conn = conn
 
-	c.wg.Add(6)
+	c.wg.Add(7)
 	go c.writeLoop()
 	go c.readLoop(ctx)
 	c.sendMsg(protocol.MsgTypeRegister, protocol.RegisterPayload{
@@ -69,11 +76,13 @@ func (c *CenterClient) Connect(ctx context.Context) error {
 		Group:        c.cfg.Self.Group,
 		ProbeProto:   c.cfg.Self.ProbeProto,
 		ProbeMode:    c.cfg.Self.ProbeMode,
+		Version:      c.version,
 		FakeItems:    c.selectedFakeItems(),
 	})
 	go c.heartbeatLoop(ctx)
 	go c.rttReportLoop(ctx)
 	go c.bwReportLoop(ctx)
+	go c.versionReportLoop(ctx)
 	// 立即请求一次拓扑，不等待 topoSyncLoop 的首次定时触发
 	c.sendMsg(protocol.MsgTypeTopoQuery, struct{}{})
 	go c.topoSyncLoop(ctx)
@@ -97,6 +106,54 @@ func (c *CenterClient) selectedFakeItems() []protocol.FakeItemReport {
 		return nil
 	}
 	return c.fakeMgr.Selected()
+}
+
+// CollectClientInfo 返回中心是否开启客户端信息采集
+func (c *CenterClient) CollectClientInfo() bool {
+	return c.collectClientInfo
+}
+
+// AddClientInfo 记录一次客户端接入信息（业务端口解析到版本后调用），待批量上报
+func (c *CenterClient) AddClientInfo(info protocol.ClientVersionReport) {
+	c.clientMu.Lock()
+	c.clientInfos = append(c.clientInfos, info)
+	c.clientMu.Unlock()
+}
+
+// SetServerReport 记录 Server Agent 版本/IP（确认帧解析后调用），待批量上报
+func (c *CenterClient) SetServerReport(report *protocol.ServerVersionReport) {
+	c.clientMu.Lock()
+	c.serverReport = report
+	c.clientMu.Unlock()
+}
+
+// versionReportLoop 每 3s 批量上报缓存的客户端接入信息与 Server Agent 信息
+func (c *CenterClient) versionReportLoop(ctx context.Context) {
+	defer c.wg.Done()
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.done:
+			return
+		case <-ticker.C:
+			c.clientMu.Lock()
+			if len(c.clientInfos) == 0 && c.serverReport == nil {
+				c.clientMu.Unlock()
+				continue
+			}
+			payload := protocol.VersionReportPayload{
+				Clients: c.clientInfos,
+				Server:  c.serverReport,
+			}
+			c.clientInfos = nil
+			c.serverReport = nil
+			c.clientMu.Unlock()
+			c.sendMsg(protocol.MsgTypeVersionReport, payload)
+		}
+	}
 }
 
 func (c *CenterClient) sendMsg(msgType protocol.MsgType, payload any) {
@@ -164,7 +221,8 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 			c.bwWarningPenalty = p.BWWarningPenalty
 			c.penaltyMu.Unlock()
 		}
-		logger.Debug("拓扑已更新 nodes:", len(p.Nodes))
+		c.collectClientInfo = p.CollectClientInfo
+		logger.Debug("拓扑已更新 nodes:", len(p.Nodes), " collect_client_info:", p.CollectClientInfo)
 
 	case protocol.MsgTypeSecretPush:
 		var p protocol.SecretPushPayload

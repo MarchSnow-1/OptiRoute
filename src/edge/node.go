@@ -16,6 +16,7 @@ import (
 
 type Node struct {
 	cfg       *config.Config
+	version   string // 自身版本（ldflags 注入，注册时上报 center）
 	cc        *CenterClient
 	topo      *TopoCache
 	auth      *auth.AuthManager
@@ -26,15 +27,16 @@ type Node struct {
 	mu        sync.Mutex // 保护 n.cc 的并发读写
 }
 
-func NewNode(cfg *config.Config) *Node {
+func NewNode(cfg *config.Config, version string) *Node {
 	cachePath := ""
 	if cfg.Self.TopoCacheDir != "" {
 		cachePath = filepath.Join(cfg.Self.TopoCacheDir, "topo_cache_"+cfg.Self.UUID+".json")
 	}
 	return &Node{
-		cfg:  cfg,
-		topo: NewTopoCache(cachePath),
-		auth: auth.NewAuthManager(),
+		cfg:     cfg,
+		version: version,
+		topo:    NewTopoCache(cachePath),
+		auth:    auth.NewAuthManager(),
 	}
 }
 
@@ -53,7 +55,7 @@ func (n *Node) Start(ctx context.Context) error {
 	n.fakeMgr = NewFakeIPManager(n)
 	go runFakeIPCheck(ctx, n.fakeMgr)
 
-	n.cc = NewCenterClient(n.cfg, n.topo, n.auth)
+	n.cc = NewCenterClient(n.cfg, n.topo, n.auth, n.version)
 	n.cc.monitor = n.monitor
 	n.cc.bwTracker = n.bwTracker
 	n.cc.fakeMgr = n.fakeMgr
@@ -133,7 +135,7 @@ func (n *Node) backgroundReconnect(ctx context.Context) {
 			return
 		case <-time.After(backoff):
 			logger.Info("后台尝试重连中心节点...")
-			newCC := NewCenterClient(n.cfg, n.topo, n.auth)
+			newCC := NewCenterClient(n.cfg, n.topo, n.auth, n.version)
 			newCC.monitor = n.monitor
 			newCC.bwTracker = n.bwTracker
 			newCC.fakeMgr = n.fakeMgr

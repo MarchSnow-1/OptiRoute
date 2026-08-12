@@ -51,13 +51,13 @@ The complete handshake on the Edge → Server Agent hop:
 
 1. The Edge writes the 32-byte `comm_secret` (validated by the Server; mismatches are disconnected).
 2. After key validation, the Server replies with an **ack frame** (`ServerAck{version}`, used by the Edge to report version info).
-3. The Edge reads the ack frame (3s timeout; disconnect on read/parse failure — older Server binaries are incompatible and must be upgraded in sync).
+3. The Edge reads the ack frame.
 4. The Server reads the PPv2 header and parses the client's real IP.
 5. Bidirectional relay begins (no other protocol headers precede the business data).
 
 ## Security Notes
 
 - The header format is selected automatically by address family: IPv4 clients produce a 28-byte header, IPv6 clients a 52-byte header.
-- The Server Agent validates the 12-byte signature; mismatched signatures are rejected (rejects non-PPv2 traffic; the signature is a public magic number and does not prevent spoofing — the real defense is the comm_secret key check before the connection is established).
+- The Server Agent validates the 12-byte signature; mismatched signatures are rejected as non-PPv2 traffic.
 - Only the `0x21` (PROXY command) and TCP address families are supported.
 - The address family and length field are validated for consistency (IPv4=12 bytes, IPv6=36 bytes); malformed headers are rejected.

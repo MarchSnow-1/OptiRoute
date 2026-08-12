@@ -32,7 +32,7 @@ OptiRoute 是一套使用 Go 编写的分布式四层反向代理系统
 
 - **隐藏源站 IP** — 所有流量经边缘节点中转, 源站 IP 对外完全不可见
 - **防打击设计** — FAKE-IP 探测模式下, 客户端在延迟测试阶段无法区分真实节点, 可规避大规模恶意攻击
-- **智能选路** — 客户端主动测量到全部边缘节点的 RTT（多协议 tcp/udp/icmp）, 回传后与全部 Edge 节点到源站的 RTT 相叠加, 自动选出全链路延迟最低的节点
+- **智能选路** — 客户端主动测量到全部边缘节点的 RTT (多协议 tcp/udp/icmp), 回传后与全部 Edge 节点到源站的 RTT 相叠加, 自动选出全链路延迟最低的节点
 - **双栈支持** — 支持 IPv4 与 IPv6 混合使用, 充分利用现有资源
 - **零修改** — 第三方客户端和服务端无需修改任何代码, 通过外置 Server 与 Client Agent 即可实现无缝接入
 - **低成本** — 边缘节点只做四层转发, 不做任何业务计算, 低配高带宽机器也可运行
@@ -148,39 +148,41 @@ Edge 节点在转发流量至源站时, 在数据流最前端注入标准 Proxy 
 
 ## 版本信息采集
 
-Center 可收集各组件版本信息，用于版本管理与运维统计。Client/Server Agent 不直连 center，统一经 Edge 中转上报。
+Center 可收集各组件版本信息, 用于版本管理与运维统计
+
+Client/Server Agent 不直连 Center, 统一经 Edge 中转上报
 
 ### 采集内容
 
 | 信息 | 来源 | 上报路径 |
 |------|------|---------|
-| **Edge 自身版本** | ldflags 注入（`-X main.version=x.y.z`） | 注册时随 `RegisterPayload` 上报 |
-| **Client Agent 版本 + IP** | 业务接入首包携带版本 | Client → Edge（业务端口）→ Center |
-| **Server Agent 版本 + IP** | 密钥校验后回确认帧 | Server → Edge（确认帧）→ Center |
+| **Edge 自身版本** | 自身读取 | 注册时随 `RegisterPayload` 上报 |
+| **Client Agent 版本 + IP** | 业务接入首包携带版本 | Client → Edge (业务端口) → Center |
+| **Server Agent 版本** | 密钥校验后回确认帧 | Server → Edge (确认帧) → Center |
 
 ### 上报机制
 
-- **客户端信息**：Client Agent 在连接业务端口发送 Token 首包时携带自身版本；Edge 解析后缓存，**每 3s 批量上报** center。客户端 IP 为 edge 视角的 TCP 源 IP（客户端直连 edge），非客户端自报。
-- **Server 确认帧**：Server Agent 在密钥校验通过后、读取 PPv2 包头前，回一帧包含自身版本的确认帧；Edge 读取失败即断连——**老版本 Server Agent 不兼容，需同步升级**。
-- **存储**：Center 按节点保留最近 1000 条客户端接入信息（超限裁头），Server/Edge 版本实时覆盖。
+- **客户端信息**: Client Agent 在连接业务端口发送 Token 首包时携带自身版本; Edge 解析后缓存, **每 3s 批量上报** center. 客户端 IP 为 edge 视角的 TCP 源 IP (客户端直连 edge), 非客户端自报.
+- **Server 确认帧**: Server Agent 在密钥校验通过后, 读取 PPv2 包头前, 回一帧包含自身版本的确认帧; Edge 读取失败即断连——**老版本 Server Agent 不兼容, 需同步升级**.
+- **存储**: Center 按节点保留最近 1000 条客户端接入信息 (超限裁头), Server/Edge 版本实时覆盖.
 
 ### 配置
 
 | 配置项 | 角色 | 说明 |
 |--------|------|------|
-| `collect_client_info` | center | 是否采集客户端版本/IP，默认关（关=不存储客户端信息） |
-| `web_api_key` | center | 开放 API 密钥，空=API 关闭 |
+| `collect_client_info` | center | 是否采集客户端版本/IP, 默认关 (不存储客户端信息) |
+| `web_api_key` | center | 开放 API 密钥, 空=API 关闭 |
 
-### 开放 API（需配置 `web_api_key`）
+### 开放 API (需配置 `web_api_key`)
 
-Center 开启 HTTP API（与 WebSocket 同端口），请求需携带 `Authorization: Bearer <key>` 头：
+Center 开启 HTTP API (与 WebSocket 同端口), 请求需携带 `Authorization: Bearer <key>` 头:
 
 | 接口 | 返回 |
 |------|------|
-| `GET /api/version` | 各 Edge 版本 + Server 版本/IP + 客户端数，及客户端版本分布统计 |
-| `GET /api/clients` | 客户端接入明细（IP/版本/接入时间/所属 Edge），跨节点汇总 |
+| `GET /api/version` | 各 Edge 版本 + Server 版本/IP + 客户端数, 及客户端版本分布统计 |
+| `GET /api/clients` | 客户端接入明细 (IP/版本/接入时间/所属 Edge), 跨节点汇总 |
 
-示例：
+示例:
 
 ```bash
 curl -H "Authorization: Bearer <key>" http://<center>:7000/api/version
@@ -197,21 +199,20 @@ curl -H "Authorization: Bearer <key>" http://<center>:7000/api/version
 
 ## 安全说明
 
-- **通信密钥单点风险**: 当前所有节点共享一个 32 字节 `comm_secret` (既是中心入口凭证也是数据面认证密钥)。若任一节点被攻破导致密钥泄露, 攻击者可冒充任意节点注册并污染拓扑。独立密钥体系规划中, 当前为已知限制, 建议对节点做强隔离与密钥轮换管理。
 - **ICMP 权限**: Windows 上客户端 ICMP 探测需管理员权限; Linux 需 CAP_NET_RAW 或非特权 ping socket
 
 ## IPv6 支持
 
 OptiRoute 完整支持 IPv4/IPv6 双栈运行
 
-所有 `_addr` 配置字段均接受 IPv4 地址、域名和带方括号的 IPv6 地址, 支持混用场景, 例如:
+所有 `_addr` 配置字段均接受 IPv4 地址, 域名和带方括号的 IPv6 地址, 支持混用场景, 例如:
 
 - IPv6 客户端 → IPv4 源站 (IPv6 接入, IPv4 回源)
 - IPv4 客户端 → IPv6 源站 (IPv4 接入, IPv6 回源)
 - 纯 IPv6 全链路
 - 纯 IPv4 全链路
 
-**IPv6 地址必须使用方括号格式**, 例如 `[::1]`、`[2001:db8::1]`、`[::]`
+**IPv6 地址必须使用方括号格式**, 例如 `[::1]`, `[2001:db8::1]`, `[::]`
 
 域名和 IPv4 地址直接填写即可
 

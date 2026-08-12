@@ -22,7 +22,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | 配置项 | 值 | 用途 |
 |--------|------|------|
 | self.role | center | 作为中心节点启动 |
-| self.listen_addr | 空 | 监听地址, 空值=双栈绑定 (IPv4 + IPv6)；IPv6 需加方括号如 `[::]` |
+| self.listen_addr | 空 | 监听地址, 空值=双栈绑定 (IPv4 + IPv6); IPv6 需加方括号如 `[::]` |
 | self.listen_port | 7000 | 监听端口, 边缘节点通过此端口连接 |
 | self.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点和服务端代理一致 |
 | self.secret_rotation_interval_s | 3600 | shared_secret 轮转周期 (秒), 到期后自动生成新密钥并推送至所有边缘节点 |

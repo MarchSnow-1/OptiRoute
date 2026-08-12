@@ -32,7 +32,7 @@ The system consists of four roles: **Center Node**, **Edge Node**, **Client Agen
 
 - **Origin IP Hiding** — All traffic is relayed through edge nodes; the origin server's IP is never exposed externally.
 - **Intelligent Routing** — The client actively measures RTT to all edge nodes (multi-protocol tcp/udp/icmp), sends the results back, and combines them with each edge node's RTT to the origin. The system automatically selects the node with the lowest end-to-end latency.
-- **Anti-DDoS Design** — In FAKE-IP probe mode, clients only ever see a mixed list of real and fake IPs during probing, making it impossible to distinguish real nodes, mitigating large-scale attacks.
+- **Anti-DDoS Design** — In FAKE-IP probe mode, clients cannot distinguish real nodes during the latency-testing phase, mitigating large-scale malicious attacks.
 - **Dual-Stack Support** — Full IPv4/IPv6 dual-stack operation, making full use of existing infrastructure.
 - **Zero Modification** — Third-party clients and servers require no code changes; seamless integration is achieved through external Server and Client Agents.
 - **Low Cost** — Edge nodes perform Layer 4 forwarding only with no business logic, so even low-spec, high-bandwidth machines can run them.
@@ -151,15 +151,17 @@ See [Proxy Protocol v2 Protocol Guide](docs/PPv2.md) — header layout / data fl
 
 ## Version Info Collection
 
-The Center can collect version information from all components for version management and operations. Client/Server Agents do not connect to the Center directly — everything is relayed through the Edge.
+The Center can collect version information from all components for version management and operations statistics.
+
+Client/Server Agents do not connect to the Center directly; everything is relayed through the Edge.
 
 ### Collected Info
 
 | Info | Source | Path |
 |------|--------|------|
-| **Edge version** | ldflags injection (`-X main.version=x.y.z`) | Reported at registration via `RegisterPayload` |
+| **Edge version** | Read locally | Reported at registration via `RegisterPayload` |
 | **Client Agent version + IP** | Version carried in the business first packet | Client → Edge (business port) → Center |
-| **Server Agent version + IP** | Version ack frame after key validation | Server → Edge (ack frame) → Center |
+| **Server Agent version** | Ack frame after key validation | Server → Edge (ack frame) → Center |
 
 ### Reporting Mechanism
 
@@ -200,7 +202,6 @@ curl -H "Authorization: Bearer <key>" http://<center>:7000/api/version
 
 ## Security Notes
 
-- **Shared-secret single point of risk**: all nodes currently share a 32-byte `comm_secret` (both the center entry credential and the data-plane authentication key). If any node is compromised and the key leaks, an attacker can impersonate any node and poison the topology. A per-node key system is planned; this is a known limitation for now — strong node isolation and key rotation are recommended.
 - **ICMP permissions**: On Windows, ICMP probing requires administrator privileges; on Linux it requires CAP_NET_RAW or unprivileged ping sockets.
 
 ---

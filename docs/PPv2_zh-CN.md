@@ -1,10 +1,10 @@
 # Proxy Protocol v2 (PPv2) 支持
 
-OptiRoute 在数据转发链路中支持注入与剥离标准 **Proxy Protocol v2** 包头, 用于在多层代理后保留客户端真实 IP。
+OptiRoute 在数据转发链路中支持注入与剥离标准 **Proxy Protocol v2** 包头, 用于在多层代理后保留客户端真实 IP.
 
 ## 作用
 
-- **Edge 节点** 转发流量至源站时, 在 comm_secret 密钥握手之后、业务数据之前注入 PPv2 包头, 携带客户端真实 IP 和端口
+- **Edge 节点** 转发流量至源站时, 在 comm_secret 密钥握手之后, 业务数据之前注入 PPv2 包头, 携带客户端真实 IP 和端口
 - **Server Agent** 解析并剥离该包头, 提取客户端真实 IP, 将原始数据透传给第三方服务端
 - 可选向上游注入: `forward_real_ip` 配置开启时, Server Agent 可再次注入 PPv2 包头传递客户端真实 IP (需上游支持)
 
@@ -49,15 +49,15 @@ PPv2 包头由 **固定 16 字节头部 + 变长地址数据** 构成:
 
 Edge → Server Agent 一跳的完整握手顺序:
 
-1. Edge 写入 32 字节 `comm_secret`（Server 校验，不匹配即断连）
-2. Server 密钥校验通过后**回确认帧**（`ServerAck{version}`，供 Edge 上报版本信息）
-3. Edge 读取确认帧（3s 超时，读不到/解析失败即断连——老版本 Server 不兼容，需同步升级）
+1. Edge 写入 32 字节 `comm_secret` (Server 校验, 不匹配即断连)
+2. Server 密钥校验通过后**回确认帧** (`ServerAck{version}`, 供 Edge 上报版本信息)
+3. Edge 读取确认帧
 4. Server 读取 PPv2 包头并解析客户端真实 IP
-5. 随后进入双向透传（业务数据前无其他协议头）
+5. 随后进入双向透传 (业务数据前无其他协议头) 
 
 ## 安全说明
 
 - 包头按地址族自动选择格式: 客户端 IPv4 生成 28 字节包头, IPv6 生成 52 字节包头
-- Server Agent 校验 12 字节签名, 签名不匹配即拒绝连接 (拒绝非 PPv2 流量; 签名是公开魔数, 不构成防伪, 真正的防线是连接建立前的 comm_secret 密钥校验)
+- Server Agent 校验 12 字节签名, 签名不匹配即拒绝非 PPv2 流量
 - 仅支持 `0x21` (PROXY 命令) 与 TCP 协议族
 - 校验地址族与长度字段一致性 (IPv4=12 字节, IPv6=36 字节), 畸形包头拒绝解析

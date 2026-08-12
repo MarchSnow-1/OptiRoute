@@ -17,6 +17,7 @@ import (
 type BusinessFirstPacket struct {
 	Token     string `json:"token"`
 	Timestamp int64  `json:"timestamp"`
+	Version   string `json:"version,omitempty"` // Client Agent 版本（center 采集用）
 }
 
 // readFirstPacketWithPrefix 读取业务首帧：alreadyRead 为判定阶段已读的前缀
@@ -110,7 +111,41 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 		return
 	}
 
-	logger.Info("[", remote, "] L4 转发通道已建立 origin:", originAddr)
+	// 读取 Server 确认帧（含版本）。Server Agent 在密钥校验后、读 PPv2 前回此帧；
+	// 读不到/解析失败则断连（老版本 Server Agent 不兼容，强制同步升级）。
+	var serverVersion string
+	if ackData, err := util.ReadFrame(originConn, 3*time.Second); err != nil {
+		logger.Warn("[", remote, "] 读取 Server 确认帧失败 err:", err, "（Server Agent 版本过旧？）")
+		return
+	} else {
+		var ack protocol.ServerAck
+		if err := json.Unmarshal(ackData, &ack); err != nil {
+			logger.Warn("[", remote, "] Server 确认帧解析失败 err:", err)
+			return
+		}
+		serverVersion = ack.Version
+	}
+
+	// 记录 Server Agent 信息（版本 + IP，IP 取 edge 视角的源站连接远端地址）
+	if cc := n.ccClient(); cc != nil {
+		cc.SetServerReport(&protocol.ServerVersionReport{
+			IP:      originConn.RemoteAddr().String(),
+			Version: serverVersion,
+		})
+	}
+
+	// 记录客户端接入信息（中心开启采集时）
+	if fp.Version != "" {
+		if cc := n.ccClient(); cc != nil && cc.CollectClientInfo() {
+			cc.AddClientInfo(protocol.ClientVersionReport{
+				IP:        clientTCPAddr.IP.String(),
+				Version:   fp.Version,
+				Timestamp: time.Now().Unix(),
+			})
+		}
+	}
+
+	logger.Info("[", remote, "] L4 转发通道已建立 origin:", originAddr, " client_v:", fp.Version, " server_v:", serverVersion)
 
 	var counter *atomic.Int64
 	if n.bwTracker != nil {

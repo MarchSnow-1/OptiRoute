@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -15,11 +16,12 @@ import (
 )
 
 type ServerAgent struct {
-	cfg *config.Config
+	cfg     *config.Config
+	version string // 自身版本（ldflags 注入，确认帧上报）
 }
 
-func NewServerAgent(cfg *config.Config) *ServerAgent {
-	return &ServerAgent{cfg: cfg}
+func NewServerAgent(cfg *config.Config, version string) *ServerAgent {
+	return &ServerAgent{cfg: cfg, version: version}
 }
 
 func (a *ServerAgent) Start(ctx context.Context) error {
@@ -67,6 +69,15 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	}
 	if string(secretBuf) != a.cfg.Remote.CommSecret {
 		logger.Warn("[", remote, "] 通信密钥认证失败")
+		conn.Close()
+		return
+	}
+
+	// 回 Server 确认帧（含版本），供 edge 读取并上报 center。
+	// 时序：确认帧必须在读 PPv2 之前发送，edge 侧在写 PPv2 后等待此帧。
+	ackJSON, _ := json.Marshal(protocol.ServerAck{Version: a.version})
+	if err := util.WriteFrame(conn, ackJSON); err != nil {
+		logger.Warn("[", remote, "] 回确认帧失败 err:", err)
 		conn.Close()
 		return
 	}

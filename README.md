@@ -149,6 +149,55 @@ When forwarding traffic to the origin, the Edge node injects a standard Proxy Pr
 
 See [Proxy Protocol v2 Protocol Guide](docs/PPv2.md) — header layout / data flow / configuration / security notes
 
+## Version Info Collection
+
+The Center can collect version information from all components for version management and operations. Client/Server Agents do not connect to the Center directly — everything is relayed through the Edge.
+
+### Collected Info
+
+| Info | Source | Path |
+|------|--------|------|
+| **Edge version** | ldflags injection (`-X main.version=x.y.z`) | Reported at registration via `RegisterPayload` |
+| **Client Agent version + IP** | Version carried in the business first packet | Client → Edge (business port) → Center |
+| **Server Agent version + IP** | Version ack frame after key validation | Server → Edge (ack frame) → Center |
+
+### Reporting Mechanism
+
+- **Client info**: the Client Agent carries its version in the token first packet when connecting to the business port; the Edge parses and buffers it, reporting to the Center **in batches every 3s**. The client IP is the TCP source IP as seen by the Edge (the client connects directly to the Edge), not self-reported by the client.
+- **Server ack frame**: after key validation and before reading the PPv2 header, the Server Agent replies with a frame containing its version; the Edge disconnects on read failure — **older Server Agent binaries are incompatible and must be upgraded in sync**.
+- **Storage**: the Center keeps the latest 1000 client entries per node (older entries are trimmed); Server/Edge versions are overwritten in real time.
+
+### Configuration
+
+| Field | Role | Description |
+|-------|------|-------------|
+| `collect_client_info` | center | Whether to collect client version/IP; off by default (off = no client info stored) |
+| `web_api_key` | center | Open API key; empty = API disabled |
+
+### Open API (requires `web_api_key`)
+
+The Center serves an HTTP API on the same port as the WebSocket, requiring an `Authorization: Bearer <key>` header:
+
+| Endpoint | Returns |
+|----------|---------|
+| `GET /api/version` | Per-edge version + Server version/IP + client count, plus a client version distribution |
+| `GET /api/clients` | Client connection details (IP/version/timestamp/edge), aggregated across nodes |
+
+Example:
+
+```bash
+curl -H "Authorization: Bearer <key>" http://<center>:7000/api/version
+```
+
+```json
+{
+  "edges": [
+    {"uuid": "...", "ip": "1.2.3.4", "version": "0.3.0", "server_ip": "5.6.7.8", "server_version": "0.3.0", "client_count": 12}
+  ],
+  "client_versions": {"0.3.0": 45, "0.2.0": 3}
+}
+```
+
 ## Security Notes
 
 - **Shared-secret single point of risk**: all nodes currently share a 32-byte `comm_secret` (both the center entry credential and the data-plane authentication key). If any node is compromised and the key leaks, an attacker can impersonate any node and poison the topology. A per-node key system is planned; this is a known limitation for now — strong node isolation and key rotation are recommended.

@@ -26,6 +26,9 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | self.listen_port | 7000 | 监听端口, 边缘节点通过此端口连接 |
 | self.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点和服务端代理一致 |
 | self.secret_rotation_interval_s | 3600 | shared_secret 轮转周期 (秒), 到期后自动生成新密钥并推送至所有边缘节点 |
+| self.collect_client_info | false | 是否采集客户端版本/IP 信息 (需客户端业务首包携带版本), 默认关 |
+| self.web_api_key | 空 | 开放 API 密钥, 空=API 关闭; 非空=开启 `/api/version` `/api/clients` (Bearer 鉴权) |
+| self.ping_interval_s | 30 | 中心对 edge 的测活间隔 (秒), 带随机抖动 |
 | self.log_level | info | 日志级别: debug / info / warn / error |
 
 ## 边缘节点 (Edge)
@@ -186,6 +189,9 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | loss_rate_threshold | float | 0.40 | edge 丢包率触发不稳定阈值 |
 | token_ttl_s | int | 30 | edge Token 有效时间窗口 (秒) |
 | secret_rotation_interval_s | int | 3600 | center shared_secret 轮转周期 (秒) |
+| collect_client_info | bool | false | center 是否采集客户端版本/IP 信息 |
+| web_api_key | string | 空 | center 开放 API 密钥, 空=关闭; 非空=开启 Bearer 鉴权 API |
+| ping_interval_s | int | 30 | center 对 edge 的测活间隔 (秒) |
 | comm_secret | string | — | center 必填, 通信密钥, 必须恰好 32 字节 |
 | log_real_ip | bool | false | server 是否在日志中记录客户端真实 IP |
 | forward_real_ip | bool | false | server 是否向上游注入 PPv2 包头 |

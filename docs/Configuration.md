@@ -24,6 +24,9 @@ OptiRoute uses a JSON configuration file, launched via `--config-path=config.jso
 | self.listen_port | 7000 | Listen port; edge nodes connect here |
 | self.comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match all edge nodes and server agents |
 | self.secret_rotation_interval_s | 3600 | Secret rotation interval (seconds); a new key is generated and pushed to all edge nodes upon expiry |
+| self.collect_client_info | false | Whether to collect client version/IP info (requires clients to send version in business first packet); off by default |
+| self.web_api_key | (empty) | Open API key; empty = API disabled; non-empty = enables `/api/version` and `/api/clients` (Bearer auth) |
+| self.ping_interval_s | 30 | Center liveness probe interval for edges (seconds), with random jitter |
 | self.log_level | info | Log level: debug / info / warn / error |
 
 ## Edge Node
@@ -181,6 +184,9 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | loss_rate_threshold | float | 0.40 | Edge packet loss rate threshold |
 | token_ttl_s | int | 30 | Edge token validity window (seconds) |
 | secret_rotation_interval_s | int | 3600 | Center secret rotation interval (seconds) |
+| collect_client_info | bool | false | Center: whether to collect client version/IP info |
+| web_api_key | string | (empty) | Center open API key; empty = disabled; non-empty = enables Bearer-authenticated API |
+| ping_interval_s | int | 30 | Center liveness probe interval for edges (seconds) |
 | comm_secret | string | — | Required for center; communication secret; must be exactly 32 bytes |
 | log_real_ip | bool | false | Server: whether to log the client's real IP |
 | forward_real_ip | bool | false | Server: whether to inject PPv2 header upstream |

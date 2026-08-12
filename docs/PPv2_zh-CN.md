@@ -45,6 +45,16 @@ PPv2 包头由 **固定 16 字节头部 + 变长地址数据** 构成:
 | `log_real_ip` | server | 是否在日志中记录客户端真实 IP (从 PPv2 包头提取) |
 | `forward_real_ip` | server | 是否向上游注入 PPv2 包头以传递客户端真实 IP (需上游支持) |
 
+## 握手时序
+
+Edge → Server Agent 一跳的完整握手顺序:
+
+1. Edge 写入 32 字节 `comm_secret`（Server 校验，不匹配即断连）
+2. Server 密钥校验通过后**回确认帧**（`ServerAck{version}`，供 Edge 上报版本信息）
+3. Edge 读取确认帧（3s 超时，读不到/解析失败即断连——老版本 Server 不兼容，需同步升级）
+4. Server 读取 PPv2 包头并解析客户端真实 IP
+5. 随后进入双向透传（业务数据前无其他协议头）
+
 ## 安全说明
 
 - 包头按地址族自动选择格式: 客户端 IPv4 生成 28 字节包头, IPv6 生成 52 字节包头

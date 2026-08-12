@@ -146,6 +146,55 @@ Edge 节点在转发流量至源站时, 在数据流最前端注入标准 Proxy 
 
 详见 [Proxy Protocol v2 协议介绍](docs/PPv2_zh-CN.md) — 包头结构 / 数据链路 / 配置 / 安全说明
 
+## 版本信息采集
+
+Center 可收集各组件版本信息，用于版本管理与运维统计。Client/Server Agent 不直连 center，统一经 Edge 中转上报。
+
+### 采集内容
+
+| 信息 | 来源 | 上报路径 |
+|------|------|---------|
+| **Edge 自身版本** | ldflags 注入（`-X main.version=x.y.z`） | 注册时随 `RegisterPayload` 上报 |
+| **Client Agent 版本 + IP** | 业务接入首包携带版本 | Client → Edge（业务端口）→ Center |
+| **Server Agent 版本 + IP** | 密钥校验后回确认帧 | Server → Edge（确认帧）→ Center |
+
+### 上报机制
+
+- **客户端信息**：Client Agent 在连接业务端口发送 Token 首包时携带自身版本；Edge 解析后缓存，**每 3s 批量上报** center。客户端 IP 为 edge 视角的 TCP 源 IP（客户端直连 edge），非客户端自报。
+- **Server 确认帧**：Server Agent 在密钥校验通过后、读取 PPv2 包头前，回一帧包含自身版本的确认帧；Edge 读取失败即断连——**老版本 Server Agent 不兼容，需同步升级**。
+- **存储**：Center 按节点保留最近 1000 条客户端接入信息（超限裁头），Server/Edge 版本实时覆盖。
+
+### 配置
+
+| 配置项 | 角色 | 说明 |
+|--------|------|------|
+| `collect_client_info` | center | 是否采集客户端版本/IP，默认关（关=不存储客户端信息） |
+| `web_api_key` | center | 开放 API 密钥，空=API 关闭 |
+
+### 开放 API（需配置 `web_api_key`）
+
+Center 开启 HTTP API（与 WebSocket 同端口），请求需携带 `Authorization: Bearer <key>` 头：
+
+| 接口 | 返回 |
+|------|------|
+| `GET /api/version` | 各 Edge 版本 + Server 版本/IP + 客户端数，及客户端版本分布统计 |
+| `GET /api/clients` | 客户端接入明细（IP/版本/接入时间/所属 Edge），跨节点汇总 |
+
+示例：
+
+```bash
+curl -H "Authorization: Bearer <key>" http://<center>:7000/api/version
+```
+
+```json
+{
+  "edges": [
+    {"uuid": "...", "ip": "1.2.3.4", "version": "0.3.0", "server_ip": "5.6.7.8", "server_version": "0.3.0", "client_count": 12}
+  ],
+  "client_versions": {"0.3.0": 45, "0.2.0": 3}
+}
+```
+
 ## 安全说明
 
 - **通信密钥单点风险**: 当前所有节点共享一个 32 字节 `comm_secret` (既是中心入口凭证也是数据面认证密钥)。若任一节点被攻破导致密钥泄露, 攻击者可冒充任意节点注册并污染拓扑。独立密钥体系规划中, 当前为已知限制, 建议对节点做强隔离与密钥轮换管理。

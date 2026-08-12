@@ -116,5 +116,6 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	if n.bwTracker != nil {
 		counter = n.bwTracker.BytesAccum()
 	}
-	util.Relay(conn, originConn, counter)
+	idle := time.Duration(n.cfg.Self.IdleTimeoutS) * time.Second
+	util.RelayWithIdle(conn, originConn, counter, idle)
 }

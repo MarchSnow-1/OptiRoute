@@ -24,7 +24,7 @@ type BandwidthTracker struct {
 	overloadRatio float64
 }
 
-func NewBandwidthTracker(maxBandwidthMbps, warningRatio, overloadRatio float64) *BandwidthTracker {
+func NewBandwidthTracker(maxBandwidthMbps float64, warningRatio, overloadRatio *float64) *BandwidthTracker {
 	var maxBps int64
 	if maxBandwidthMbps > 0 {
 		maxBps = int64(maxBandwidthMbps * 1_000_000 / 8) // Mbps → Bytes/sec
@@ -32,8 +32,8 @@ func NewBandwidthTracker(maxBandwidthMbps, warningRatio, overloadRatio float64) 
 	return &BandwidthTracker{
 		maxBps:        maxBps,
 		window:        make([]int64, 0, 60),
-		warningRatio:  warningRatio,
-		overloadRatio: overloadRatio,
+		warningRatio:  *warningRatio,
+		overloadRatio: *overloadRatio,
 	}
 }
 

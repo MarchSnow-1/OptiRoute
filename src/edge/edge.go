@@ -32,8 +32,10 @@ type CenterClient struct {
 	selfUUID  string         // 来自配置文件，启动时即确定
 	monitor   *Monitor       // 链路探活器，用于获取窗口平均 RTT
 	bwTracker *BandwidthTracker // 带宽追踪器
+	fakeMgr   *FakeIPManager // FAKE-IP 健康检查与筛选
 
 	bwWarningPenalty float64 // 中心下发的 warning 节点 RTT 惩罚乘数
+	penaltyMu        sync.RWMutex // 保护 bwWarningPenalty 并发读写
 }
 
 func NewCenterClient(cfg *config.Config, topo *TopoCache, authMgr *auth.AuthManager) *CenterClient {
@@ -65,6 +67,9 @@ func (c *CenterClient) Connect(ctx context.Context) error {
 		ProbePort:    c.cfg.Self.ProbePort,
 		BusinessPort: c.cfg.Self.BusinessPort,
 		Group:        c.cfg.Self.Group,
+		ProbeProto:   c.cfg.Self.ProbeProto,
+		ProbeMode:    c.cfg.Self.ProbeMode,
+		FakeItems:    c.selectedFakeItems(),
 	})
 	go c.heartbeatLoop(ctx)
 	go c.rttReportLoop(ctx)
@@ -86,10 +91,20 @@ func (c *CenterClient) writeLoop() {
 	}
 }
 
+// selectedFakeItems 返回筛选后的有效 FAKE-IP（注册时上报）
+func (c *CenterClient) selectedFakeItems() []protocol.FakeItemReport {
+	if c.fakeMgr == nil {
+		return nil
+	}
+	return c.fakeMgr.Selected()
+}
+
 func (c *CenterClient) sendMsg(msgType protocol.MsgType, payload any) {
 	raw, _ := json.Marshal(payload)
 	env := protocol.Envelope{Type: msgType, Payload: raw}
 	data, _ := json.Marshal(env)
+	// 发送前检查 done（Disconnect 会先 close(done) 再 close(writeCh)）。
+	// done 关闭后 sendMsg 不再触碰 writeCh，避免 send on closed channel panic。
 	select {
 	case <-c.done:
 		return
@@ -145,7 +160,9 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 		}
 		c.topo.Update(p.Nodes)
 		if p.BWWarningPenalty > 0 {
+			c.penaltyMu.Lock()
 			c.bwWarningPenalty = p.BWWarningPenalty
+			c.penaltyMu.Unlock()
 		}
 		logger.Debug("拓扑已更新 nodes:", len(p.Nodes))
 
@@ -157,7 +174,12 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 		}
 		secret, _ := hex.DecodeString(p.Secret)
 		c.auth.UpdateSecret(secret, c.cfg.Self.TokenTTLS)
+		// 持久化 secret 到拓扑缓存，降级模式初始化 auth 用
+		c.topo.SetSecret(p.Secret)
 		logger.Info("shared_secret 已更新")
+
+	default:
+		logger.Warn("未知消息类型 type:", env.Type)
 	}
 }
 
@@ -189,7 +211,11 @@ func (c *CenterClient) rttReportLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if c.monitor != nil {
-				c.sendMsg(protocol.MsgTypeRTTReport, protocol.RTTReportPayload{RTTMs: c.monitor.AverageRTT()})
+				payload := protocol.RTTReportPayload{RTTMs: c.monitor.AverageRTT()}
+				if c.fakeMgr != nil {
+					payload.FakeRTTs = c.fakeMgr.FakeRTTs()
+				}
+				c.sendMsg(protocol.MsgTypeRTTReport, payload)
 			}
 		}
 	}
@@ -278,7 +304,11 @@ func (c *CenterClient) reconnectLoop(ctx context.Context) {
 
 func (c *CenterClient) GetSelfUUID() string { return c.selfUUID }
 
-func (c *CenterClient) GetBWWarningPenalty() float64 { return c.bwWarningPenalty }
+func (c *CenterClient) GetBWWarningPenalty() float64 {
+	c.penaltyMu.RLock()
+	defer c.penaltyMu.RUnlock()
+	return c.bwWarningPenalty
+}
 
 func (c *CenterClient) QueryTopoWithRTT() []protocol.NodeInfo {
 	return c.topo.GetAll()

@@ -87,8 +87,8 @@ func (m *Monitor) probe() {
 			}
 		}
 		lossRate := float64(lossCount) / float64(len(m.probeResults))
-		if lossRate > cfg.Self.LossRateThreshold {
-			logger.Warn("链路丢包率超阈值 loss_rate:", lossRate, " threshold:", cfg.Self.LossRateThreshold)
+		if lossRate > *cfg.Self.LossRateThreshold {
+			logger.Warn("链路丢包率超阈值 loss_rate:", lossRate, " threshold:", *cfg.Self.LossRateThreshold)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package edge
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -20,6 +21,7 @@ type Node struct {
 	auth      *auth.AuthManager
 	monitor   *Monitor
 	bwTracker *BandwidthTracker
+	fakeMgr   *FakeIPManager
 	degraded  bool       // true 时为降级模式（使用本地缓存，未连接中心节点）
 	mu        sync.Mutex // 保护 n.cc 的并发读写
 }
@@ -44,14 +46,17 @@ func (n *Node) ccClient() *CenterClient {
 }
 
 func (n *Node) Start(ctx context.Context) error {
-	// Phase 0: 创建 Monitor 和 BandwidthTracker
+	// Phase 0: 创建 Monitor、BandwidthTracker 和 FakeIPManager
 	n.monitor = NewMonitor(n)
 	n.bwTracker = NewBandwidthTracker(n.cfg.Self.MaxBandwidthMbps, n.cfg.Self.BWWarningRatio, n.cfg.Self.BWOverloadRatio)
 	go n.bwTracker.Run(ctx)
+	n.fakeMgr = NewFakeIPManager(n)
+	go runFakeIPCheck(ctx, n.fakeMgr)
 
 	n.cc = NewCenterClient(n.cfg, n.topo, n.auth)
 	n.cc.monitor = n.monitor
 	n.cc.bwTracker = n.bwTracker
+	n.cc.fakeMgr = n.fakeMgr
 
 	// Phase 1: 重试连接中心节点
 	connected := false
@@ -81,13 +86,24 @@ func (n *Node) Start(ctx context.Context) error {
 		if err := n.topo.LoadFromFile(n.topo.cacheFilePath); err != nil {
 			return fmt.Errorf("连接中心节点失败且无可用本地缓存: %w", err)
 		}
+		// 用持久化的 shared_secret 初始化 auth，使降级模式仍能签发 Token
+		if secretHex := n.topo.GetSecret(); secretHex != "" {
+			if secret, err := hex.DecodeString(secretHex); err == nil && len(secret) > 0 {
+				n.auth.UpdateSecret(secret, n.cfg.Self.TokenTTLS)
+				logger.Info("已从缓存加载 shared_secret，降级模式可签发 Token")
+			}
+		} else {
+			logger.Warn("缓存中无 shared_secret，降级模式无法签发 Token（需先以正常模式连接过中心）")
+		}
 		logger.Warn("无法连接中心节点，已加载本地缓存，进入降级模式")
 		go n.backgroundReconnect(ctx)
 	}
 
 	// Phase 3: 启动服务（正常模式和降级模式均可）
 	go n.runProbeServer(ctx)
-	go n.runBusinessServer(ctx)
+	if err := n.runBusinessServer(ctx); err != nil {
+		return err
+	}
 	go runMonitor(ctx, n.monitor)
 
 	if n.degraded {
@@ -120,6 +136,7 @@ func (n *Node) backgroundReconnect(ctx context.Context) {
 			newCC := NewCenterClient(n.cfg, n.topo, n.auth)
 			newCC.monitor = n.monitor
 			newCC.bwTracker = n.bwTracker
+			newCC.fakeMgr = n.fakeMgr
 			if err := newCC.Connect(ctx); err != nil {
 				logger.Warn("后台重连失败 err:", err)
 				if backoff < maxBackoff {

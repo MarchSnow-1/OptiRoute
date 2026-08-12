@@ -28,6 +28,10 @@ type EdgeRecord struct {
 	Group         string
 	ProbeProto    string                       // 本机探测协议 tcp/udp/icmp
 	ProbeMode     string                       // 探测模式 direct/fakeip/mixed
+	Version       string                       // 边缘节点自身版本（注册时上报）
+	ServerVersion string                       // Server Agent 版本（确认帧转报）
+	ServerIP      string                       // Server Agent IP（edge 视角）
+	ClientInfos   []protocol.ClientVersionReport // 客户端接入信息（有界列表，开关开启时记录）
 	FakeItems     []protocol.FakeItemReport    // 有效 FAKE-IP（健康检查筛选结果）
 	FakeRTTs      map[string]int64             // ip → f2n 实测
 	RTTToOriginMs int64
@@ -98,6 +102,13 @@ func (s *CenterServer) Start(ctx context.Context) error {
 		}
 		go s.handleEdge(conn)
 	})
+
+	// 开放 API（web_api_key 非空时注册，空=关闭）
+	if s.cfg.Self.WebAPIKey != "" {
+		mux.HandleFunc("/api/version", s.apiAuth(s.handleAPIVersion))
+		mux.HandleFunc("/api/clients", s.apiAuth(s.handleAPIClients))
+		logger.Info("开放 API 已开启（Bearer 鉴权）")
+	}
 
 	srv := &http.Server{
 		Addr:    util.JoinHostPort(s.cfg.Self.ListenAddr, s.cfg.Self.ListenPort),
@@ -204,6 +215,8 @@ func (s *CenterServer) handleEdge(conn *websocket.Conn) {
 			s.handleTopoQuery(conn)
 		case protocol.MsgTypeFakeUpdate:
 			s.handleFakeUpdate(conn, env.Payload)
+		case protocol.MsgTypeVersionReport:
+			s.handleVersionReport(conn, env.Payload)
 		default:
 			logger.Warn("未知消息类型 type:", env.Type)
 		}
@@ -237,6 +250,7 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 		Group:        req.Group,
 		ProbeProto:   req.ProbeProto,
 		ProbeMode:    req.ProbeMode,
+		Version:      req.Version,
 		FakeItems:    req.FakeItems,
 		FakeRTTs:     make(map[string]int64),
 		conn:         conn,
@@ -308,6 +322,41 @@ func (s *CenterServer) handleFakeUpdate(conn *websocket.Conn, raw json.RawMessag
 	}
 }
 
+// maxClientInfos 单节点保留的客户端接入信息上限（超限裁头）
+const maxClientInfos = 1000
+
+// handleVersionReport 处理版本/IP 批量上报（客户端接入信息 + Server Agent 信息）
+func (s *CenterServer) handleVersionReport(conn *websocket.Conn, raw json.RawMessage) {
+	var report protocol.VersionReportPayload
+	if err := json.Unmarshal(raw, &report); err != nil {
+		logger.Warn("VersionReport 解析失败 err:", err)
+		return
+	}
+	s.mu.RLock()
+	uuid := s.uuidByConn[conn]
+	record := s.edges[uuid]
+	s.mu.RUnlock()
+	if record == nil {
+		return
+	}
+
+	record.mu.Lock()
+	if report.Server != nil {
+		record.ServerVersion = report.Server.Version
+		record.ServerIP = report.Server.IP
+	}
+	if s.cfg.Self.CollectClientInfo && len(report.Clients) > 0 {
+		record.ClientInfos = append(record.ClientInfos, report.Clients...)
+		// 有界：超上限裁头（保留最近 maxClientInfos 条）
+		if len(record.ClientInfos) > maxClientInfos {
+			record.ClientInfos = record.ClientInfos[len(record.ClientInfos)-maxClientInfos:]
+		}
+	}
+	record.mu.Unlock()
+
+	logger.Debug("版本上报 uuid:", uuid, " clients:", len(report.Clients), " server_v:", report.Server)
+}
+
 // handleBWReport 更新边缘节点的带宽状态
 func (s *CenterServer) handleBWReport(conn *websocket.Conn, raw json.RawMessage) {
 	var report protocol.BWReportPayload
@@ -350,8 +399,9 @@ func (s *CenterServer) handleTopoQuery(conn *websocket.Conn) {
 	}
 	s.mu.RUnlock()
 	s.sendMsg(conn, protocol.MsgTypeTopoResponse, protocol.TopoResponse{
-		Nodes:            nodes,
-		BWWarningPenalty: *s.cfg.Remote.BWWarningPenalty,
+		Nodes:             nodes,
+		BWWarningPenalty:  *s.cfg.Remote.BWWarningPenalty,
+		CollectClientInfo: s.cfg.Self.CollectClientInfo,
 	})
 }
 
@@ -404,6 +454,100 @@ func shuffleItems(items []protocol.ProbeItemInfo) {
 		}
 		items[i], items[j.Int64()] = items[j.Int64()], items[i]
 	}
+}
+
+// ── 开放 API ─────────────────────────────────────────
+
+// apiAuth 校验 Authorization: Bearer <key>，失败返回 401
+func (s *CenterServer) apiAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer "+s.cfg.Self.WebAPIKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("unauthorized"))
+			return
+		}
+		next(w, r)
+	}
+}
+
+// apiEdgeSummary 单节点版本/统计摘要（API 响应结构）
+type apiEdgeSummary struct {
+	UUID          string `json:"uuid"`
+	IP            string `json:"ip"`
+	Version       string `json:"version"`
+	ServerIP      string `json:"server_ip,omitempty"`
+	ServerVersion string `json:"server_version,omitempty"`
+	ClientCount   int    `json:"client_count"`
+}
+
+// handleAPIVersion GET /api/version — 组件版本汇总
+func (s *CenterServer) handleAPIVersion(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	edges := make([]apiEdgeSummary, 0, len(s.edges))
+	clientVersions := make(map[string]int)
+	for _, rec := range s.edges {
+		rec.mu.Lock()
+		edges = append(edges, apiEdgeSummary{
+			UUID:          rec.UUID,
+			IP:            rec.IP,
+			Version:       rec.Version,
+			ServerIP:      rec.ServerIP,
+			ServerVersion: rec.ServerVersion,
+			ClientCount:   len(rec.ClientInfos),
+		})
+		for _, c := range rec.ClientInfos {
+			if c.Version != "" {
+				clientVersions[c.Version]++
+			}
+		}
+		rec.mu.Unlock()
+	}
+	s.mu.RUnlock()
+
+	writeJSON(w, map[string]any{
+		"edges":          edges,
+		"client_versions": clientVersions,
+	})
+}
+
+// handleAPIClients GET /api/clients — 客户端接入明细（跨 edge 汇总）
+func (s *CenterServer) handleAPIClients(w http.ResponseWriter, r *http.Request) {
+	type clientEntry struct {
+		IP        string `json:"ip"`
+		Version   string `json:"version"`
+		Timestamp int64  `json:"timestamp"`
+		EdgeUUID  string `json:"edge_uuid"`
+	}
+	s.mu.RLock()
+	clients := make([]clientEntry, 0)
+	for _, rec := range s.edges {
+		rec.mu.Lock()
+		for _, c := range rec.ClientInfos {
+			clients = append(clients, clientEntry{
+				IP:        c.IP,
+				Version:   c.Version,
+				Timestamp: c.Timestamp,
+				EdgeUUID:  rec.UUID,
+			})
+		}
+		rec.mu.Unlock()
+	}
+	s.mu.RUnlock()
+
+	writeJSON(w, clients)
+}
+
+// writeJSON 输出 JSON 响应
+func writeJSON(w http.ResponseWriter, v any) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("internal error"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
 }
 
 // broadcastSecret 向所有在线边缘节点推送新 secret

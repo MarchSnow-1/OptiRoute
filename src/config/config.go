@@ -77,6 +77,10 @@ type SelfConfig struct {
 	CommSecret           string `json:"comm_secret,omitempty"` // center 用
 	PingIntervalS        int    `json:"ping_interval_s,omitempty"` // 中心对 edge 的测活间隔（秒），默认 30
 
+	// 信息采集与开放 API（center）
+	CollectClientInfo bool   `json:"collect_client_info,omitempty"` // 是否采集客户端版本/IP，默认关
+	WebAPIKey         string `json:"web_api_key,omitempty"`         // 开放 API 密钥，空=API 关闭
+
 	// 可观测性
 	LogRealIP     bool   `json:"log_real_ip,omitempty"`
 	ForwardRealIP bool   `json:"forward_real_ip,omitempty"`

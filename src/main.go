@@ -53,15 +53,15 @@ func main() {
 		runErr = s.Start(ctx)
 
 	case config.RoleEdge:
-		n := edge.NewNode(cfg)
+		n := edge.NewNode(cfg, version)
 		runErr = n.Start(ctx)
 
 	case config.RoleClient:
-		a := agent.NewClientAgent(cfg)
+		a := agent.NewClientAgent(cfg, version)
 		runErr = a.Start(ctx)
 
 	case config.RoleServer:
-		a := agent.NewServerAgent(cfg)
+		a := agent.NewServerAgent(cfg, version)
 		runErr = a.Start(ctx)
 
 	default:

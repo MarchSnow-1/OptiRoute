@@ -14,11 +14,12 @@ import (
 )
 
 type ClientAgent struct {
-	cfg *config.Config
+	cfg     *config.Config
+	version string // 自身版本（ldflags 注入，业务首包上报）
 }
 
-func NewClientAgent(cfg *config.Config) *ClientAgent {
-	return &ClientAgent{cfg: cfg}
+func NewClientAgent(cfg *config.Config, version string) *ClientAgent {
+	return &ClientAgent{cfg: cfg, version: version}
 }
 
 func (a *ClientAgent) Start(ctx context.Context) error {
@@ -76,9 +77,11 @@ func (a *ClientAgent) connectWithToken(targetIP string, businessPort int, token 
 	firstPacket := struct {
 		Token     string `json:"token"`
 		Timestamp int64  `json:"timestamp"`
+		Version   string `json:"version,omitempty"`
 	}{
 		Token:     token,
 		Timestamp: timestamp,
+		Version:   a.version,
 	}
 	fpJSON, _ := json.Marshal(firstPacket)
 	if err := util.WriteFrame(edgeConn, fpJSON); err != nil {

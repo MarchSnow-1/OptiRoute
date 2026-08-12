@@ -19,17 +19,21 @@ const (
 	RoleServer Role = "server"
 )
 
+// DefaultGroup 是节点分组的默认值，留空时由 defaults() 填充
+const DefaultGroup = "default"
+
 // SelfConfig 本节点自身的配置
 type SelfConfig struct {
 	Role Role `json:"role"` // 必填
 
 	// 身份
-	UUID        string `json:"uuid,omitempty"`
-	Addr        string `json:"addr,omitempty"`       // 本节点公网入口 IP（edge）
-	ListenAddr  string `json:"listen_addr,omitempty"` // 监听地址（center/client/server）
-	ListenPort  int    `json:"listen_port,omitempty"` // 监听端口（center/client/server）
-	ProbePort   int    `json:"probe_port,omitempty"`
-	BusinessPort int   `json:"business_port,omitempty"`
+	UUID         string `json:"uuid,omitempty"`
+	Group        string `json:"group,omitempty"` // 节点分组，edge 用；留空=default
+	Addr         string `json:"addr,omitempty"`  // 本节点公网入口 IP（edge）
+	ListenAddr   string `json:"listen_addr,omitempty"` // 监听地址（center/client/server）
+	ListenPort   int    `json:"listen_port,omitempty"` // 监听端口（center/client/server）
+	ProbePort    int    `json:"probe_port,omitempty"`
+	BusinessPort int    `json:"business_port,omitempty"`
 	TopoCacheDir string `json:"topo_cache_dir,omitempty"`
 
 	// 带宽控制
@@ -82,7 +86,8 @@ type Config struct {
 }
 
 func (c *Config) defaults() {
-	if c.Self.ConnectTimeoutMs == 0       { c.Self.ConnectTimeoutMs = 5000 }
+	if c.Self.Group == ""                { c.Self.Group = DefaultGroup }
+	if c.Self.ConnectTimeoutMs == 0      { c.Self.ConnectTimeoutMs = 5000 }
 	if c.Self.ProbeTimeoutMs == 0         { c.Self.ProbeTimeoutMs = 2000 }
 	if c.Self.MonitorProbeTimeoutMs == 0  { c.Self.MonitorProbeTimeoutMs = 2000 }
 	if c.Self.TopoSyncIntervalS == 0      { c.Self.TopoSyncIntervalS = 10 }
@@ -105,109 +110,6 @@ func (c *Config) defaults() {
 	case RoleServer:
 		if c.Remote.UpstreamAddr == "" { c.Remote.UpstreamAddr = "127.0.0.1" }
 	}
-}
-
-// legacyConfig 用于解析旧的平铺格式
-type legacyConfig struct {
-	Role                       string  `json:"role"`
-	CenterListenAddr           string  `json:"center_listen_addr"`
-	CenterListenPort           int     `json:"center_listen_port"`
-	UUID                       string  `json:"uuid"`
-	SelfAddr                   string  `json:"self_addr"`
-	CenterAddr                 string  `json:"center_addr"`
-	CenterPort                 int     `json:"center_port"`
-	OriginAddr                 string  `json:"origin_addr"`
-	OriginPort                 int     `json:"origin_port"`
-	ProbePort                  int     `json:"probe_port"`
-	BusinessPort               int     `json:"business_port"`
-	TopoCacheDir               string  `json:"topo_cache_dir"`
-	CenterConnectRetryCount    int     `json:"center_connect_retry_count"`
-	CenterConnectRetryIntervalS int    `json:"center_connect_retry_interval_s"`
-	LocalAddr                  string  `json:"local_addr"`
-	LocalPort                  int     `json:"local_port"`
-	BootstrapAddr              string  `json:"bootstrap_addr"`
-	BootstrapPort              int     `json:"bootstrap_port"`
-	ListenAddr                 string  `json:"listen_addr"`
-	ListenPort                 int     `json:"listen_port"`
-	UpstreamAddr               string  `json:"upstream_addr"`
-	UpstreamPort               int     `json:"upstream_port"`
-	LogRealIP                  bool    `json:"log_real_ip"`
-	ForwardRealIP              bool    `json:"forward_real_ip"`
-	ConnectTimeoutMs           int     `json:"connect_timeout_ms"`
-	ProbeTimeoutMs             int     `json:"probe_timeout_ms"`
-	MonitorProbeTimeoutMs      int     `json:"monitor_probe_timeout_ms"`
-	TopoSyncIntervalS          int     `json:"topo_sync_interval_s"`
-	TopoSyncJitterMs           int     `json:"topo_sync_jitter_ms"`
-	RTTWindowS                 int     `json:"rtt_window_s"`
-	LossRateThreshold          float64 `json:"loss_rate_threshold"`
-	MaxBandwidthMbps           float64 `json:"max_bandwidth_mbps"`
-	BWWarningRatio             float64 `json:"bw_warning_ratio"`
-	BWOverloadRatio            float64 `json:"bw_overload_ratio"`
-	BWWarningPenalty           float64 `json:"bw_warning_penalty"`
-	TokenTTLS                  int     `json:"token_ttl_s"`
-	SecretRotationIntervalS    int     `json:"secret_rotation_interval_s"`
-	CommSecret                 string  `json:"comm_secret"`
-	LogLevel                   string  `json:"log_level"`
-}
-
-// toConfig 将旧格式映射到新结构
-func (lc *legacyConfig) toConfig() *Config {
-	c := &Config{
-		Self: SelfConfig{
-			Role:                       Role(lc.Role),
-			UUID:                       lc.UUID,
-			TopoCacheDir:               lc.TopoCacheDir,
-			MaxBandwidthMbps:           lc.MaxBandwidthMbps,
-			BWWarningRatio:             lc.BWWarningRatio,
-			BWOverloadRatio:            lc.BWOverloadRatio,
-			CenterConnectRetryCount:    lc.CenterConnectRetryCount,
-			CenterConnectRetryIntervalS: lc.CenterConnectRetryIntervalS,
-			ConnectTimeoutMs:           lc.ConnectTimeoutMs,
-			ProbeTimeoutMs:             lc.ProbeTimeoutMs,
-			MonitorProbeTimeoutMs:      lc.MonitorProbeTimeoutMs,
-			TopoSyncIntervalS:          lc.TopoSyncIntervalS,
-			TopoSyncJitterMs:           lc.TopoSyncJitterMs,
-			RTTWindowS:                 lc.RTTWindowS,
-			LossRateThreshold:          lc.LossRateThreshold,
-			TokenTTLS:                  lc.TokenTTLS,
-			SecretRotationIntervalS:    lc.SecretRotationIntervalS,
-			LogRealIP:                  lc.LogRealIP,
-			ForwardRealIP:              lc.ForwardRealIP,
-			LogLevel:                   lc.LogLevel,
-		},
-		Remote: RemoteConfig{
-			CenterAddr:      lc.CenterAddr,
-			CenterPort:      lc.CenterPort,
-			OriginAddr:      lc.OriginAddr,
-			OriginPort:      lc.OriginPort,
-			BootstrapAddr:   lc.BootstrapAddr,
-			BootstrapPort:   lc.BootstrapPort,
-			UpstreamAddr:    lc.UpstreamAddr,
-			UpstreamPort:    lc.UpstreamPort,
-			BWWarningPenalty: lc.BWWarningPenalty,
-			CommSecret:      lc.CommSecret,
-		},
-	}
-
-	// 按角色映射本地监听地址/端口
-	switch Role(lc.Role) {
-	case RoleCenter:
-		c.Self.ListenAddr = lc.CenterListenAddr
-		c.Self.ListenPort = lc.CenterListenPort
-		c.Self.CommSecret = lc.CommSecret // center 管理密钥
-	case RoleEdge:
-		c.Self.Addr = lc.SelfAddr
-		c.Self.ProbePort = lc.ProbePort
-		c.Self.BusinessPort = lc.BusinessPort
-	case RoleClient:
-		c.Self.ListenAddr = lc.LocalAddr
-		c.Self.ListenPort = lc.LocalPort
-	case RoleServer:
-		c.Self.ListenAddr = lc.ListenAddr
-		c.Self.ListenPort = lc.ListenPort
-	}
-
-	return c
 }
 
 // Load 按优先级加载配置
@@ -245,27 +147,18 @@ func loadFromBase64(b64 string) (*Config, error) {
 func parse(data []byte) (*Config, error) {
 	// 检测是否为新格式（有 self/remote key）
 	var probe struct {
-		Self   json.RawMessage `json:"self"`
-		Remote json.RawMessage `json:"remote"`
+		Self json.RawMessage `json:"self"`
 	}
-	if err := json.Unmarshal(data, &probe); err == nil && probe.Self != nil {
-		// 新格式
-		var c Config
-		if err := json.Unmarshal(data, &c); err != nil {
-			return nil, fmt.Errorf("JSON 解析失败: %w", err)
-		}
-		c.defaults()
-		return &c, nil
+	if err := json.Unmarshal(data, &probe); err != nil || probe.Self == nil {
+		return nil, fmt.Errorf("JSON 解析失败: 缺少 self 配置段")
 	}
 
-	// 旧格式（平铺）
-	var lc legacyConfig
-	if err := json.Unmarshal(data, &lc); err != nil {
+	var c Config
+	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("JSON 解析失败: %w", err)
 	}
-	c := lc.toConfig()
 	c.defaults()
-	return c, nil
+	return &c, nil
 }
 
 // Validate 校验配置完整性

@@ -23,6 +23,7 @@ type EdgeRecord struct {
 	IP            string
 	ProbePort     int
 	BusinessPort  int
+	Group         string
 	RTTToOriginMs int64
 	BWStatus      string
 	CurrentBps    int64
@@ -188,11 +189,17 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 		return
 	}
 
+	// 空分组兜底为 default，保证拓扑中不存在空分组节点
+	if req.Group == "" {
+		req.Group = config.DefaultGroup
+	}
+
 	record := &EdgeRecord{
 		UUID:         uuid,
 		IP:           req.IP,
 		ProbePort:    req.ProbePort,
 		BusinessPort: req.BusinessPort,
+		Group:        req.Group,
 		conn:         conn,
 		writeCh:      make(chan []byte, 256),
 	}
@@ -217,7 +224,7 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 	s.secretMu.RUnlock()
 	s.sendMsg(conn, protocol.MsgTypeSecretPush, protocol.SecretPushPayload{Secret: secret})
 
-	logger.Info("边缘节点注册成功 uuid:", uuid, " ip:", req.IP)
+	logger.Info("边缘节点注册成功 uuid:", uuid, " ip:", req.IP, " group:", record.Group)
 }
 
 // handleRTTReport 更新边缘节点到源站的 RTT
@@ -267,6 +274,7 @@ func (s *CenterServer) handleTopoQuery(conn *websocket.Conn) {
 			IP:            r.IP,
 			ProbePort:     r.ProbePort,
 			BusinessPort:  r.BusinessPort,
+			Group:         r.Group,
 			RTTToOriginMs: r.RTTToOriginMs,
 			BWStatus:      r.BWStatus,
 			CurrentBps:    r.CurrentBps,

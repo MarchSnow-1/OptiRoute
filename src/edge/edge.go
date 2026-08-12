@@ -64,6 +64,7 @@ func (c *CenterClient) Connect(ctx context.Context) error {
 		IP:           c.cfg.Self.Addr,
 		ProbePort:    c.cfg.Self.ProbePort,
 		BusinessPort: c.cfg.Self.BusinessPort,
+		Group:        c.cfg.Self.Group,
 	})
 	go c.heartbeatLoop(ctx)
 	go c.rttReportLoop(ctx)

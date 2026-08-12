@@ -33,6 +33,7 @@ type RegisterPayload struct {
 	IP           string `json:"ip"`            // 边缘节点自身的公网 IP
 	ProbePort    int    `json:"probe_port"`    // 探测端口
 	BusinessPort int    `json:"business_port"` // 业务端口
+	Group        string `json:"group"`         // 节点分组（配置留空=default）
 }
 
 // RegisteredPayload 中心节点注册成功响应
@@ -64,6 +65,7 @@ type NodeInfo struct {
 	IP            string `json:"ip"`
 	ProbePort     int    `json:"probe_port"`
 	BusinessPort  int    `json:"business_port"`
+	Group         string `json:"group"`          // 节点分组
 	RTTToOriginMs int64  `json:"rtt_to_origin_ms"`
 	BWStatus      string `json:"bw_status"`    // "normal" / "warning" / "overloaded"
 	CurrentBps    int64  `json:"current_bps"`  // 当前带宽（Bytes/sec），0=未配置限制

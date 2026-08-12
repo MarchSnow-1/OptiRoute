@@ -1,6 +1,6 @@
 {
   "name": "optiroute",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "scripts": {
     "version": "auto-changelog -p && git add CHANGELOG.md"
   },

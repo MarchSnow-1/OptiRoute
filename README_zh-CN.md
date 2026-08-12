@@ -159,6 +159,7 @@ go build -o dist/optiroute ./src/
     "role": "edge",
     "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
     "addr": "x.x.x.x",
+    "group": "asia-east-1",
     "probe_port": 20001,
     "business_port": 18001,
     "topo_cache_dir": "./cache",
@@ -186,6 +187,7 @@ go build -o dist/optiroute ./src/
 | self.addr | x.x.x.x | 访问本节点的入口 IP 或域名, 用于注册和故障转移自识别, IPv6 需加方括号 |
 | self.probe_port | 20001 | 探测端口, 供客户端测量 RTT |
 | self.business_port | 18001 | 业务端口, 承载引导和业务流量 |
+| self.group | asia-east-1 | 节点分组, 未填=default |
 | self.topo_cache_dir | ./cache | 拓扑缓存目录, 空值或不填=不缓存 (容器环境推荐留空) |
 | self.center_connect_retry_count | 3 | 启动时连接中心节点的重试次数, 超过后尝试加载本地缓存 |
 | self.center_connect_retry_interval_s | 5 | 每次重试间隔 (秒) |
@@ -282,6 +284,7 @@ go build -o dist/optiroute ./src/
 | probe_port | int | — | edge 必填, 探测端口 |
 | business_port | int | — | edge 必填, 业务端口 (承载引导+业务流量) |
 | topo_cache_dir | string | 空 | edge 拓扑缓存目录, 空值=不缓存 |
+| group | string | default | 节点分组, 未填=default |
 | max_bandwidth_mbps | float | 0 | edge 带宽上限 (Mbps), 0=不限制 |
 | bw_warning_ratio | float | 0.80 | edge 带宽使用率触发 warning 阈值 |
 | bw_overload_ratio | float | 0.95 | edge 带宽使用率触发 overloaded 阈值 |

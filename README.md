@@ -162,6 +162,7 @@ go build -o dist/optiroute ./src/
     "role": "edge",
     "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
     "addr": "x.x.x.x",
+    "group": "asia-east-1",
     "probe_port": 20001,
     "business_port": 18001,
     "topo_cache_dir": "./cache",
@@ -187,6 +188,7 @@ go build -o dist/optiroute ./src/
 | self.addr | x.x.x.x | Public entry IP or domain for this node; used for registration and failover self-identification; IPv6 must use brackets |
 | self.probe_port | 20001 | Probe port used by clients to measure RTT |
 | self.business_port | 18001 | Business port; carries both bootstrap and data traffic |
+| self.group | asia-east-1 | Node group; defaults to "default" if omitted |
 | self.topo_cache_dir | ./cache | Topology cache directory; empty = no caching (recommended for container environments) |
 | self.center_connect_retry_count | 3 | Number of retries when connecting to the center node at startup |
 | self.center_connect_retry_interval_s | 5 | Interval between retries (seconds) |
@@ -281,6 +283,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | probe_port | int | — | Required for edge; probe port |
 | business_port | int | — | Required for edge; business port (carries bootstrap + data traffic) |
 | topo_cache_dir | string | (empty) | Edge topology cache directory; empty = no caching |
+| group | string | default | Node group; defaults to "default" if omitted |
 | max_bandwidth_mbps | float | 0 | Edge bandwidth limit (Mbps); 0 = unlimited |
 | bw_warning_ratio | float | 0.80 | Edge bandwidth usage warning threshold |
 | bw_overload_ratio | float | 0.95 | Edge bandwidth usage overloaded threshold |

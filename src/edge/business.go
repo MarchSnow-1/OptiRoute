@@ -19,22 +19,28 @@ type BusinessFirstPacket struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-func readFirstPacketWithPrefix(conn net.Conn, alreadyRead []byte, timeout time.Duration) ([]byte, error) {
+// readFirstPacketWithPrefix 读取业务首帧：alreadyRead 为判定阶段已读的前缀
+// （4 或 16 字节），从其中解析帧长并在连接上补齐剩余数据。
+// deadline 为绝对时间点，复用调用方传入的同一超时窗口；零值表示不设超时。
+func readFirstPacketWithPrefix(conn net.Conn, alreadyRead []byte, deadline time.Time) ([]byte, error) {
 	if len(alreadyRead) < 4 {
 		return nil, fmt.Errorf("已读数据不足 4 字节，无法解析帧长度")
 	}
 	frameLen := binary.BigEndian.Uint32(alreadyRead[:4])
-	if frameLen > 1<<20 {
+	if frameLen > util.MaxFrameSize {
 		return nil, fmt.Errorf("帧长度超限: %d", frameLen)
 	}
 	got := uint32(len(alreadyRead) - 4)
 	if got > frameLen {
+		// 已读前缀超过帧长，说明前缀中含下一条帧的字节，raw conn 无法回推，只能关闭。
+		// 注：当前 16 字节移交形态下该分支不可达——16 字节移交意味着首 4 字节为
+		// "ORTE"(0x4F525445 ≈ 1.33GB)，必先被上面的帧长上限拒绝；保留为纯防御代码。
 		return nil, fmt.Errorf("alreadyRead 包含的数据超过帧长度: got=%d, frameLen=%d", got, frameLen)
 	}
 	remaining := frameLen - got
 
-	if timeout > 0 {
-		conn.SetReadDeadline(time.Now().Add(timeout))
+	if !deadline.IsZero() {
+		conn.SetReadDeadline(deadline)
 		defer conn.SetReadDeadline(time.Time{})
 	}
 
@@ -48,11 +54,11 @@ func readFirstPacketWithPrefix(conn net.Conn, alreadyRead []byte, timeout time.D
 	return buf, nil
 }
 
-func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte) {
+func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.Time) {
 	defer conn.Close()
 	remote := conn.RemoteAddr().String()
 
-	firstPacket, err := readFirstPacketWithPrefix(conn, alreadyRead, 5*time.Second)
+	firstPacket, err := readFirstPacketWithPrefix(conn, alreadyRead, deadline)
 	if err != nil {
 		logger.Warn("[", remote, "] 读取首包失败 err:", err)
 		return

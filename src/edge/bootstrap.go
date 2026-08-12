@@ -36,21 +36,58 @@ func (n *Node) runBusinessServer(ctx context.Context) {
 	}
 }
 
-func (n *Node) dispatchConnection(conn net.Conn) {
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+// handshakeTimeout 是「Magic 判定 + 业务首帧读取」共享的唯一超时窗口。
+// 注意：handleBootstrap 的多轮引导交互不在此窗口内，各自保留独立超时。
+const handshakeTimeout = 5 * time.Second
 
-	buf := make([]byte, protocol.MagicLen)
-	if _, err := io.ReadFull(conn, buf); err != nil {
+// dispatchConnection 对连接做分层判定：
+//   - 先读 4 字节初筛（IsMagicPrefix），绝大多数业务连接在此时即可分流；
+//   - 仅命中 Magic 前缀才读满 16 字节做完整 IsMagic 兜底比对。
+//
+// 判定全程共享同一绝对 deadline，业务分支将该 deadline 原样移交 handleBusiness，
+// 使「判定 + 业务首帧」共用同一个超时窗口；引导分支在移交前清除判定期 deadline，
+// 由 handleBootstrap 内部的多轮交互各自设置独立超时。
+func (n *Node) dispatchConnection(conn net.Conn) {
+	deadline := time.Now().Add(handshakeTimeout)
+
+	handoff, isBootstrap, err := classifyConnection(conn, deadline)
+	if err != nil {
 		conn.Close()
 		return
 	}
-	conn.SetReadDeadline(time.Time{})
 
-	if protocol.IsMagic(buf) {
+	if isBootstrap {
+		// 引导流程自带多轮独立超时，移交前清除判定期 deadline
+		conn.SetReadDeadline(time.Time{})
 		n.handleBootstrap(conn)
 	} else {
-		n.handleBusiness(conn, buf)
+		// 业务路径：deadline 原样移交，覆盖「首帧读取」直至 readFirstPacketWithPrefix 内部清除
+		n.handleBusiness(conn, handoff, deadline)
 	}
+}
+
+// classifyConnection 分层判定连接类型，返回已读前缀（4 或 16 字节）供 business 层继续消费。
+// deadline 为绝对时间点，Go 的 SetReadDeadline 语义使其跨多次 Read 持续生效，天然共享同一窗口。
+func classifyConnection(conn net.Conn, deadline time.Time) (alreadyRead []byte, isBootstrap bool, err error) {
+	conn.SetReadDeadline(deadline)
+
+	head := make([]byte, protocol.MagicPrefixLen)
+	if _, err := io.ReadFull(conn, head); err != nil {
+		return nil, false, err
+	}
+	if !protocol.IsMagicPrefix(head) {
+		return head, false, nil // 快路径：业务连接，移交 4 字节
+	}
+
+	buf := make([]byte, protocol.MagicLen)
+	copy(buf, head)
+	if _, err := io.ReadFull(conn, buf[protocol.MagicPrefixLen:]); err != nil {
+		return nil, false, err
+	}
+	if protocol.IsMagic(buf) {
+		return nil, true, nil
+	}
+	return buf, false, nil // 前缀命中但非完整 Magic：移交 16 字节
 }
 
 func (n *Node) handleBootstrap(conn net.Conn) {

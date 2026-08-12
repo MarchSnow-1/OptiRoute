@@ -1,6 +1,8 @@
 # Configuration Guide
 
-OptiRoute uses a JSON configuration file, launched via `--config-path=config.json`. This document covers the complete configuration for all four roles. For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/OptiRoute/issues).
+OptiRoute uses a JSON configuration file, launched via `--config-path=config.json`.
+
+For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/OptiRoute/issues).
 
 ## Center Node
 
@@ -124,6 +126,7 @@ OptiRoute uses a JSON configuration file, launched via `--config-path=config.jso
 {
   "self": {
     "role": "server",
+    "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
     "listen_port": 18002,
     "log_real_ip": true,
     "forward_real_ip": true,
@@ -140,6 +143,7 @@ OptiRoute uses a JSON configuration file, launched via `--config-path=config.jso
 | Field | Value | Description |
 |-------|-------|-------------|
 | self.role | server | Start as a server agent |
+| self.uuid | b09ad5e0-xxx | Unique identifier for this server agent; required; the Center deduplicates reports by it (multiple Edges connecting to the same Server produce one record) |
 | self.listen_port | 18002 | Listen port; edge nodes connect here |
 | self.log_real_ip | true | Whether to log the client's real IP (extracted from the PPv2 header) |
 | self.forward_real_ip | true | Whether to inject a PPv2 header when forwarding to upstream (requires upstream Proxy Protocol v2 support) |
@@ -157,7 +161,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | role | string | — | Required; runtime role: center / edge / client / server |
-| uuid | string | — | Required for edge; globally unique node identifier |
+| uuid | string | — | Required for edge/server; globally unique node identifier (server: used by the Center to deduplicate reports) |
 | addr | string | — | Required for edge; public entry IP or domain; IPv6 must use brackets |
 | listen_addr | string | (empty) | Listen address for center/client/server; empty = dual-stack; IPv6 must use brackets e.g. `[::]` |
 | listen_port | int | — | Required for center/client/server; listen port |

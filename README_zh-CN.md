@@ -158,13 +158,13 @@ Client/Server Agent 不直连 Center, 统一经 Edge 中转上报
 |------|------|---------|
 | **Edge 自身版本** | 自身读取 | 注册时随 `RegisterPayload` 上报 |
 | **Client Agent 版本 + IP** | 业务接入首包携带版本 | Client → Edge (业务端口) → Center |
-| **Server Agent 版本** | 密钥校验后回确认帧 | Server → Edge (确认帧) → Center |
+| **Server Agent 版本 + UUID** | 密钥校验后回确认帧 | Server → Edge (确认帧) → Center |
 
 ### 上报机制
 
-- **客户端信息**: Client Agent 在连接业务端口发送 Token 首包时携带自身版本; Edge 解析后缓存, **每 3s 批量上报** center. 客户端 IP 为 edge 视角的 TCP 源 IP (客户端直连 edge), 非客户端自报.
-- **Server 确认帧**: Server Agent 在密钥校验通过后, 读取 PPv2 包头前, 回一帧包含自身版本的确认帧; Edge 读取失败即断连——**老版本 Server Agent 不兼容, 需同步升级**.
-- **存储**: Center 按节点保留最近 1000 条客户端接入信息 (超限裁头), Server/Edge 版本实时覆盖.
+- **客户端信息**: Client Agent 在连接业务端口发送 Token 首包时携带自身版本, Edge 获取源 IP 后一起 **每 3s 批量上报** Center
+- **Server 确认帧**: Server Agent 在密钥校验通过后, 读取 PPv2 包头前, 回传包含自身版本的确认帧
+- **存储**: Center 按节点保留最近 1000 条客户端接入信息 (超限裁头), Server/Edge 版本实时覆盖. **Server Agent 需配置 `self.uuid`**, 中心按 UUID 去重——多个 Edge 连同一 Server 只记录一份, 并聚合连接它的 Edge 列表
 
 ### 配置
 
@@ -191,15 +191,14 @@ curl -H "Authorization: Bearer <key>" http://<center>:7000/api/version
 ```json
 {
   "edges": [
-    {"uuid": "...", "ip": "1.2.3.4", "version": "0.3.0", "server_ip": "5.6.7.8", "server_version": "0.3.0", "client_count": 12}
+    {"uuid": "...", "ip": "1.2.3.4", "version": "0.3.0", "server_uuid": "svr-1", "client_count": 12}
+  ],
+  "servers": [
+    {"uuid": "svr-1", "ip": "5.6.7.8", "version": "0.3.0", "updated_at": 1786533751, "edges": ["edge-a", "edge-b"]}
   ],
   "client_versions": {"0.3.0": 45, "0.2.0": 3}
 }
 ```
-
-## 安全说明
-
-- **ICMP 权限**: Windows 上客户端 ICMP 探测需管理员权限; Linux 需 CAP_NET_RAW 或非特权 ping socket
 
 ## IPv6 支持
 
@@ -217,6 +216,10 @@ OptiRoute 完整支持 IPv4/IPv6 双栈运行
 域名和 IPv4 地址直接填写即可
 
 监听地址默认为空字符串, 同时绑定 IPv4 和 IPv6 所有接口
+
+## 安全说明
+
+- **ICMP 权限**: Windows 上客户端 ICMP 探测需管理员权限; Linux 需 CAP_NET_RAW 或非特权 ping socket
 
 ## 开源协议
 

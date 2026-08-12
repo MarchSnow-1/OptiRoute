@@ -2,7 +2,7 @@
 
 OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 
-本文档涵盖四种角色的完整配置项, 如有修改建议欢迎开 [Issues](https://github.com/MarchSnow-1/OptiRoute/issues) 反馈
+如有修改建议欢迎开 [Issues](https://github.com/MarchSnow-1/OptiRoute/issues) 反馈
 
 ## 中心节点 (Center)
 
@@ -129,6 +129,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 {
   "self": {
     "role": "server",
+    "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
     "listen_port": 18002,
     "log_real_ip": true,
     "forward_real_ip": true,
@@ -145,6 +146,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | 配置项 | 值 | 用途 |
 |--------|------|------|
 | self.role | server | 作为服务端代理启动 |
+| self.uuid | b09ad5e0-xxx | 服务端代理的 UUID, 必填, 中心按此去重上报 (多 Edge 连同一 Server 只记录一份) |
 | self.listen_port | 18002 | 监听端口, 边缘节点接入此端口 |
 | self.log_real_ip | true | 是否在日志中记录客户端真实 IP (从 PPv2 包头提取) |
 | self.forward_real_ip | true | 是否向上游注入 PPv2 包头以传递客户端真实 IP (需上游支持 Proxy Protocol v2) |
@@ -162,7 +164,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | role | string | — | 必填, 运行角色: center / edge / client / server |
-| uuid | string | — | edge 必填, 本节点唯一标识, 全局不可重复 |
+| uuid | string | — | edge/server 必填, 本节点唯一标识, 全局不可重复 (server 用于中心去重上报) |
 | addr | string | — | edge 必填, 本节点公网入口 IP 或域名, IPv6 需加方括号 |
 | listen_addr | string | 空 | center/client/server 监听地址, 空值=双栈绑定, IPv6 需加方括号如 `[::]` |
 | listen_port | int | — | center/client/server 必填, 监听端口 |

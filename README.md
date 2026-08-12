@@ -161,13 +161,13 @@ Client/Server Agents do not connect to the Center directly; everything is relaye
 |------|--------|------|
 | **Edge version** | Read locally | Reported at registration via `RegisterPayload` |
 | **Client Agent version + IP** | Version carried in the business first packet | Client → Edge (business port) → Center |
-| **Server Agent version** | Ack frame after key validation | Server → Edge (ack frame) → Center |
+| **Server Agent version + UUID** | Ack frame after key validation | Server → Edge (ack frame) → Center |
 
 ### Reporting Mechanism
 
-- **Client info**: the Client Agent carries its version in the token first packet when connecting to the business port; the Edge parses and buffers it, reporting to the Center **in batches every 3s**. The client IP is the TCP source IP as seen by the Edge (the client connects directly to the Edge), not self-reported by the client.
-- **Server ack frame**: after key validation and before reading the PPv2 header, the Server Agent replies with a frame containing its version; the Edge disconnects on read failure — **older Server Agent binaries are incompatible and must be upgraded in sync**.
-- **Storage**: the Center keeps the latest 1000 client entries per node (older entries are trimmed); Server/Edge versions are overwritten in real time.
+- **Client info**: the Client Agent carries its version in the token first packet when connecting to the business port; the Edge obtains the source IP and reports both together **in batches every 3s**.
+- **Server ack frame**: after key validation and before reading the PPv2 header, the Server Agent replies with a frame containing its own version.
+- **Storage**: the Center keeps the latest 1000 client entries per node (older entries are trimmed); Server/Edge versions are overwritten in real time. The **Server Agent must configure `self.uuid`**; the Center deduplicates by UUID — multiple Edges connecting to the same Server produce one record, aggregating the list of connected Edges.
 
 ### Configuration
 
@@ -194,17 +194,14 @@ curl -H "Authorization: Bearer <key>" http://<center>:7000/api/version
 ```json
 {
   "edges": [
-    {"uuid": "...", "ip": "1.2.3.4", "version": "0.3.0", "server_ip": "5.6.7.8", "server_version": "0.3.0", "client_count": 12}
+    {"uuid": "...", "ip": "1.2.3.4", "version": "0.3.0", "server_uuid": "svr-1", "client_count": 12}
+  ],
+  "servers": [
+    {"uuid": "svr-1", "ip": "5.6.7.8", "version": "0.3.0", "updated_at": 1786533751, "edges": ["edge-a", "edge-b"]}
   ],
   "client_versions": {"0.3.0": 45, "0.2.0": 3}
 }
 ```
-
-## Security Notes
-
-- **ICMP permissions**: On Windows, ICMP probing requires administrator privileges; on Linux it requires CAP_NET_RAW or unprivileged ping sockets.
-
----
 
 ## IPv6 Support
 
@@ -222,6 +219,12 @@ All `_addr` configuration fields accept IPv4 addresses, domain names, and bracke
 Domain names and IPv4 addresses are entered directly without brackets.
 
 An empty listen address binds to all IPv4 and IPv6 interfaces simultaneously.
+
+---
+
+## Security Notes
+
+- **ICMP permissions**: On Windows, ICMP probing requires administrator privileges; on Linux it requires CAP_NET_RAW or unprivileged ping sockets.
 
 ---
 

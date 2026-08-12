@@ -284,6 +284,9 @@ func (c *Config) Validate() error {
 			return err
 		}
 	case RoleServer:
+		if c.Self.UUID == "" {
+			return fmt.Errorf("server 角色必须配置 self.uuid（供中心按 UUID 去重上报）")
+		}
 		if c.Self.ListenPort == 0 || c.Remote.UpstreamPort == 0 {
 			return fmt.Errorf("server 角色必须配置 self.listen_port 和 remote.upstream_port")
 		}

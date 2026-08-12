@@ -143,6 +143,7 @@ type TopoResponse struct {
 
 // ServerAck Server Agent 在密钥校验后回给 Edge 的确认帧（framing 层，非 WS 消息）
 type ServerAck struct {
+	UUID    string `json:"uuid"`    // Server Agent 自身 UUID（center 按此去重）
 	Version string `json:"version"` // Server Agent 自身版本
 }
 
@@ -155,6 +156,7 @@ type ClientVersionReport struct {
 
 // ServerVersionReport Server Agent 信息（edge → center，随 version_report 上报）
 type ServerVersionReport struct {
+	UUID    string `json:"uuid"`    // Server Agent UUID（center 按此去重）
 	IP      string `json:"ip"`      // Server Agent IP（edge 从 originConn.RemoteAddr() 获取）
 	Version string `json:"version"` // Server Agent 版本（确认帧）
 }

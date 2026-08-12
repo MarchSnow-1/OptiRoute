@@ -18,10 +18,11 @@ import (
 type ServerAgent struct {
 	cfg     *config.Config
 	version string // 自身版本（ldflags 注入，确认帧上报）
+	uuid    string // 自身 UUID（配置必填，center 按此去重上报）
 }
 
 func NewServerAgent(cfg *config.Config, version string) *ServerAgent {
-	return &ServerAgent{cfg: cfg, version: version}
+	return &ServerAgent{cfg: cfg, version: version, uuid: cfg.Self.UUID}
 }
 
 func (a *ServerAgent) Start(ctx context.Context) error {
@@ -73,9 +74,9 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 		return
 	}
 
-	// 回 Server 确认帧（含版本），供 edge 读取并上报 center。
+	// 回 Server 确认帧（含 UUID + 版本），供 edge 读取并上报 center。
 	// 时序：确认帧必须在读 PPv2 之前发送，edge 侧在写 PPv2 后等待此帧。
-	ackJSON, _ := json.Marshal(protocol.ServerAck{Version: a.version})
+	ackJSON, _ := json.Marshal(protocol.ServerAck{UUID: a.uuid, Version: a.version})
 	if err := util.WriteFrame(conn, ackJSON); err != nil {
 		logger.Warn("[", remote, "] 回确认帧失败 err:", err)
 		conn.Close()

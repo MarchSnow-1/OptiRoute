@@ -111,9 +111,9 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 		return
 	}
 
-	// 读取 Server 确认帧（含版本）。Server Agent 在密钥校验后、读 PPv2 前回此帧；
+	// 读取 Server 确认帧（含 UUID + 版本）。Server Agent 在密钥校验后、读 PPv2 前回此帧；
 	// 读不到/解析失败则断连（老版本 Server Agent 不兼容，强制同步升级）。
-	var serverVersion string
+	var serverVersion, serverUUID string
 	if ackData, err := util.ReadFrame(originConn, 3*time.Second); err != nil {
 		logger.Warn("[", remote, "] 读取 Server 确认帧失败 err:", err, "（Server Agent 版本过旧？）")
 		return
@@ -124,11 +124,13 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 			return
 		}
 		serverVersion = ack.Version
+		serverUUID = ack.UUID
 	}
 
-	// 记录 Server Agent 信息（版本 + IP，IP 取 edge 视角的源站连接远端地址）
+	// 记录 Server Agent 信息（UUID + 版本 + IP，IP 取 edge 视角的源站连接远端地址）
 	if cc := n.ccClient(); cc != nil {
 		cc.SetServerReport(&protocol.ServerVersionReport{
+			UUID:    serverUUID,
 			IP:      originConn.RemoteAddr().String(),
 			Version: serverVersion,
 		})

@@ -2,27 +2,37 @@ package agent
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
-	logger "github.com/donnie4w/go-logger/logger"
 	"github.com/MarchSnow-1/OptiRoute/config"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
+	logger "github.com/donnie4w/go-logger/logger"
 )
 
 type ServerAgent struct {
-	cfg     *config.Config
-	version string // 自身版本（ldflags 注入，确认帧上报）
-	uuid    string // 自身 UUID（配置必填，center 按此去重上报）
+	cfg          *config.Config
+	version      string // 自身版本（ldflags 注入，确认帧上报）
+	uuid         string // 自身 UUID（配置必填，center 按此去重上报）
+	handshakeSem chan struct{}
+	authLimiter  *serverAuthLimiter
 }
 
 func NewServerAgent(cfg *config.Config, version string) *ServerAgent {
-	return &ServerAgent{cfg: cfg, version: version, uuid: cfg.Self.UUID}
+	return &ServerAgent{
+		cfg:          cfg,
+		version:      version,
+		uuid:         cfg.Self.UUID,
+		handshakeSem: make(chan struct{}, maxServerAuthHandshakes),
+		authLimiter:  newServerAuthLimiter(),
+	}
 }
 
 func (a *ServerAgent) Start(ctx context.Context) error {
@@ -50,13 +60,104 @@ func (a *ServerAgent) Start(ctx context.Context) error {
 				continue
 			}
 		}
-		go a.handleEdgeConn(conn)
+		if !a.tryAcquireHandshake() {
+			logger.Debug("Server Agent 认证前握手并发已满，拒绝新连接")
+			conn.Close()
+			continue
+		}
+		go func(conn net.Conn) {
+			defer a.releaseHandshake()
+			a.handleEdgeConn(conn)
+		}(conn)
+	}
+}
+
+const (
+	maxServerAuthHandshakes = 1024
+	serverAuthRateWindow    = 10 * time.Second
+	serverAuthRateMaxPerIP  = 30
+	maxServerAuthRateIPs    = 16384
+)
+
+type serverAuthIPWindow struct {
+	start time.Time
+	count int
+}
+
+type serverAuthLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]*serverAuthIPWindow
+}
+
+func newServerAuthLimiter() *serverAuthLimiter {
+	return &serverAuthLimiter{buckets: make(map[string]*serverAuthIPWindow)}
+}
+
+func (l *serverAuthLimiter) allow(ip string) bool {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	st := l.buckets[ip]
+	if st == nil {
+		if len(l.buckets) >= maxServerAuthRateIPs {
+			l.pruneLocked(now)
+			if len(l.buckets) >= maxServerAuthRateIPs {
+				return false
+			}
+		}
+		st = &serverAuthIPWindow{start: now}
+		l.buckets[ip] = st
+	}
+	if now.Sub(st.start) >= serverAuthRateWindow {
+		st.start = now
+		st.count = 0
+	}
+	if st.count >= serverAuthRateMaxPerIP {
+		return false
+	}
+	st.count++
+	return true
+}
+
+func (l *serverAuthLimiter) pruneLocked(now time.Time) {
+	for ip, st := range l.buckets {
+		if now.Sub(st.start) >= serverAuthRateWindow {
+			delete(l.buckets, ip)
+		}
+	}
+}
+
+func (a *ServerAgent) tryAcquireHandshake() bool {
+	if a.handshakeSem == nil {
+		return true
+	}
+	select {
+	case a.handshakeSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *ServerAgent) releaseHandshake() {
+	if a.handshakeSem != nil {
+		<-a.handshakeSem
 	}
 }
 
 func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	defer conn.Close() // 任何分支退出都关闭进来的连接（含 ForwardRealIP 写失败提前 return 路径）
 	remote := conn.RemoteAddr().String()
+
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = remote
+	}
+	if a.authLimiter != nil && !a.authLimiter.allow(host) {
+		logger.Warn("[", remote, "] 认证前连接超过限速，拒绝")
+		return
+	}
 
 	// 读取并验证通信密钥
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -68,7 +169,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 		conn.Close()
 		return
 	}
-	if string(secretBuf) != a.cfg.Remote.CommSecret {
+	if subtle.ConstantTimeCompare(secretBuf, []byte(a.cfg.Remote.CommSecret)) != 1 {
 		logger.Warn("[", remote, "] 通信密钥认证失败")
 		conn.Close()
 		return
@@ -77,7 +178,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	// 回 Server 确认帧（含 UUID + 版本），供 edge 读取并上报 center。
 	// 时序：确认帧必须在读 PPv2 之前发送，edge 侧在写 PPv2 后等待此帧。
 	ackJSON, _ := json.Marshal(protocol.ServerAck{UUID: a.uuid, Version: a.version})
-	if err := util.WriteFrame(conn, ackJSON); err != nil {
+	if err := util.WriteFrameWithDeadline(conn, ackJSON, 5*time.Second); err != nil {
 		logger.Warn("[", remote, "] 回确认帧失败 err:", err)
 		conn.Close()
 		return
@@ -130,7 +231,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	// 4. 按配置决定是否向上游注入 Proxy Protocol v2 包头
 	if a.cfg.Self.ForwardRealIP {
 		ppv2Hdr := protocol.BuildPPv2Header(clientIP, clientPort, net.IP{}, 0)
-		if _, err := upstreamConn.Write(ppv2Hdr); err != nil {
+		if err := util.WriteWithDeadline(upstreamConn, ppv2Hdr, 5*time.Second); err != nil {
 			logger.Warn("[", remote, "] 写入 PPv2 包头至上游失败 err:", err)
 			return
 		}

@@ -7,10 +7,10 @@ import (
 	"net"
 	"time"
 
-	logger "github.com/donnie4w/go-logger/logger"
 	"github.com/MarchSnow-1/OptiRoute/config"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
+	logger "github.com/donnie4w/go-logger/logger"
 )
 
 type ClientAgent struct {
@@ -84,7 +84,7 @@ func (a *ClientAgent) connectWithToken(targetIP string, businessPort int, token 
 		Version:   a.version,
 	}
 	fpJSON, _ := json.Marshal(firstPacket)
-	if err := util.WriteFrame(edgeConn, fpJSON); err != nil {
+	if err := util.WriteFrameWithDeadline(edgeConn, fpJSON, timeout); err != nil {
 		edgeConn.Close()
 		return nil, fmt.Errorf("发送 Token 首包失败: %w", err)
 	}
@@ -118,7 +118,7 @@ func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn
 	}
 	defer bootstrapConn.Close()
 
-	if _, err := bootstrapConn.Write(protocol.InitConnectMagic); err != nil {
+	if err := util.WriteWithDeadline(bootstrapConn, protocol.InitConnectMagic, timeout); err != nil {
 		return nil, fmt.Errorf("发送 Magic 失败: %w", err)
 	}
 
@@ -139,7 +139,7 @@ func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn
 	}
 
 	rttJSON, _ := json.Marshal(results)
-	if err := util.WriteFrame(bootstrapConn, rttJSON); err != nil {
+	if err := util.WriteFrameWithDeadline(bootstrapConn, rttJSON, timeout); err != nil {
 		return nil, fmt.Errorf("上报探测结果失败: %w", err)
 	}
 

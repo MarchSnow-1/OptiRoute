@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	PPv2MinHeaderLen = 16 // 签名(12) + 命令(1) + 族(1) + 长度(2)
+	PPv2MinHeaderLen  = 16 // 签名(12) + 命令(1) + 族(1) + 长度(2)
 	PPv2HeaderLenIPv4 = 28 // IPv4/TCP 完整包头
 	PPv2HeaderLenIPv6 = 52 // IPv6/TCP 完整包头
 )
@@ -20,8 +20,8 @@ var ppv2Signature = []byte{
 func BuildPPv2Header(srcIP net.IP, srcPort uint16, dstIP net.IP, dstPort uint16) []byte {
 	src4 := srcIP.To4()
 
-	// dstIP 为空时按 srcIP 地址族补全（net.IP{} 的 To4() 返回 nil，直接传入会误判为 IPv6）
-	if dstIP == nil {
+	// dstIP 为空（nil 或 net.IP{}）时按 srcIP 地址族补全，避免误判为 IPv6。
+	if len(dstIP) == 0 {
 		if src4 != nil {
 			dstIP = net.IPv4zero
 		} else {
@@ -34,8 +34,8 @@ func BuildPPv2Header(srcIP net.IP, srcPort uint16, dstIP net.IP, dstPort uint16)
 		// IPv4/TCP: 28 字节
 		hdr := make([]byte, PPv2HeaderLenIPv4)
 		copy(hdr[0:12], ppv2Signature)
-		hdr[12] = 0x21 // version=2, command=PROXY
-		hdr[13] = 0x11 // family=IPv4, protocol=TCP
+		hdr[12] = 0x21                             // version=2, command=PROXY
+		hdr[13] = 0x11                             // family=IPv4, protocol=TCP
 		binary.BigEndian.PutUint16(hdr[14:16], 12) // 4+4+2+2
 		copy(hdr[16:20], src4)
 		copy(hdr[20:24], dst4)
@@ -49,8 +49,8 @@ func BuildPPv2Header(srcIP net.IP, srcPort uint16, dstIP net.IP, dstPort uint16)
 	dst16 := dstIP.To16()
 	hdr := make([]byte, PPv2HeaderLenIPv6)
 	copy(hdr[0:12], ppv2Signature)
-	hdr[12] = 0x21 // version=2, command=PROXY
-	hdr[13] = 0x21 // family=IPv6, protocol=TCP
+	hdr[12] = 0x21                             // version=2, command=PROXY
+	hdr[13] = 0x21                             // family=IPv6, protocol=TCP
 	binary.BigEndian.PutUint16(hdr[14:16], 36) // 16+16+2+2
 	copy(hdr[16:32], src16)
 	copy(hdr[32:48], dst16)

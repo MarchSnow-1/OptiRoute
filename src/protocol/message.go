@@ -7,12 +7,12 @@ type MsgType string
 
 const (
 	// 边缘节点 → 中心节点
-	MsgTypeRegister  MsgType = "register"    // 注册请求
-	MsgTypeHeartbeat MsgType = "heartbeat"   // 心跳（连接存活即代表在线，无需 payload）
-	MsgTypeRTTReport MsgType = "rtt_report"  // RTT 上报（自身到源站 + 各 FAKE-IP）
-	MsgTypeBWReport  MsgType = "bw_report"   // 带宽上报（当前带宽 + 上限 + 状态）
-	MsgTypeTopoQuery MsgType = "topo_query"  // 拓扑查询（含各节点 RTT）
-	MsgTypeFakeUpdate MsgType = "fake_update" // FAKE-IP 列表变化上报（健康检查筛选结果）
+	MsgTypeRegister      MsgType = "register"       // 注册请求
+	MsgTypeHeartbeat     MsgType = "heartbeat"      // 心跳（连接存活即代表在线，无需 payload）
+	MsgTypeRTTReport     MsgType = "rtt_report"     // RTT 上报（自身到源站 + 各 FAKE-IP）
+	MsgTypeBWReport      MsgType = "bw_report"      // 带宽上报（当前带宽 + 上限 + 状态）
+	MsgTypeTopoQuery     MsgType = "topo_query"     // 拓扑查询（含各节点 RTT）
+	MsgTypeFakeUpdate    MsgType = "fake_update"    // FAKE-IP 列表变化上报（健康检查筛选结果）
 	MsgTypeVersionReport MsgType = "version_report" // 版本/IP 信息批量上报（客户端 + Server Agent）
 
 	// 中心节点 → 边缘节点
@@ -20,6 +20,10 @@ const (
 	MsgTypeTopoResponse MsgType = "topo_response" // 拓扑响应（含全网节点 + RTT）
 	MsgTypeSecretPush   MsgType = "secret_push"   // 下发新 shared_secret
 )
+
+// MaxWSMessageSize 是 WebSocket 控制面消息的最大允许字节数。
+// 读限制用于防止恶意/故障对端发送超大帧导致内存耗尽。
+const MaxWSMessageSize = 4 << 20 // 4 MiB
 
 // Envelope 所有消息的外层信封，用于消息路由
 type Envelope struct {
@@ -31,37 +35,38 @@ type Envelope struct {
 
 // RegisterPayload 边缘节点注册请求
 type RegisterPayload struct {
-	UUID         string           `json:"uuid"`           // 边缘节点配置文件中预定义的唯一标识
-	IP           string           `json:"ip"`            // 边缘节点自身的公网 IP
-	ProbePort    int              `json:"probe_port"`    // 探测端口（fakeip-only 或 icmp 时为 0）
-	BusinessPort int              `json:"business_port"` // 业务端口
-	Group        string           `json:"group"`         // 节点分组（配置留空=default）
-	ProbeProto   string           `json:"probe_proto"`   // 本机探测协议 tcp/udp/icmp
-	ProbeMode    string           `json:"probe_mode"`    // 探测模式 direct/fakeip/mixed
-	Version      string           `json:"version,omitempty"` // 边缘节点自身版本（ldflags 注入）
+	UUID         string           `json:"uuid"`                 // 边缘节点配置文件中预定义的唯一标识
+	IP           string           `json:"ip"`                   // 边缘节点自身的公网 IP
+	ProbePort    int              `json:"probe_port"`           // 探测端口（fakeip-only 或 icmp 时为 0）
+	BusinessPort int              `json:"business_port"`        // 业务端口
+	Group        string           `json:"group"`                // 节点分组（配置留空=default）
+	ProbeProto   string           `json:"probe_proto"`          // 本机探测协议 tcp/udp/icmp
+	ProbeMode    string           `json:"probe_mode"`           // 探测模式 direct/fakeip/mixed
+	Version      string           `json:"version,omitempty"`    // 边缘节点自身版本（ldflags 注入）
 	FakeItems    []FakeItemReport `json:"fake_items,omitempty"` // 筛选后的有效 FAKE-IP
 }
 
 // FakeItemReport 本节点筛选后上报的 FAKE-IP 探测项
 type FakeItemReport struct {
 	IP            string  `json:"ip"`
-	Proto         string  `json:"proto"`                    // tcp/udp/icmp
-	Port          int     `json:"port,omitempty"`           // tcp/udp 用；tcp 留空回退 probe_port
-	Weight        float64 `json:"weight,omitempty"`         // 惩罚乘数，默认 1.0
+	Proto         string  `json:"proto"`                     // tcp/udp/icmp
+	Port          int     `json:"port,omitempty"`            // tcp/udp 用；tcp 留空回退 probe_port
+	Weight        float64 `json:"weight,omitempty"`          // 惩罚乘数，默认 1.0
 	RTTFallbackMs int64   `json:"rtt_fallback_ms,omitempty"` // f2n 静态兜底
 }
 
 // RegisteredPayload 中心节点注册成功响应
 type RegisteredPayload struct {
-	OK bool `json:"ok"` // 注册是否成功
+	OK     bool   `json:"ok"`               // 注册是否成功
+	Reason string `json:"reason,omitempty"` // 拒绝原因；仅 ok=false 时由中心下发，Edge 打印日志用
 }
 
 // ── RTT 上报 ─────────────────────────────────────────
 
 // RTTReportPayload 边缘节点上报自身到源站的 RTT 及各 FAKE-IP 的 f2n 延迟
 type RTTReportPayload struct {
-	RTTMs    int64           `json:"rtt_ms"`
-	FakeRTTs []FakeRTTEntry  `json:"fake_rtts,omitempty"` // ip → f2n 实测
+	RTTMs    int64          `json:"rtt_ms"`
+	FakeRTTs []FakeRTTEntry `json:"fake_rtts,omitempty"` // ip → f2n 实测
 }
 
 // FakeRTTEntry 单个 FAKE-IP 的 f2n 实测延迟
@@ -96,20 +101,22 @@ type ProbeItemInfo struct {
 // NodeInfo 单个节点的完整元数据（下发给边缘节点的拓扑，含 RTT）
 type NodeInfo struct {
 	UUID          string          `json:"uuid"`
-	IP            string          `json:"ip"`            // 真实业务 IP（引导最终下发用）
-	ProbePort     int             `json:"probe_port"`    // 真实探测端口（fakeip/icmp 时为 0）
+	IP            string          `json:"ip"`         // 真实业务 IP（引导最终下发用）
+	ProbePort     int             `json:"probe_port"` // 真实探测端口（fakeip/icmp 时为 0）
 	BusinessPort  int             `json:"business_port"`
-	Group         string          `json:"group"`         // 节点分组
-	Items         []ProbeItemInfo `json:"items,omitempty"` // 混合探测项列表（真实+FAKE）
+	Group         string          `json:"group"` // 节点分组
+	Items         []ProbeItemInfo `json:"items"` // 混合探测项列表（真实+FAKE）；nil=旧缓存缺字段，[]=新模式明确为空
 	RTTToOriginMs int64           `json:"rtt_to_origin_ms"`
-	BWStatus      string          `json:"bw_status"`    // "normal" / "warning" / "overloaded"
-	CurrentBps    int64           `json:"current_bps"`  // 当前带宽（Bytes/sec），0=未配置限制
-	MaxBps        int64           `json:"max_bps"`      // 配置上限（Bytes/sec），0=不限
+	BWStatus      string          `json:"bw_status"`   // "normal" / "warning" / "overloaded"
+	CurrentBps    int64           `json:"current_bps"` // 当前带宽（Bytes/sec），0=未配置限制
+	MaxBps        int64           `json:"max_bps"`     // 配置上限（Bytes/sec），0=不限
 }
 
-// EffectiveItems 返回节点的探测项列表；Items 为空时（旧拓扑缓存兼容）合成真实项
+// EffectiveItems 返回节点的探测项列表。
+// Items 为空切片表示“新模式明确没有可探测项”（如 fakeip 模式当前无有效 FAKE-IP），不得回退；
+// Items 为 nil 才是旧拓扑缓存缺字段，需要合成真实项做兼容。
 func (n NodeInfo) EffectiveItems() []ProbeItemInfo {
-	if len(n.Items) > 0 {
+	if n.Items != nil {
 		return n.Items
 	}
 	if n.IP != "" && n.ProbePort > 0 {
@@ -134,9 +141,9 @@ func (i ProbeItemInfo) EffectiveRTT() int64 {
 
 // TopoResponse 中心节点下发的全网拓扑
 type TopoResponse struct {
-	Nodes              []NodeInfo `json:"nodes"`
-	BWWarningPenalty   float64    `json:"bw_warning_penalty"`   // 中心下发的 warning 节点 RTT 惩罚乘数
-	CollectClientInfo  bool       `json:"collect_client_info"`  // 中心是否采集客户端版本/IP（edge 据此决定是否上报）
+	Nodes             []NodeInfo `json:"nodes"`
+	BWWarningPenalty  float64    `json:"bw_warning_penalty"`  // 中心下发的 warning 节点 RTT 惩罚乘数
+	CollectClientInfo bool       `json:"collect_client_info"` // 中心是否采集客户端版本/IP（edge 据此决定是否上报）
 }
 
 // ── 版本/IP 信息采集 ─────────────────────────────────
@@ -175,8 +182,8 @@ type VersionReportPayload struct {
 type ProbeItem struct {
 	Code  string `json:"code"`
 	IP    string `json:"ip"`
-	Proto string `json:"proto"`           // "tcp" | "udp" | "icmp"
-	Port  int    `json:"port,omitempty"`  // tcp/udp 用；icmp 忽略
+	Proto string `json:"proto"`          // "tcp" | "udp" | "icmp"
+	Port  int    `json:"port,omitempty"` // tcp/udp 用；icmp 忽略
 }
 
 // ProbeResult 客户端回传的单条探测结果。失败项不出现（缺省=不可达）。
@@ -189,11 +196,12 @@ type ProbeResult struct {
 type RedirectCommand struct {
 	TargetIP     string `json:"target_ip"`     // 目标边缘节点 IP
 	BusinessPort int    `json:"business_port"` // 目标边缘节点业务端口
-	Token        string `json:"token"`         // HMAC Token（hex 编码）
+	Token        string `json:"token"`         // v2 路由 Token（含 claims 的 HMAC 签名）或旧版 hex Token
 	Timestamp    int64  `json:"timestamp"`     // Token 生成时的 Unix 时间戳（秒）
 }
 
 // SecretPushPayload 中心节点下发新 shared_secret
 type SecretPushPayload struct {
-	Secret string `json:"secret"` // hex 编码的 32 字节随机密钥
+	Secret  string `json:"secret"`            // hex 编码的 32 字节随机密钥
+	Version uint64 `json:"version,omitempty"` // secret 单调递增版本号，用于丢弃乱序/过期的推送
 }

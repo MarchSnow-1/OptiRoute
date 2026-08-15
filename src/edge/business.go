@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/donnie4w/go-logger/logger"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
+	"github.com/donnie4w/go-logger/logger"
 )
 
 type BusinessFirstPacket struct {
@@ -55,7 +55,7 @@ func readFirstPacketWithPrefix(conn net.Conn, alreadyRead []byte, deadline time.
 	return buf, nil
 }
 
-func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.Time) {
+func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.Time, release func()) {
 	defer conn.Close()
 	remote := conn.RemoteAddr().String()
 
@@ -71,12 +71,31 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 		return
 	}
 
-	if !n.auth.VerifyToken(fp.Token, fp.Timestamp, n.ccClient().GetSelfUUID(), n.cfg.Self.TokenTTLS) {
+	clientTCPAddr, ok := conn.RemoteAddr().(*net.TCPAddr)
+	if !ok {
+		logger.Warn("[", remote, "] 无法解析客户端地址")
+		return
+	}
+
+	// Token 绑定客户端 IP 与 nonce；IP 绑定可通过 token_bind_client_ip 关闭。
+	verifyIP := ""
+	if n.cfg.Self.TokenBindClientIP == nil || *n.cfg.Self.TokenBindClientIP {
+		verifyIP = clientTCPAddr.IP.String()
+	}
+	if !n.auth.VerifyRouteToken(fp.Token, fp.Timestamp, n.ccClient().GetSelfUUID(), verifyIP, n.cfg.Self.TokenTTLS) {
 		logger.Warn("[", remote, "] Token 验签失败，丢弃连接")
 		return
 	}
 
-	conn.Write([]byte{0x01})
+	// 验签通过后释放握手额度；后续长连接透传不再占用并发限制。
+	if release != nil {
+		release()
+	}
+
+	if err := util.WriteWithDeadline(conn, []byte{0x01}, 5*time.Second); err != nil {
+		logger.Warn("[", remote, "] 写入验签确认失败 err:", err)
+		return
+	}
 
 	originAddr := util.JoinHostPort(n.cfg.Remote.OriginAddr, n.cfg.Remote.OriginPort)
 	originConn, err := net.DialTimeout("tcp", originAddr,
@@ -87,18 +106,13 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	}
 	defer originConn.Close()
 
-	clientTCPAddr, ok := conn.RemoteAddr().(*net.TCPAddr)
-	if !ok {
-		logger.Warn("[", remote, "] 无法解析客户端地址")
-		return
-	}
 	edgeTCPAddr, ok := conn.LocalAddr().(*net.TCPAddr)
 	if !ok {
 		logger.Warn("[", remote, "] 无法解析本端地址")
 		return
 	}
 	// 写入通信密钥（Server Agent 验证）
-	if _, err := originConn.Write([]byte(n.cfg.Remote.CommSecret)); err != nil {
+	if err := util.WriteWithDeadline(originConn, []byte(n.cfg.Remote.CommSecret), 5*time.Second); err != nil {
 		logger.Warn("[", remote, "] 写入通信密钥失败 err:", err)
 		return
 	}
@@ -106,7 +120,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 		clientTCPAddr.IP, uint16(clientTCPAddr.Port),
 		edgeTCPAddr.IP, uint16(edgeTCPAddr.Port),
 	)
-	if _, err := originConn.Write(ppv2Hdr); err != nil {
+	if err := util.WriteWithDeadline(originConn, ppv2Hdr, 5*time.Second); err != nil {
 		logger.Warn("[", remote, "] 写入 PPv2 包头失败 err:", err)
 		return
 	}
@@ -153,6 +167,9 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	if n.bwTracker != nil {
 		counter = n.bwTracker.BytesAccum()
 	}
-	idle := time.Duration(n.cfg.Self.IdleTimeoutS) * time.Second
+	idle := time.Duration(0)
+	if n.cfg.Self.IdleTimeoutS != nil && *n.cfg.Self.IdleTimeoutS > 0 {
+		idle = time.Duration(*n.cfg.Self.IdleTimeoutS) * time.Second
+	}
 	util.RelayWithIdle(conn, originConn, counter, idle)
 }

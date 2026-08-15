@@ -30,22 +30,22 @@ type EdgeRecord struct {
 	ProbePort     int
 	BusinessPort  int
 	Group         string
-	ProbeProto    string                       // 本机探测协议 tcp/udp/icmp
-	ProbeMode     string                       // 探测模式 direct/fakeip/mixed
-	Version       string                       // 边缘节点自身版本（注册时上报）
-	ServerUUID    string                       // 本 edge 连到的 Server Agent UUID
+	ProbeProto    string                         // 本机探测协议 tcp/udp/icmp
+	ProbeMode     string                         // 探测模式 direct/fakeip/mixed
+	Version       string                         // 边缘节点自身版本（注册时上报）
+	ServerUUID    string                         // 本 edge 连到的 Server Agent UUID
 	ClientInfos   []protocol.ClientVersionReport // 客户端接入信息（有界列表，开关开启时记录）
-	FakeItems     []protocol.FakeItemReport    // 有效 FAKE-IP（健康检查筛选结果）
-	FakeRTTs      map[string]int64             // ip → f2n 实测
+	FakeItems     []protocol.FakeItemReport      // 有效 FAKE-IP（健康检查筛选结果）
+	FakeRTTs      map[string]int64               // ip → f2n 实测
 	RTTToOriginMs int64
 	BWStatus      string
 	CurrentBps    int64
 	MaxBps        int64
 	conn          *websocket.Conn
 	writeCh       chan []byte // 写队列，保证并发安全
-	mu            sync.Mutex // 保护 RTTToOriginMs / BW / FakeRTTs 字段的并发写入
-	sendMu        sync.Mutex // 保护 writeCh 发送和 closed 检查
-	closed        bool       // 标记已注销，防止向已关闭 channel 发送
+	mu            sync.Mutex  // 保护 RTTToOriginMs / BW / FakeRTTs 字段的并发写入
+	sendMu        sync.Mutex  // 保护 writeCh 发送和 closed 检查
+	closed        bool        // 标记已注销，防止向已关闭 channel 发送
 }
 
 // writeLoop 是该连接唯一执行 conn.WriteMessage 的 goroutine，保证并发安全
@@ -111,6 +111,7 @@ func (s *CenterServer) Start(ctx context.Context) error {
 			logger.Warn("WebSocket 升级失败 err:", err)
 			return
 		}
+		conn.SetReadLimit(protocol.MaxWSMessageSize)
 		go s.handleEdge(conn)
 	})
 
@@ -190,6 +191,8 @@ func (s *CenterServer) handleEdge(conn *websocket.Conn) {
 	conn.SetReadDeadline(time.Now().Add(pingInterval + jitter))
 	pingTicker := time.NewTicker(pingInterval)
 	defer pingTicker.Stop()
+	pingDone := make(chan struct{})
+	defer close(pingDone)
 	go func() {
 		for {
 			select {
@@ -199,6 +202,8 @@ func (s *CenterServer) handleEdge(conn *websocket.Conn) {
 				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
 					return
 				}
+			case <-pingDone:
+				return
 			}
 		}
 	}()
@@ -834,6 +839,26 @@ func (s *CenterServer) broadcastSecret(secret []byte, version uint64) {
 	s.mu.RUnlock()
 	for _, conn := range conns {
 		s.sendMsg(conn, protocol.MsgTypeSecretPush, payload)
+	}
+}
+
+// removeEdgeFromServerRecords 从全局 Server Agent 记录中移除已下线的 Edge UUID，
+// 避免 Edges 列表只增不减；无 Edge 引用的 Server 记录一并删除。
+func (s *CenterServer) removeEdgeFromServerRecords(edgeUUID string) {
+	s.serverMu.Lock()
+	defer s.serverMu.Unlock()
+	for serverUUID, sr := range s.serverRecords {
+		filtered := sr.Edges[:0]
+		for _, uuid := range sr.Edges {
+			if uuid != edgeUUID {
+				filtered = append(filtered, uuid)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(s.serverRecords, serverUUID)
+			continue
+		}
+		sr.Edges = filtered
 	}
 }
 

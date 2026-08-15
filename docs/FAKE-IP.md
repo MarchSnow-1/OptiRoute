@@ -1,12 +1,12 @@
 # FAKE-IP Probe Mode Guide
 
 Hides EDGE real IPs during the probing phase to mitigate large-scale attacks as much as possible.
-Core idea: during probing, clients only ever see a mixed list of real IPs and FAKE-IPs and can never tell which is the real node.
-Only at the end of bootstrap does the client receive the selected node's real IP and establish the business connection.
+Core idea: in fakeip mode, clients only see FAKE-IP probe items during probing and cannot obtain real node addresses; direct/mixed modes include real items as configured.
+At the end of bootstrap, the client receives the selected node's real IP and establishes the business connection.
 
 ## Design Motivation
 
-- **Hide real nodes** — no real IPs appear in probe or bootstrap traffic; attackers cannot pinpoint nodes by capturing traffic or reading logs.
+- **Hide real nodes** — in fakeip mode, no real IPs appear in probe or bootstrap traffic; attackers cannot pinpoint nodes by capturing traffic or reading logs.
 - **Mixed confusion** — real IPs and FAKE-IPs are mixed in the list with no type markers; even compromising one machine reveals nothing.
 - **Mitigate attacks** — large-scale attacks need a target IP first; the IP fog during probing leaves mass attacks with nothing to aim at.
 
@@ -55,7 +55,7 @@ Only at the end of bootstrap does the client receive the selected node's real IP
 |------|-------------|
 | `direct` | Real IP direct probing (default); the node's real address is reported to clients for latency testing |
 | `fakeip` | FAKE-IP probing; the node's real address stays hidden; clients test manually configured addresses for latency estimation |
-| `mixed` | FAKE-IP preferred, real IP as fallback; the real IP is also a probe item (weight configurable, mitigating service degradation if all FAKE-IPs fail) |
+| `mixed` | Both real items and valid FAKE items are delivered; routing selects the lowest full-path RTT |
 
 ## Code Mechanism
 
@@ -93,6 +93,8 @@ The Edge runs an independent health check per configured FAKE-IP (5s scan interv
 - **Self-reference guard**: a FAKE-IP equal to the local address is skipped with a warning.
 - **Probe protocol**: follows the configured proto (tcp handshake / udp echo / icmp ping), sharing the same probe implementation as clients.
 - **Filtered reporting**: Valid items sorted by `latency × weight`, capped at `fake_ip_max_count`; reported at registration via `RegisterPayload.FakeItems`, with full-list `fake_update` messages on list changes.
+- **Immediate invalidation reporting**: a Valid → Invalid transition also triggers `fake_update`, so the Center removes dead items immediately instead of keeping clients probing them.
+- **Shared FAKE-IP multi-candidate**: when multiple nodes configure the same FAKE-IP, the client probes it once but the bootstrap keeps all candidate nodes and evaluates each one during routing.
 - **f2n latency reporting**: measured f2n latencies are reported to the center every 3s via `rtt_report`.
 
 ## Routing Calculation
@@ -113,7 +115,7 @@ Rules:
 
 - When the Edge loses the center connection, it enters degraded mode and continues bootstrapping from the local topology cache.
 - The cache file contains the full probe item list (including f2n latencies and weights), so fakeip bootstrapping is unaffected.
-- Old cache files (without probe items) automatically synthesize real items as a fallback, keeping direct behavior intact.
+- Old cache files (missing the probe-items field) automatically synthesize real items as a fallback, keeping direct behavior intact; a new-mode explicitly empty item list does not fall back to real items.
 
 ## Notes and Limitations
 

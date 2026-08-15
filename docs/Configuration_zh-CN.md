@@ -2,6 +2,8 @@
 
 OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 
+> ⚠️ 安全警告：`--config-base64` 仅用于方便注入配置，base64 不是加密。完整配置（含密钥）会出现在进程命令行中，可能被本机其他用户或监控工具读取。生产环境请优先使用配置文件，并将配置文件权限限制为仅当前用户可读写。
+
 如有修改建议欢迎开 [Issues](https://github.com/MarchSnow-1/OptiRoute/issues) 反馈
 
 ## 中心节点 (Center)
@@ -12,7 +14,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
     "role": "center",
     "listen_addr": "",
     "listen_port": 7000,
-    "comm_secret": "your-32-byte-secret-key-here!!",
+    "comm_secret": "0123456789abcdef0123456789abcdef",
     "secret_rotation_interval_s": 3600,
     "log_level": "info"
   }
@@ -24,7 +26,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | self.role | center | 作为中心节点启动 |
 | self.listen_addr | 空 | 监听地址, 空值=双栈绑定 (IPv4 + IPv6); IPv6 需加方括号如 `[::]` |
 | self.listen_port | 7000 | 监听端口, 边缘节点通过此端口连接 |
-| self.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点和服务端代理一致 |
+| self.comm_secret | 0123456789abcdef0123456789abcdef | Center 控制面通信密钥, 必须恰好 32 字节, 边缘节点的 remote.center_secret 必须与此一致 |
 | self.secret_rotation_interval_s | 3600 | shared_secret 轮转周期 (秒), 到期后自动生成新密钥并推送至所有边缘节点 |
 | self.collect_client_info | false | 是否采集客户端版本/IP 信息 (需客户端业务首包携带版本), 默认关 |
 | self.web_api_key | 空 | 开放 API 密钥, 空=API 关闭; 非空=开启 `/api/version` `/api/clients` (Bearer 鉴权) |
@@ -59,8 +61,9 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
     "center_addr": "y.y.y.y",
     "center_port": 7000,
     "origin_addr": "z.z.z.z",
-    "origin_port": 18000,
-    "comm_secret": "your-32-byte-secret-key-here!!"
+    "origin_port": 18002,
+    "center_secret": "0123456789abcdef0123456789abcdef",
+    "comm_secret": "fedcba9876543210fedcba9876543210"
   }
 }
 ```
@@ -86,8 +89,9 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | remote.center_addr | y.y.y.y | 中心节点的 IP 地址, IPv6 需加方括号 |
 | remote.center_port | 7000 | 中心节点的端口 |
 | remote.origin_addr | z.z.z.z | 服务端代理 (Server Agent) IP 或域名, IPv6 需加方括号 |
-| remote.origin_port | 18000 | 服务端代理 (Server Agent) 端口 |
-| remote.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与中心节点和服务端代理一致 |
+| remote.origin_port | 18002 | 服务端代理 (Server Agent) 端口 |
+| remote.center_secret | 0123456789abcdef0123456789abcdef | Edge → Center 控制面密钥, 必须恰好 32 字节, 与 center.self.comm_secret 一致 |
+| remote.comm_secret | fedcba9876543210fedcba9876543210 | Edge ↔ Server Agent 数据面密钥, 必须恰好 32 字节, 与 Server Agent 一致且不得与 center_secret 相同 |
 
 **启动说明:** 启动时会按 `self.center_connect_retry_count` 次重试连接中心节点, 若全部失败:
 
@@ -138,7 +142,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
   "remote": {
     "upstream_addr": "127.0.0.1",
     "upstream_port": 18000,
-    "comm_secret": "your-32-byte-secret-key-here!!"
+    "comm_secret": "fedcba9876543210fedcba9876543210"
   }
 }
 ```
@@ -153,7 +157,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | self.log_level | info | 日志级别: debug / info / warn / error |
 | remote.upstream_addr | 127.0.0.1 | 第三方服务的服务端地址, 默认本机, IPv6 需加方括号 |
 | remote.upstream_port | 18000 | 第三方服务的服务端端口, 剥离 PPv2 包头后的原始数据转发至此 |
-| remote.comm_secret | your-32-byte-secret-key-here!! | 通信密钥, 必须恰好 32 字节, 必须与边缘节点一致 |
+| remote.comm_secret | fedcba9876543210fedcba9876543210 | Edge ↔ Server Agent 数据面密钥, 必须恰好 32 字节, 与边缘节点 remote.comm_secret 一致 |
 
 ## 完整配置项参考
 
@@ -185,16 +189,21 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | connect_timeout_ms | int | 5000 | 连接超时 (毫秒) |
 | probe_timeout_ms | int | 1000 | client 探测超时 (毫秒) |
 | monitor_probe_timeout_ms | int | 2000 | edge Monitor 探测超时 (毫秒) |
+| idle_timeout_s | int | 120 | edge 透传空闲超时 (秒), 0=不限制 |
 | topo_sync_interval_s | int | 10 | edge 拓扑同步间隔 (秒) |
 | topo_sync_jitter_ms | int | 2000 | edge 拓扑同步抖动上限 (毫秒) |
 | rtt_window_s | int | 30 | edge RTT 滑动窗口大小 (秒) |
 | loss_rate_threshold | float | 0.40 | edge 丢包率触发不稳定阈值 |
 | token_ttl_s | int | 30 | edge Token 有效时间窗口 (秒) |
+| token_bind_client_ip | bool | true | Token 是否绑定客户端 IP, false 时关闭 |
+| stop_reconnect_on_reject | bool | true | Center 永久拒绝注册后是否停止重连, false 时继续重连 |
 | secret_rotation_interval_s | int | 3600 | center shared_secret 轮转周期 (秒) |
 | collect_client_info | bool | false | center 是否采集客户端版本/IP 信息 |
 | web_api_key | string | 空 | center 开放 API 密钥, 空=关闭; 非空=开启 Bearer 鉴权 API |
 | ping_interval_s | int | 30 | center 对 edge 的测活间隔 (秒) |
-| comm_secret | string | — | center 必填, 通信密钥, 必须恰好 32 字节 |
+| max_edges | int | 1024 | center 在线 Edge 数量上限 |
+| edge_register_rate_per_minute | int | 30 | center 单 Edge UUID 每分钟注册次数上限 |
+| comm_secret | string | — | center 必填, Center 控制面密钥, 必须恰好 32 字节; Edge 的 remote.center_secret 必须与此一致 |
 | log_real_ip | bool | false | server 是否在日志中记录客户端真实 IP |
 | forward_real_ip | bool | false | server 是否向上游注入 PPv2 包头 |
 | log_level | string | info | 日志级别: debug / info / warn / error |
@@ -211,7 +220,8 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | bootstrap_port | int | — | client 必填, 引导节点端口 |
 | upstream_addr | string | 127.0.0.1 | server 上游第三方服务端地址, IPv6 需加方括号 |
 | upstream_port | int | — | server 必填, 上游第三方服务端端口 |
-| comm_secret | string | — | center/edge/server 必填, 通信密钥, 必须恰好 32 字节 |
+| center_secret | string | — | edge 必填, Edge → Center 控制面密钥, 必须恰好 32 字节 |
+| comm_secret | string | — | edge/server 必填, Edge ↔ Server Agent 数据面密钥, 必须恰好 32 字节 |
 | bw_warning_penalty | float | 1.15 | center 下发, warning 节点 RTT 惩罚乘数 |
 
 ## 连接流程示意图
@@ -225,14 +235,14 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
   按协议并发探测所有探测项, 回传编码与延迟
   引导节点解码编码还原节点, 按总延迟×权重筛选最优, 签发 Token 下发真实 IP
   客户端收到 Token 后向该节点发起业务连接
-        ↓ TCP (首包携带 HMAC Token + 客户端版本号)
+        ↓ TCP (首包携带 V2 Route Token + 客户端版本号)
 被指定的边缘节点
   客户端携带 Token, 本地验签通过
   连接源站, 注入携带玩家真实 IP 的 Proxy Protocol v2 数据包头
         ↓ TCP (原始数据 + PPv2 包头)
 服务端代理 (源站, 监听 18002)
   读取并剥离 Proxy Protocol v2 数据包头, 提取玩家真实 IP
-  向 Edge 回传版本确认帧 (ServerAck)
+  向 Edge 回传 UUID 与版本确认帧 (ServerAck)
   将原始数据转发至本机服务器
         ↓ TCP
 某程序服务端 (监听 18000)

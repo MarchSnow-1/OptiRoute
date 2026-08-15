@@ -44,7 +44,7 @@ The system consists of four roles: **Center Node**, **Edge Node**, **Client Agen
 | Role | Description |
 |------|-------------|
 | **Center Node** | Control plane — manages edge nodes and carries no actual traffic |
-| **Edge Node** | Data plane — accepts client connections on business and probe ports, validates HMAC tokens, and forwards data to the origin; supports injecting Proxy Protocol v2 headers to preserve the client's real IP |
+| **Edge Node** | Data plane — accepts client connections on business and probe ports, validates V2 route tokens, and forwards data to the origin; supports injecting Proxy Protocol v2 headers to preserve the client's real IP |
 | **Client Agent** | Runs on the player's local machine; listens on a local port and triggers the full onboarding flow whenever a third-party client connects |
 | **Server Agent** | Runs on the origin server; parses and strips the Proxy Protocol v2 header, extracts the client's real IP, and forwards the raw data to the third-party server |
 
@@ -53,15 +53,15 @@ The system consists of four roles: **Center Node**, **Edge Node**, **Client Agen
 ## Connection Flow
 
 1. **Bootstrap Connection**
-   - The **Client Agent** connects to any online Edge node at random.
+   - The **Client Agent** connects to the configured bootstrap Edge node.
    - The first packet contains a **16-byte Magic identifier** that triggers bootstrap recognition.
 
 2. **Fetch Probe List**
    - The bootstrap node returns the probe items from its local topology.
    - Probe items follow each edge node's own mode: `direct` = real items only, `fakeip` = FAKE-IP items only, `mixed` = both.
-   - Each item carries a one-time random code with **no type markers** — the client can never tell which is the real node.
+   - Each item carries a one-time random code with **no type markers**; the client only sees IP/protocol/port and no routing semantics.
    - Each item contains only `IP`, probe protocol (tcp/udp/icmp), and port — no routing metrics.
-   - Port rules: icmp has no port; real items always carry the node's probe port; FAKE-IP tcp/udp items must explicitly configure a port (probing the FAKE-IP's own open ports).
+   - Port rules: icmp has no port; real tcp/udp items carry the node's probe port; FAKE-IP tcp/udp items must explicitly configure a port (probing the FAKE-IP's own open ports).
 
 3. **Concurrent Probing**
    - The Client Agent probes all items concurrently by protocol (TCP handshake / UDP echo round-trip / ICMP ping).
@@ -76,12 +76,12 @@ The system consists of four roles: **Center Node**, **Edge Node**, **Client Agen
    - See [FAKE-IP Probe Mode](#fake-ip-probe-mode) for latency details and weight/bandwidth penalty rules.
 
 5. **Token Issuance**
-   - Once the optimal node is selected, the Edge generates a temporary token using **HMAC-SHA256**.
-   - The **optimal node's real IP and token** are delivered to the client (the real IP appears only here; the client never saw it before).
+   - Once the optimal node is selected, the Edge generates a V2 route token using **HMAC-SHA256** (bound to target Edge, issuing Edge, client IP, nonce, and timestamp).
+   - The **optimal node's real IP and token** are delivered to the client.
 
 6. **Business Connection**
    - The client uses the received IP and token to open a TCP connection to the designated best Edge node.
-   - The Edge node validates the token locally, then sends a confirmation.
+   - The Edge node validates the V2 token and performs nonce replay protection locally, then sends a confirmation.
 
 7. **Transparent Tunnel**
    - The Edge node asynchronously establishes a connection to the origin (Server Agent).
@@ -143,6 +143,12 @@ Hides EDGE real IPs during the probing phase to mitigate large-scale attacks as 
 
 See [FAKE-IP Probe Mode Guide](docs/FAKE-IP.md) — probe modes / code mechanism / FAKE-IP configuration / routing calculation / notes and limitations
 
+## Token and Registration Access Control
+
+Covers V2 route token issuance and verification, client IP binding, nonce replay protection, registration rejection policy, and the Center's Edge capacity and registration-rate controls.
+
+See [Token and Registration Access Control](docs/TOKEN.md)
+
 ## Proxy Protocol v2 Support
 
 When forwarding traffic to the origin, the Edge node injects a standard Proxy Protocol v2 header at the front of the data stream, carrying the client's real IP and port.
@@ -166,7 +172,7 @@ Client/Server Agents do not connect to the Center directly; everything is relaye
 ### Reporting Mechanism
 
 - **Client info**: the Client Agent carries its version in the token first packet when connecting to the business port; the Edge obtains the source IP and reports both together **in batches every 3s**.
-- **Server ack frame**: after key validation and before reading the PPv2 header, the Server Agent replies with a frame containing its own version.
+- **Server ack frame**: after key validation and before reading the PPv2 header, the Server Agent replies with a frame containing its own UUID and version.
 - **Storage**: the Center keeps the latest 1000 client entries per node (older entries are trimmed); Server/Edge versions are overwritten in real time. The **Server Agent must configure `self.uuid`**; the Center deduplicates by UUID — multiple Edges connecting to the same Server produce one record, aggregating the list of connected Edges.
 
 ### Configuration
@@ -223,7 +229,9 @@ An empty listen address binds to all IPv4 and IPv6 interfaces simultaneously.
 ---
 
 ## Security Notes
+- **Config injection security**: `--config-base64` is not encryption; the full config (including secrets) appears in the process command line. Prefer a config file with restrictive permissions in production.
 
+- **Transport security**: control-plane and data-plane TLS are not enabled by default yet; public deployments must use a trusted network, VPN, or the future wss/mTLS option.
 - **ICMP permissions**: On Windows, ICMP probing requires administrator privileges; on Linux it requires CAP_NET_RAW or unprivileged ping sockets.
 
 ---

@@ -2,6 +2,8 @@
 
 OptiRoute uses a JSON configuration file, launched via `--config-path=config.json`.
 
+> ⚠️ Security warning: `--config-base64` is only for convenient config injection; base64 is not encryption. The full config (including secrets) will appear in the process command line and may be visible to local users or monitoring tools. In production prefer a config file with restrictive permissions.
+
 For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/OptiRoute/issues).
 
 ## Center Node
@@ -12,7 +14,7 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
     "role": "center",
     "listen_addr": "",
     "listen_port": 7000,
-    "comm_secret": "your-32-byte-secret-key-here!!",
+    "comm_secret": "0123456789abcdef0123456789abcdef",
     "secret_rotation_interval_s": 3600,
     "log_level": "info"
   }
@@ -24,7 +26,7 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 | self.role | center | Start as a center node |
 | self.listen_addr | (empty) | Listen address; empty = dual-stack (IPv4 + IPv6); IPv6 must use brackets e.g. `[::]` |
 | self.listen_port | 7000 | Listen port; edge nodes connect here |
-| self.comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match all edge nodes and server agents |
+| self.comm_secret | 0123456789abcdef0123456789abcdef | Center control-plane secret; must be exactly 32 bytes; edge remote.center_secret must match this value |
 | self.secret_rotation_interval_s | 3600 | Secret rotation interval (seconds); a new key is generated and pushed to all edge nodes upon expiry |
 | self.collect_client_info | false | Whether to collect client version/IP info (requires clients to send version in business first packet); off by default |
 | self.web_api_key | (empty) | Open API key; empty = API disabled; non-empty = enables `/api/version` and `/api/clients` (Bearer auth) |
@@ -59,8 +61,9 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
     "center_addr": "y.y.y.y",
     "center_port": 7000,
     "origin_addr": "z.z.z.z",
-    "origin_port": 18000,
-    "comm_secret": "your-32-byte-secret-key-here!!"
+    "origin_port": 18002,
+    "center_secret": "0123456789abcdef0123456789abcdef",
+    "comm_secret": "fedcba9876543210fedcba9876543210"
   }
 }
 ```
@@ -86,8 +89,9 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 | remote.center_addr | y.y.y.y | Center node IP; IPv6 must use brackets |
 | remote.center_port | 7000 | Center node port |
 | remote.origin_addr | z.z.z.z | Server Agent IP or domain; IPv6 must use brackets |
-| remote.origin_port | 18000 | Server Agent port |
-| remote.comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match center node and server agent |
+| remote.origin_port | 18002 | Server Agent port |
+| remote.center_secret | 0123456789abcdef0123456789abcdef | Edge → Center control-plane secret; must be exactly 32 bytes; must match center self.comm_secret |
+| remote.comm_secret | fedcba9876543210fedcba9876543210 | Edge ↔ Server Agent data-plane secret; must be exactly 32 bytes; must match Server Agent and must differ from center_secret |
 
 **Startup behavior:** On startup the node retries connecting to the center node up to `self.center_connect_retry_count` times. If all attempts fail:
 
@@ -135,7 +139,7 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
   "remote": {
     "upstream_addr": "127.0.0.1",
     "upstream_port": 18000,
-    "comm_secret": "your-32-byte-secret-key-here!!"
+    "comm_secret": "fedcba9876543210fedcba9876543210"
   }
 }
 ```
@@ -150,7 +154,7 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 | self.log_level | info | Log level: debug / info / warn / error |
 | remote.upstream_addr | 127.0.0.1 | Address of the third-party server; defaults to localhost; IPv6 must use brackets |
 | remote.upstream_port | 18000 | Third-party server port; raw data (after PPv2 header is stripped) is forwarded here |
-| remote.comm_secret | your-32-byte-secret-key-here!! | Communication secret; must be exactly 32 bytes; must match edge nodes |
+| remote.comm_secret | fedcba9876543210fedcba9876543210 | Edge ↔ Server Agent data-plane secret; must be exactly 32 bytes; must match edge remote.comm_secret |
 
 ## Full Configuration Reference
 
@@ -182,16 +186,21 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | connect_timeout_ms | int | 5000 | Connection timeout (milliseconds) |
 | probe_timeout_ms | int | 1000 | Client probe timeout (milliseconds) |
 | monitor_probe_timeout_ms | int | 2000 | Edge monitor probe timeout (milliseconds) |
+| idle_timeout_s | int | 120 | Edge relay idle timeout (seconds); 0 = no limit |
 | topo_sync_interval_s | int | 10 | Edge topology sync interval (seconds) |
 | topo_sync_jitter_ms | int | 2000 | Edge max jitter for topology sync (milliseconds) |
 | rtt_window_s | int | 30 | Edge RTT sliding window size (seconds) |
 | loss_rate_threshold | float | 0.40 | Edge packet loss rate threshold |
 | token_ttl_s | int | 30 | Edge token validity window (seconds) |
+| token_bind_client_ip | bool | true | Bind token to client IP; false disables the check |
+| stop_reconnect_on_reject | bool | true | Stop reconnect after Center permanently rejects registration; false keeps retrying |
 | secret_rotation_interval_s | int | 3600 | Center secret rotation interval (seconds) |
 | collect_client_info | bool | false | Center: whether to collect client version/IP info |
 | web_api_key | string | (empty) | Center open API key; empty = disabled; non-empty = enables Bearer-authenticated API |
 | ping_interval_s | int | 30 | Center liveness probe interval for edges (seconds) |
-| comm_secret | string | — | Required for center; communication secret; must be exactly 32 bytes |
+| max_edges | int | 1024 | Center maximum online edge count |
+| edge_register_rate_per_minute | int | 30 | Center per-edge-UUID registration rate limit per minute |
+| comm_secret | string | — | Required for center; control-plane secret; must be exactly 32 bytes; edge remote.center_secret must match |
 | log_real_ip | bool | false | Server: whether to log the client's real IP |
 | forward_real_ip | bool | false | Server: whether to inject PPv2 header upstream |
 | log_level | string | info | Log level: debug / info / warn / error |
@@ -208,7 +217,8 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | bootstrap_port | int | — | Required for client; bootstrap node port |
 | upstream_addr | string | 127.0.0.1 | Server upstream third-party server address; IPv6 must use brackets |
 | upstream_port | int | — | Required for server; upstream third-party server port |
-| comm_secret | string | — | Required for center/edge/server; communication secret; must be exactly 32 bytes |
+| center_secret | string | — | Required for edge; Edge → Center control-plane secret; must be exactly 32 bytes |
+| comm_secret | string | — | Required for edge/server; Edge ↔ Server Agent data-plane secret; must be exactly 32 bytes |
 | bw_warning_penalty | float | 1.15 | Center: warning node RTT penalty multiplier |
 
 ## Connection Flow Diagram
@@ -222,14 +232,14 @@ Client Agent
   probes all items concurrently by protocol, reports codes and latencies
   bootstrap node decodes codes to recover nodes, picks optimal by total RTT × weight, issues token with real IP
   client receives token and opens business connection to that node
-        ↓ TCP (first packet carries HMAC token + client version)
+        ↓ TCP (first packet carries V2 route token + client version)
 Designated Edge Node
   token validated locally
   connects to origin, injects Proxy Protocol v2 header carrying player's real IP
         ↓ TCP (raw data + PPv2 header)
 Server Agent (listening on 18002)
   reads and strips Proxy Protocol v2 header, extracts player's real IP
-  replies with a version ack frame (ServerAck)
+  replies with a UUID/version ack frame (ServerAck)
   forwards raw data to the local game server
         ↓ TCP
 Third-party server (listening on 18000)

@@ -42,22 +42,22 @@ OptiRoute 是一套使用 Go 编写的分布式四层反向代理系统
 | 角色 | 说明 |
 |------|------|
 | **中心节点** | 控制面, 管理边缘节点, 不承载实际流量 |
-| **边缘节点** | 数据面, 通过业务端口和引导端口接受客户端连接, 执行 Token 验签并将数据转发至源站, 支持注入 Proxy Protocol v2 包头以获取客户端真实 IP |
+| **边缘节点** | 数据面, 通过业务端口和引导端口接受客户端连接, 执行 V2 Token 验签与 nonce 防重放并将数据转发至源站, 支持注入 Proxy Protocol v2 包头以获取客户端真实 IP |
 | **客户端代理** | 运行在玩家本机, 监听本地端口, 在每次第三方客户端连接时触发完整接入流程 |
 | **服务端代理** | 运行在源站服务器, 解析并剥离 Proxy Protocol v2 包头, 提取客户端真实 IP, 将原始数据转发给第三方服务端 |
 
 ## 接入流程
 
 1. **连接引导**
-* **客户端代理**随机连接任一在线边缘节点 (Edge)
+* **客户端代理**连接配置的引导边缘节点 (Edge)
 * 首包发送 **16 字节 Magic 标识**, 触发引导识别
 
 
 2. **获取探测列表**
 * 引导节点下发本节点拓扑中的全部探测项列表
 * 探测项按各边缘节点自身模式上报: `direct` 仅上报节点真实IP, `fakeip` 仅上报 FAKE-IP 项, `mixed`上报真实 IP 与 FAKE-IP 混合后的列表
-* 每项带一次性随机编码, 客户端全程无法区分哪个是真实节点
-* 每项仅含 `IP`, 探测协议 (tcp/udp/icmp) 与 端口, 不含任何路由路况
+* 每项带一次性随机编码且不标记类型, 客户端只看到 IP/协议/端口, 不感知路由语义
+* 每项仅含 `IP`, 探测协议 (tcp/udp/icmp) 与端口, 不含任何路由路况; icmp 无端口, 真实 tcp/udp 项使用节点探测端口, FAKE-IP tcp/udp 项必须显式配置端口
 
 
 3. **并发探测**
@@ -75,13 +75,13 @@ OptiRoute 是一套使用 Go 编写的分布式四层反向代理系统
 
 
 5. **签发 Token**
-* 选出最优节点后, Edge 使用 **HMAC-SHA256** 生成临时 Token
+* 选出最优节点后, Edge 使用 **HMAC-SHA256** 生成 V2 路由 Token (绑定目标 Edge、签发 Edge、客户端 IP、nonce 与时间戳)
 * 将 **最优节点的真实 IP 与 Token** 下发给客户端
 
 
 6. **业务接入**
 * 客户端凭拿到的 IP 和 Token, 向指定的最佳 Edge 节点发起 TCP 连接
-* Edge 节点在本地执行验签, 校验通过后回传确认
+* Edge 节点在本地执行 V2 Token 验签与 nonce 防重放检查, 校验通过后回传确认
 
 
 7. **透传建立**
@@ -140,6 +140,12 @@ cd src && go build -o ../dist/optiroute . && cd ..
 
 详见 [FAKE-IP 探测模式介绍](docs/FAKE-IP_zh-CN.md) — 探测模式 / 编码机制 / FAKE-IP 配置 / 选路计算 / 注意与限制
 
+## Token 与注册接入控制
+
+介绍 V2 路由 Token 的签发与验签、客户端 IP 绑定、nonce 防重放、注册拒绝策略，以及 Center 的 Edge 容量与注册频率控制
+
+详见 [Token 与注册接入控制](docs/TOKEN_zh-CN.md)
+
 ## Proxy Protocol v2 支持
 
 Edge 节点在转发流量至源站时, 在数据流最前端注入标准 Proxy Protocol v2 包头, 携带客户端真实 IP 和端口
@@ -163,7 +169,7 @@ Client/Server Agent 不直连 Center, 统一经 Edge 中转上报
 ### 上报机制
 
 - **客户端信息**: Client Agent 在连接业务端口发送 Token 首包时携带自身版本, Edge 获取源 IP 后一起 **每 3s 批量上报** Center
-- **Server 确认帧**: Server Agent 在密钥校验通过后, 读取 PPv2 包头前, 回传包含自身版本的确认帧
+- **Server 确认帧**: Server Agent 在密钥校验通过后, 读取 PPv2 包头前, 回传包含自身 UUID 与版本的确认帧
 - **存储**: Center 按节点保留最近 1000 条客户端接入信息 (超限裁头), Server/Edge 版本实时覆盖. **Server Agent 需配置 `self.uuid`**, 中心按 UUID 去重——多个 Edge 连同一 Server 只记录一份, 并聚合连接它的 Edge 列表
 
 ### 配置
@@ -218,7 +224,9 @@ OptiRoute 完整支持 IPv4/IPv6 双栈运行
 监听地址默认为空字符串, 同时绑定 IPv4 和 IPv6 所有接口
 
 ## 安全说明
+- **配置注入安全**: `--config-base64` 不是加密, 完整配置(含密钥)会出现在进程命令行中; 生产环境请使用配置文件并限制权限
 
+- **传输安全**: 当前控制面/数据面尚未默认启用 TLS, 公网部署必须配合可信网络、VPN 或后续的 wss/mTLS 方案
 - **ICMP 权限**: Windows 上客户端 ICMP 探测需管理员权限; Linux 需 CAP_NET_RAW 或非特权 ping socket
 
 ## 开源协议

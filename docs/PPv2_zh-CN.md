@@ -4,7 +4,7 @@ OptiRoute 在数据转发链路中支持注入与剥离标准 **Proxy Protocol v
 
 ## 作用
 
-- **Edge 节点** 转发流量至源站时, 在 comm_secret 密钥握手之后, 业务数据之前注入 PPv2 包头, 携带客户端真实 IP 和端口
+- **Edge 节点** 转发流量至源站时, 在 Edge ↔ Server Agent 数据面密钥 `comm_secret` 握手之后、业务数据之前注入 PPv2 包头, 携带客户端真实 IP 和端口
 - **Server Agent** 解析并剥离该包头, 提取客户端真实 IP, 将原始数据透传给第三方服务端
 - 可选向上游注入: `forward_real_ip` 配置开启时, Server Agent 可再次注入 PPv2 包头传递客户端真实 IP (需上游支持)
 
@@ -49,11 +49,12 @@ PPv2 包头由 **固定 16 字节头部 + 变长地址数据** 构成:
 
 Edge → Server Agent 一跳的完整握手顺序:
 
-1. Edge 写入 32 字节 `comm_secret` (Server 校验, 不匹配即断连)
-2. Server 密钥校验通过后**回确认帧** (`ServerAck{version}`, 供 Edge 上报版本信息)
-3. Edge 读取确认帧
-4. Server 读取 PPv2 包头并解析客户端真实 IP
-5. 随后进入双向透传 (业务数据前无其他协议头) 
+1. Edge 写入 32 字节 Edge ↔ Server Agent 数据面密钥 `comm_secret`
+2. Edge 紧接着写入 PPv2 包头
+3. Server 校验密钥, 通过后回确认帧 (`ServerAck{uuid, version}`, 供 Edge 上报版本信息)
+4. Edge 读取确认帧
+5. Server 读取 PPv2 包头并解析客户端真实 IP
+6. 随后进入双向透传 (业务数据前无其他协议头)
 
 ## 安全说明
 

@@ -4,7 +4,7 @@ OptiRoute injects and strips the standard **Proxy Protocol v2** header in the fo
 
 ## Purpose
 
-- **Edge Node** injects a PPv2 header after the comm_secret key handshake and before the business data when forwarding traffic to the origin, carrying the client's real IP and port.
+- **Edge Node** injects a PPv2 header after the Edge ↔ Server Agent data-plane `comm_secret` handshake and before the business data when forwarding traffic to the origin, carrying the client's real IP and port.
 - **Server Agent** parses and strips the header, extracts the client's real IP, and forwards the raw data transparently to the third-party server.
 - Optional upstream injection: when `forward_real_ip` is enabled, the Server Agent can re-inject a PPv2 header to pass the client's real IP upstream (requires upstream support).
 
@@ -49,11 +49,12 @@ A PPv2 header consists of a **fixed 16-byte prefix plus variable-length address 
 
 The complete handshake on the Edge → Server Agent hop:
 
-1. The Edge writes the 32-byte `comm_secret` (validated by the Server; mismatches are disconnected).
-2. After key validation, the Server replies with an **ack frame** (`ServerAck{version}`, used by the Edge to report version info).
-3. The Edge reads the ack frame.
-4. The Server reads the PPv2 header and parses the client's real IP.
-5. Bidirectional relay begins (no other protocol headers precede the business data).
+1. The Edge writes the 32-byte Edge ↔ Server Agent data-plane `comm_secret`.
+2. The Edge immediately writes the PPv2 header.
+3. The Server validates the key and replies with an **ack frame** (`ServerAck{uuid, version}`, used by the Edge to report version info).
+4. The Edge reads the ack frame.
+5. The Server reads the PPv2 header and parses the client's real IP.
+6. Bidirectional relay begins (no other protocol headers precede the business data).
 
 ## Security Notes
 

@@ -122,8 +122,10 @@ func (s *CenterServer) Start(ctx context.Context) error {
 	}
 
 	srv := &http.Server{
-		Addr:    util.JoinHostPort(s.cfg.Self.ListenAddr, s.cfg.Self.ListenPort),
-		Handler: mux,
+		Addr:              util.JoinHostPort(s.cfg.Self.ListenAddr, s.cfg.Self.ListenPort),
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// 监听退出信号，优雅关闭 HTTP 服务
@@ -519,8 +521,18 @@ func (s *CenterServer) handleFakeUpdate(conn *websocket.Conn, raw json.RawMessag
 	record := s.edges[uuid]
 	s.mu.RUnlock()
 	if record != nil {
+		valid := make(map[string]struct{}, len(items))
+		for _, f := range items {
+			valid[f.IP] = struct{}{}
+		}
 		record.mu.Lock()
 		record.FakeItems = items
+		// 清理已不再有效的 FAKE-IP 的旧 RTT 记录，避免 map 只增不减。
+		for ip := range record.FakeRTTs {
+			if _, ok := valid[ip]; !ok {
+				delete(record.FakeRTTs, ip)
+			}
+		}
 		record.mu.Unlock()
 		logger.Debug("FAKE-IP 列表更新 uuid:", uuid, " count:", len(items))
 	}
@@ -836,6 +848,7 @@ func (s *CenterServer) unregisterByConn(conn *websocket.Conn) {
 			close(rec.writeCh)
 			rec.sendMu.Unlock()
 		}
+		s.removeEdgeFromServerRecords(uuid)
 		logger.Info("边缘节点下线 uuid:", uuid)
 	}
 }

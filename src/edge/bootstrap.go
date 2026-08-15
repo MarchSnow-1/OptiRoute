@@ -10,11 +10,12 @@ import (
 	"math/big"
 	"net"
 	"sort"
+	"sync"
 	"time"
 
-	"github.com/donnie4w/go-logger/logger"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
+	"github.com/donnie4w/go-logger/logger"
 )
 
 // newProbeCode 生成一次性随机编码（16 字节 = 128 位），防碰撞后返回。
@@ -66,7 +67,22 @@ func (n *Node) runBusinessServer(ctx context.Context) error {
 				continue
 			}
 		}
-		go n.dispatchConnection(conn)
+		if !n.tryAcquireHandshake() {
+			logger.Debug("未认证/引导握手并发已满，拒绝新连接")
+			conn.Close()
+			continue
+		}
+		go func(conn net.Conn) {
+			acquired := true
+			release := func() {
+				if acquired {
+					n.releaseHandshake()
+					acquired = false
+				}
+			}
+			defer release()
+			n.dispatchConnectionHeld(conn, release)
+		}(conn)
 	}
 }
 
@@ -74,14 +90,97 @@ func (n *Node) runBusinessServer(ctx context.Context) error {
 // 注意：handleBootstrap 的多轮引导交互不在此窗口内，各自保留独立超时。
 const handshakeTimeout = 5 * time.Second
 
-// dispatchConnection 对连接做分层判定：
+// maxConcurrentHandshakes 限制同时处于“未认证/引导”阶段的 TCP 连接数，
+// 防止攻击者通过大量半开握手耗尽 goroutine/fd。
+const maxConcurrentHandshakes = 1024
+
+// 引导流程按来源 IP 做固定窗口限速。固定窗口实现简单、无第三方依赖，
+// 且对跨平台（Windows/Linux）足够稳定。
+const (
+	bootstrapRateWindow   = 10 * time.Second
+	bootstrapRateMaxPerIP = 30
+	maxBootstrapRateIPs   = 16384
+)
+
+// maxAcceptedProbeRTTMs 是客户端回传 RTT 的可信上界。
+// 正常探测受 probe_timeout_ms 限制，成功 RTT 不应达到该值。
+const maxAcceptedProbeRTTMs = 60_000
+
+type ipRateWindow struct {
+	start time.Time
+	count int
+}
+
+type bootstrapLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]*ipRateWindow
+}
+
+func newBootstrapLimiter() *bootstrapLimiter {
+	return &bootstrapLimiter{buckets: make(map[string]*ipRateWindow)}
+}
+
+func (l *bootstrapLimiter) allow(ip string) bool {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	st := l.buckets[ip]
+	if st == nil {
+		if len(l.buckets) >= maxBootstrapRateIPs {
+			l.pruneLocked(now)
+			if len(l.buckets) >= maxBootstrapRateIPs {
+				return false
+			}
+		}
+		st = &ipRateWindow{start: now}
+		l.buckets[ip] = st
+	}
+	if now.Sub(st.start) >= bootstrapRateWindow {
+		st.start = now
+		st.count = 0
+	}
+	if st.count >= bootstrapRateMaxPerIP {
+		return false
+	}
+	st.count++
+	return true
+}
+
+func (l *bootstrapLimiter) pruneLocked(now time.Time) {
+	for ip, st := range l.buckets {
+		if now.Sub(st.start) >= bootstrapRateWindow {
+			delete(l.buckets, ip)
+		}
+	}
+}
+
+// dispatchConnectionHeld 对已占用握手额度的连接做分层判定：
 //   - 先读 4 字节初筛（IsMagicPrefix），绝大多数业务连接在此时即可分流；
 //   - 仅命中 Magic 前缀才读满 16 字节做完整 IsMagic 兜底比对。
 //
 // 判定全程共享同一绝对 deadline，业务分支将该 deadline 原样移交 handleBusiness，
 // 使「判定 + 业务首帧」共用同一个超时窗口；引导分支在移交前清除判定期 deadline，
 // 由 handleBootstrap 内部的多轮交互各自设置独立超时。
-func (n *Node) dispatchConnection(conn net.Conn) {
+func (n *Node) tryAcquireHandshake() bool {
+	if n.handshakeSem == nil {
+		return true
+	}
+	select {
+	case n.handshakeSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (n *Node) releaseHandshake() {
+	if n.handshakeSem != nil {
+		<-n.handshakeSem
+	}
+}
+
+func (n *Node) dispatchConnectionHeld(conn net.Conn, release func()) {
 	deadline := time.Now().Add(handshakeTimeout)
 
 	handoff, isBootstrap, err := classifyConnection(conn, deadline)
@@ -95,8 +194,9 @@ func (n *Node) dispatchConnection(conn net.Conn) {
 		conn.SetReadDeadline(time.Time{})
 		n.handleBootstrap(conn)
 	} else {
-		// 业务路径：deadline 原样移交，覆盖「首帧读取」直至 readFirstPacketWithPrefix 内部清除
-		n.handleBusiness(conn, handoff, deadline)
+		// 业务路径：deadline 原样移交，覆盖「首帧读取」直至 readFirstPacketWithPrefix 内部清除。
+		// 验签通过后由 handleBusiness 调用 release，未验签连接会一直占用握手额度。
+		n.handleBusiness(conn, handoff, deadline, release)
 	}
 }
 
@@ -128,7 +228,16 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	defer conn.Close()
 	remote := conn.RemoteAddr().String()
 
-	if n.degraded {
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = remote
+	}
+	if n.bootstrapLimiter != nil && !n.bootstrapLimiter.allow(host) {
+		logger.Warn("[", remote, "] 引导请求超过限速，拒绝")
+		return
+	}
+
+	if n.degraded.Load() {
 		logger.Warn("[", remote, "] 降级模式下引导客户端，使用缓存拓扑")
 	}
 
@@ -140,28 +249,29 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 		item protocol.ProbeItemInfo
 	}
 	usedCodes := make(map[string]struct{})
-	codeByItem := make(map[string]codedItem)
+	codeByItem := make(map[string][]codedItem)
 	probeItems := make([]protocol.ProbeItem, 0, len(fullTopo))
-	// 相同 {IP,Proto,Port} 的探测项去重合并：code → 多候选（多节点共享同一 FAKE-IP 场景）
-	seenItems := make(map[string]bool)
+	// 相同 {IP,Proto,Port} 的探测项去重合并：客户端只测一次，
+	// 但 code 对应多个候选节点（多节点共享同一 FAKE-IP 场景）。
+	codeByKey := make(map[string]string)
 	for _, node := range fullTopo {
 		for _, item := range node.EffectiveItems() {
 			itemKey := util.JoinHostPort(item.IP, item.Port) + "/" + item.Proto
-			if seenItems[itemKey] {
-				continue
+			code, exists := codeByKey[itemKey]
+			if !exists {
+				code = newProbeCode(usedCodes)
+				codeByKey[itemKey] = code
+				probeItems = append(probeItems, protocol.ProbeItem{
+					Code:  code,
+					IP:    item.IP,
+					Proto: item.Proto,
+					Port:  item.Port,
+				})
 			}
-			seenItems[itemKey] = true
-
-			code := newProbeCode(usedCodes)
-			codeByItem[code] = codedItem{code: code, node: node, item: item}
-			probeItems = append(probeItems, protocol.ProbeItem{
-				Code:  code,
-				IP:    item.IP,
-				Proto: item.Proto,
-				Port:  item.Port,
-			})
+			codeByItem[code] = append(codeByItem[code], codedItem{code: code, node: node, item: item})
 		}
 	}
+
 	if len(probeItems) == 0 {
 		logger.Warn("[", remote, "] 无可用探测项")
 		return
@@ -172,7 +282,7 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 
 	// 3. 下发探测项列表
 	listJSON, _ := json.Marshal(probeItems)
-	if err := util.WriteFrame(conn, listJSON); err != nil {
+	if err := util.WriteFrameWithDeadline(conn, listJSON, 5*time.Second); err != nil {
 		logger.Warn("[", remote, "] 下发探测项列表失败 err:", err)
 		return
 	}
@@ -188,12 +298,27 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 		logger.Warn("[", remote, "] 探测结果解析失败 err:", err)
 		return
 	}
-	rttByCode := make(map[string]int64, len(results))
+	// 客户端至多上报每个探测项一次；超出即视为异常，避免超大/重复结果占用内存。
+	if len(results) > len(probeItems) {
+		logger.Warn("[", remote, "] 探测结果数量异常 results:", len(results), " items:", len(probeItems))
+		return
+	}
+	maxRTT := int64(maxAcceptedProbeRTTMs)
+	if probeTimeout := int64(n.cfg.Self.ProbeTimeoutMs); probeTimeout > 0 && probeTimeout*2 > maxRTT {
+		maxRTT = probeTimeout * 2
+	}
+
+	rttByCode := make(map[string]int64, len(probeItems))
 	for _, r := range results {
-		if _, ok := codeByItem[r.Code]; ok {
-			rttByCode[r.Code] = r.RTTMs
+		if _, ok := codeByItem[r.Code]; !ok {
+			continue // 未知编码一律忽略（不 panic 不落库）
 		}
-		// 未知编码一律忽略（不 panic 不落库）
+		// 拒绝负数与不合理超大 RTT，防止恶意客户端操纵选路。
+		if r.RTTMs < 0 || r.RTTMs > maxRTT {
+			logger.Warn("[", remote, "] 忽略异常 RTT code:", r.Code, " rtt_ms:", r.RTTMs)
+			continue
+		}
+		rttByCode[r.Code] = r.RTTMs
 	}
 
 	// 5. 计算全链路 RTT，选最优节点（双公式 + 节点级带宽惩罚）
@@ -204,29 +329,35 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	}
 	candidates := make([]candidate, 0, len(probeItems))
 	overloaded := make([]candidate, 0)
-	for _, ci := range codeByItem {
-		clientRTT, ok := rttByCode[ci.code]
+	for _, entries := range codeByItem {
+		if len(entries) == 0 {
+			continue
+		}
+		clientRTT, ok := rttByCode[entries[0].code]
 		if !ok {
 			continue // 该项不可达（缺省=失败）
 		}
-		var totalRTT int64
-		if ci.item.IsReal {
-			// 真实项：前端段 × weight_real，origin RTT 不乘权重
-			totalRTT = int64(float64(clientRTT)*ci.item.Weight) + ci.node.RTTToOriginMs
-		} else {
-			// FAKE 项：整个前端过程 × weight，origin RTT 不乘权重
-			totalRTT = int64(float64(clientRTT+ci.item.EffectiveRTT())*ci.item.Weight) + ci.node.RTTToOriginMs
+		for _, ci := range entries {
+			var totalRTT int64
+			if ci.item.IsReal {
+				// 真实项：前端段 × weight_real，origin RTT 不乘权重
+				totalRTT = int64(float64(clientRTT)*ci.item.Weight) + ci.node.RTTToOriginMs
+			} else {
+				// FAKE 项：整个前端过程 × weight，origin RTT 不乘权重
+				totalRTT = int64(float64(clientRTT+ci.item.EffectiveRTT())*ci.item.Weight) + ci.node.RTTToOriginMs
+			}
+			if ci.node.BWStatus == "overloaded" {
+				overloaded = append(overloaded, candidate{node: ci.node, totalRTT: totalRTT})
+				continue
+			}
+			// BW 惩罚是节点级：带宽受限影响该节点所有转发流量，与赢家项类型无关
+			if ci.node.BWStatus == "warning" && bwPenalty > 0 {
+				totalRTT = int64(float64(totalRTT) * bwPenalty)
+			}
+			candidates = append(candidates, candidate{node: ci.node, totalRTT: totalRTT})
 		}
-		if ci.node.BWStatus == "overloaded" {
-			overloaded = append(overloaded, candidate{node: ci.node, totalRTT: totalRTT})
-			continue
-		}
-		// BW 惩罚是节点级：带宽受限影响该节点所有转发流量，与赢家项类型无关
-		if ci.node.BWStatus == "warning" && bwPenalty > 0 {
-			totalRTT = int64(float64(totalRTT) * bwPenalty)
-		}
-		candidates = append(candidates, candidate{node: ci.node, totalRTT: totalRTT})
 	}
+
 	// 过滤后无可用节点，回退使用全部节点（含 overloaded）
 	if len(candidates) == 0 && len(overloaded) > 0 {
 		logger.Warn("[", remote, "] 所有节点均已满载，回退使用 overloaded 节点")
@@ -242,7 +373,11 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	best := candidates[0].node
 
 	// 6. 生成 Token
-	token, ts, err := n.auth.GenerateToken(best.UUID)
+	tokenClientIP := ""
+	if n.cfg.Self.TokenBindClientIP == nil || *n.cfg.Self.TokenBindClientIP {
+		tokenClientIP = host
+	}
+	token, ts, err := n.auth.GenerateRouteToken(best.UUID, n.cfg.Self.UUID, tokenClientIP)
 	if err != nil {
 		logger.Error("[", remote, "] Token 生成失败 err:", err)
 		return
@@ -256,7 +391,7 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 		Timestamp:    ts,
 	}
 	cmdJSON, _ := json.Marshal(cmd)
-	if err := util.WriteFrame(conn, cmdJSON); err != nil {
+	if err := util.WriteFrameWithDeadline(conn, cmdJSON, 5*time.Second); err != nil {
 		logger.Warn("[", remote, "] 下发 Redirect 命令失败 err:", err)
 		return
 	}

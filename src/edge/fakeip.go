@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/donnie4w/go-logger/logger"
 	"github.com/MarchSnow-1/OptiRoute/config"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
+	"github.com/donnie4w/go-logger/logger"
 )
 
 // FakeIPState 单个 FAKE-IP 的有效性状态
@@ -129,9 +129,11 @@ func (m *FakeIPManager) checkItem(it *FakeIPStatus) {
 	}
 	it.mu.Unlock()
 
-	// 状态变迁（首次有效或失效后恢复）才触发列表变化上报；
-	// 必须在释放 it.mu 之后调用（Selected 会再次对同一 item 加锁）
-	if ok && prev != StateValid {
+	// 状态变迁才触发列表变化上报：
+	//   - Unknown/Invalid → Valid：新 FAKE-IP 可用或失效后恢复；
+	//   - Valid → Invalid：有效项失效，必须让中心立即移除，避免继续下发坏项。
+	// 必须在释放 it.mu 之后调用（Selected 会再次对同一 item 加锁）。
+	if (ok && prev != StateValid) || (!ok && prev == StateValid) {
 		m.notifyChanged()
 	}
 }
@@ -160,8 +162,8 @@ func (m *FakeIPManager) Selected() []protocol.FakeItemReport {
 	}
 	// 快照每个有效项的 effRTT，排序比较器不持锁读（避免与 checkItem 写 rttMs 的数据竞争）
 	type scored struct {
-		it   *FakeIPStatus
-		eff  float64
+		it  *FakeIPStatus
+		eff float64
 	}
 	scoredList := make([]scored, 0, len(valid))
 	for _, it := range valid {

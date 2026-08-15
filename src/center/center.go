@@ -3,20 +3,24 @@ package center
 import (
 	"context"
 	crand "crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	mrand "math/rand"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/donnie4w/go-logger/logger"
-	"github.com/gorilla/websocket"
+	"github.com/MarchSnow-1/OptiRoute/auth"
 	"github.com/MarchSnow-1/OptiRoute/config"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
+	"github.com/donnie4w/go-logger/logger"
+	"github.com/gorilla/websocket"
 )
 
 // EdgeRecord 保存单个边缘节点的状态
@@ -59,22 +63,27 @@ type CenterServer struct {
 	cfg *config.Config
 
 	mu         sync.RWMutex
-	edges      map[string]*EdgeRecord      // key: UUID → 边缘节点记录
-	uuidByConn map[*websocket.Conn]string   // 连接 → UUID 反向索引，断开时快速清理
+	edges      map[string]*EdgeRecord     // key: UUID → 边缘节点记录
+	uuidByConn map[*websocket.Conn]string // 连接 → UUID 反向索引，断开时快速清理
 
 	serverMu      sync.RWMutex
 	serverRecords map[string]*ServerRecord // key: Server Agent UUID → 去重记录（多 edge 共享）
 
 	secretMu      sync.RWMutex
 	currentSecret []byte // 32 字节随机密钥
+	secretVersion uint64 // shared_secret 单调递增版本号
+
+	registerMu      sync.Mutex
+	registerWindows map[string]*registerWindow
 }
 
 func New(cfg *config.Config) *CenterServer {
 	return &CenterServer{
-		cfg:           cfg,
-		edges:         make(map[string]*EdgeRecord),
-		uuidByConn:    make(map[*websocket.Conn]string),
-		serverRecords: make(map[string]*ServerRecord),
+		cfg:             cfg,
+		edges:           make(map[string]*EdgeRecord),
+		uuidByConn:      make(map[*websocket.Conn]string),
+		serverRecords:   make(map[string]*ServerRecord),
+		registerWindows: make(map[string]*registerWindow),
 	}
 }
 
@@ -93,8 +102,7 @@ func (s *CenterServer) Start(ctx context.Context) error {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/edge", func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("token")
-		if token == "" || token != s.cfg.Self.CommSecret {
+		if !auth.VerifyCommSecretHeader(r.Header.Get("Authorization"), s.cfg.Self.CommSecret) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -226,6 +234,59 @@ func (s *CenterServer) handleEdge(conn *websocket.Conn) {
 	}
 }
 
+type registerWindow struct {
+	start time.Time
+	count int
+}
+
+const maxRegisterRateUUIDs = 16384
+
+// allowRegister 对单个 UUID 的注册频率做固定窗口限速。
+func (s *CenterServer) allowRegister(uuid string) bool {
+	rate := s.cfg.Self.EdgeRegisterRatePerMinute
+	if rate <= 0 {
+		rate = 30
+	}
+	now := time.Now()
+	s.registerMu.Lock()
+	defer s.registerMu.Unlock()
+
+	st := s.registerWindows[uuid]
+	if st == nil {
+		if len(s.registerWindows) >= maxRegisterRateUUIDs {
+			for id, w := range s.registerWindows {
+				if now.Sub(w.start) >= time.Minute {
+					delete(s.registerWindows, id)
+				}
+			}
+			if len(s.registerWindows) >= maxRegisterRateUUIDs {
+				return false
+			}
+		}
+		st = &registerWindow{start: now}
+		s.registerWindows[uuid] = st
+	}
+	if now.Sub(st.start) >= time.Minute {
+		st.start = now
+		st.count = 0
+	}
+	if st.count >= rate {
+		return false
+	}
+	st.count++
+	return true
+}
+
+// sendRegisterReject 在连接尚未写入 edges 映射前直接下发拒绝结果。
+func (s *CenterServer) sendRegisterReject(conn *websocket.Conn, reason string) {
+	raw, _ := json.Marshal(protocol.RegisteredPayload{OK: false, Reason: reason})
+	env := protocol.Envelope{Type: protocol.MsgTypeRegistered, Payload: raw}
+	data, _ := json.Marshal(env)
+	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		logger.Warn("下发注册拒绝失败 err:", err)
+	}
+}
+
 // handleRegister 处理边缘节点注册
 func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage) {
 	var req protocol.RegisterPayload
@@ -233,16 +294,20 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 		return
 	}
 
-	uuid := req.UUID
-
-	if uuid == "" {
-		logger.Warn("边缘节点注册失败：UUID 为空")
+	if err := normalizeAndValidateRegister(&req); err != nil {
+		logger.Warn("边缘节点注册校验失败 uuid:", req.UUID, " err:", err)
 		return
 	}
+	uuid := req.UUID
 
-	// 空分组兜底为 default，保证拓扑中不存在空分组节点
-	if req.Group == "" {
-		req.Group = config.DefaultGroup
+	maxEdges := s.cfg.Self.MaxEdges
+	if maxEdges <= 0 {
+		maxEdges = 1024
+	}
+	if !s.allowRegister(uuid) {
+		logger.Warn("边缘节点注册失败：注册频率超限 uuid:", uuid)
+		s.sendRegisterReject(conn, "register rate limit exceeded")
+		return
 	}
 
 	record := &EdgeRecord{
@@ -261,7 +326,7 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 	}
 
 	s.mu.Lock()
-	// 若同一 UUID 已有旧注册，先清理旧连接
+	// 若同一 UUID 已有旧注册，先清理旧连接；新 UUID 则在同一临界区检查容量上限。
 	if old, exists := s.edges[uuid]; exists {
 		delete(s.uuidByConn, old.conn)
 		old.sendMu.Lock()
@@ -269,6 +334,11 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 		close(old.writeCh)
 		old.sendMu.Unlock()
 		old.conn.Close()
+	} else if edgeCount := len(s.edges); edgeCount >= maxEdges {
+		s.mu.Unlock()
+		logger.Warn("边缘节点注册失败：在线 Edge 数量已达上限 uuid:", uuid, " count:", edgeCount)
+		s.sendRegisterReject(conn, "online edge limit reached")
+		return
 	}
 	s.edges[uuid] = record
 	s.uuidByConn[conn] = uuid
@@ -280,10 +350,141 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 
 	s.secretMu.RLock()
 	secret := hex.EncodeToString(s.currentSecret)
+	version := s.secretVersion
 	s.secretMu.RUnlock()
-	s.sendMsg(conn, protocol.MsgTypeSecretPush, protocol.SecretPushPayload{Secret: secret})
+	s.sendMsg(conn, protocol.MsgTypeSecretPush, protocol.SecretPushPayload{Secret: secret, Version: version})
 
 	logger.Info("边缘节点注册成功 uuid:", uuid, " ip:", req.IP, " group:", record.Group)
+}
+
+// maxFakeItemsPerEdge 限制单个边缘节点单次注册可上报的 FAKE-IP 数量。
+const maxFakeItemsPerEdge = 256
+
+// normalizeAndValidateRegister 对边缘节点注册消息做标准化与边界校验。
+// 中心不能盲目信任 Edge 上报的拓扑数据，否则一个被攻破的 Edge 可向全网注入任意探测目标。
+func normalizeAndValidateRegister(req *protocol.RegisterPayload) error {
+	req.UUID = strings.TrimSpace(req.UUID)
+	if req.UUID == "" || len(req.UUID) > 128 {
+		return fmt.Errorf("uuid 为空或超长")
+	}
+	req.IP = strings.TrimSpace(req.IP)
+	if err := validateNodeAddr(req.IP); err != nil {
+		return fmt.Errorf("ip 非法: %w", err)
+	}
+
+	if req.Group == "" {
+		req.Group = config.DefaultGroup
+	}
+	if len(req.Group) > 128 {
+		return fmt.Errorf("group 超长")
+	}
+
+	if req.ProbeMode == "" {
+		req.ProbeMode = "direct"
+	}
+	if req.ProbeMode != "direct" && req.ProbeMode != "fakeip" && req.ProbeMode != "mixed" {
+		return fmt.Errorf("未知探测模式: %s", req.ProbeMode)
+	}
+
+	if req.ProbeProto == "" {
+		req.ProbeProto = "udp"
+	}
+	if req.ProbeProto != "tcp" && req.ProbeProto != "udp" && req.ProbeProto != "icmp" {
+		return fmt.Errorf("未知探测协议: %s", req.ProbeProto)
+	}
+
+	if req.BusinessPort < 1 || req.BusinessPort > 65535 {
+		return fmt.Errorf("business_port 超出范围: %d", req.BusinessPort)
+	}
+	if req.ProbePort < 0 || req.ProbePort > 65535 {
+		return fmt.Errorf("probe_port 超出范围: %d", req.ProbePort)
+	}
+	if req.ProbePort == 0 && req.ProbeMode != "fakeip" && req.ProbeProto != "icmp" {
+		return fmt.Errorf("direct/mixed 模式且非 ICMP 探测必须提供 probe_port")
+	}
+
+	if len(req.Version) > 64 {
+		return fmt.Errorf("version 超长")
+	}
+	if len(req.FakeItems) > maxFakeItemsPerEdge {
+		return fmt.Errorf("fake_items 数量超限: %d > %d", len(req.FakeItems), maxFakeItemsPerEdge)
+	}
+	for i := range req.FakeItems {
+		f := &req.FakeItems[i]
+		f.IP = strings.TrimSpace(f.IP)
+		if net.ParseIP(f.IP) == nil {
+			return fmt.Errorf("fake_items[%d].ip 非法: %s", i, f.IP)
+		}
+		if f.Proto == "" {
+			f.Proto = "tcp"
+		}
+		if f.Proto != "tcp" && f.Proto != "udp" && f.Proto != "icmp" {
+			return fmt.Errorf("fake_items[%d].proto 非法: %s", i, f.Proto)
+		}
+		if f.Port < 0 || f.Port > 65535 {
+			return fmt.Errorf("fake_items[%d].port 超出范围: %d", i, f.Port)
+		}
+		if f.Proto == "tcp" || f.Proto == "udp" {
+			if f.Port == 0 {
+				return fmt.Errorf("fake_items[%d]（%s）必须提供 port", i, f.Proto)
+			}
+		}
+		if f.Weight < 0 {
+			return fmt.Errorf("fake_items[%d].weight 必须 ≥ 0", i)
+		}
+		if f.RTTFallbackMs < 0 {
+			return fmt.Errorf("fake_items[%d].rtt_fallback_ms 必须 ≥ 0", i)
+		}
+	}
+	return nil
+}
+
+// validateNodeAddr 接受合法 IP 单播地址或语法合法的域名/IPv6 方括号形式。
+func validateNodeAddr(addr string) error {
+	if addr == "" {
+		return fmt.Errorf("地址为空")
+	}
+	if strings.HasPrefix(addr, "[") || strings.HasSuffix(addr, "]") {
+		if !strings.HasPrefix(addr, "[") || !strings.HasSuffix(addr, "]") {
+			return fmt.Errorf("IPv6 方括号未闭合: %s", addr)
+		}
+		addr = addr[1 : len(addr)-1]
+	}
+	if ip := net.ParseIP(addr); ip != nil {
+		if ip.IsUnspecified() || ip.IsMulticast() {
+			return fmt.Errorf("不允许使用未指定/组播地址: %s", addr)
+		}
+		return nil
+	}
+	if !validHostname(addr) {
+		return fmt.Errorf("不是合法 IP 或域名: %s", addr)
+	}
+	return nil
+}
+
+func validHostname(name string) bool {
+	if name == "" || len(name) > 253 {
+		return false
+	}
+	if strings.HasSuffix(name, ".") {
+		name = name[:len(name)-1]
+	}
+	for _, label := range strings.Split(name, ".") {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' {
+				continue
+			}
+			return false
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // handleRTTReport 更新边缘节点到源站的 RTT 及各 FAKE-IP 的 f2n 延迟
@@ -497,7 +698,8 @@ func shuffleItems(items []protocol.ProbeItemInfo) {
 func (s *CenterServer) apiAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
-		if auth != "Bearer "+s.cfg.Self.WebAPIKey {
+		expected := "Bearer " + s.cfg.Self.WebAPIKey
+		if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte("unauthorized"))
 			return

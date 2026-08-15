@@ -3,8 +3,8 @@ package util
 import (
 	"bytes"
 	"crypto/rand"
-	"encoding/binary"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/icmp"
@@ -14,6 +14,9 @@ import (
 
 // probePayloadLen 探测 payload 长度（UDP echo 与 ICMP 共用）
 const probePayloadLen = 16
+
+// icmpCounter 为每次 ICMP 探测生成唯一 ID，避免并发探测因 ID 相同而串扰。
+var icmpCounter atomic.Uint32
 
 // ProbeTCP 通过 TCP 握手测量到 addr 的 RTT，失败返回 ok=false
 func ProbeTCP(addr string, timeout time.Duration) (rttMs int64, ok bool) {
@@ -63,26 +66,32 @@ func ProbeICMP(ip string, timeout time.Duration) (rttMs int64, ok bool) {
 	}
 
 	var network string
-	var echoType icmp.Type      // 发送类型（Echo Request）
-	var replyType icmp.Type     // 接收类型（Echo Reply）
+	var echoType icmp.Type  // 发送类型（Echo Request）
+	var replyType icmp.Type // 接收类型（Echo Reply）
+	var bindAddr string     // 监听通配地址：IPv4 与 IPv6 不同
+	var parseProto int      // icmp.ParseMessage 所需协议号：ICMPv4=1，ICMPv6=58
 	if parsed.To4() != nil {
 		network = "udp4"
 		echoType = ipv4.ICMPTypeEcho
 		replyType = ipv4.ICMPTypeEchoReply
+		bindAddr = "0.0.0.0"
+		parseProto = 1
 	} else {
 		network = "udp6"
 		echoType = ipv6.ICMPTypeEchoRequest
 		replyType = ipv6.ICMPTypeEchoReply
+		bindAddr = "::"
+		parseProto = 58
 	}
 
-	c, err := icmp.ListenPacket(network, "0.0.0.0")
+	c, err := icmp.ListenPacket(network, bindAddr)
 	if err != nil {
 		return 0, false
 	}
 	defer c.Close()
 
 	// ID 用目标 IP 哈希（跨平台稳定），避免并发探测的 ICMP 响应串扰
-	id := icmpID(parsed)
+	id := int(icmpCounter.Add(1) & 0xffff)
 	payload := make([]byte, probePayloadLen)
 	if _, err := rand.Read(payload); err != nil {
 		return 0, false
@@ -108,22 +117,16 @@ func ProbeICMP(ip string, timeout time.Duration) (rttMs int64, ok bool) {
 	if err != nil {
 		return 0, false
 	}
-	rm, err := icmp.ParseMessage(1, rb[:n]) // ProtocolICMP=1
+	rm, err := icmp.ParseMessage(parseProto, rb[:n])
 	if err != nil || rm.Type != replyType {
 		return 0, false
 	}
 	echo, _ := rm.Body.(*icmp.Echo)
-	if echo == nil || echo.ID != id || echo.Seq != 1 {
+	if echo == nil || echo.ID != id || echo.Seq != 1 || !bytes.Equal(echo.Data, payload) {
 		return 0, false
 	}
 	if peer != nil && peer.(*net.IPAddr) != nil && !peer.(*net.IPAddr).IP.Equal(parsed) {
 		return 0, false // 防 ICMP 重定向欺骗
 	}
 	return time.Since(start).Milliseconds(), true
-}
-
-// icmpID 从 IP 字节生成稳定的 ICMP 标识
-func icmpID(ip net.IP) int {
-	h := ip.To16()
-	return int(binary.BigEndian.Uint16(h[len(h)-2:]))
 }

@@ -151,10 +151,12 @@ func (s *CenterServer) rotateSecret() error {
 	}
 	s.secretMu.Lock()
 	s.currentSecret = secret
+	s.secretVersion++
+	version := s.secretVersion
 	s.secretMu.Unlock()
 
-	logger.Info("shared_secret 已轮转")
-	go s.broadcastSecret(secret)
+	logger.Info("shared_secret 已轮转 version:", version)
+	go s.broadcastSecret(secret, version)
 	return nil
 }
 
@@ -822,8 +824,8 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 // broadcastSecret 向所有在线边缘节点推送新 secret
-func (s *CenterServer) broadcastSecret(secret []byte) {
-	payload := protocol.SecretPushPayload{Secret: hex.EncodeToString(secret)}
+func (s *CenterServer) broadcastSecret(secret []byte, version uint64) {
+	payload := protocol.SecretPushPayload{Secret: hex.EncodeToString(secret), Version: version}
 	s.mu.RLock()
 	conns := make([]*websocket.Conn, 0, len(s.edges))
 	for _, r := range s.edges {
@@ -875,7 +877,11 @@ func (s *CenterServer) sendMsg(conn *websocket.Conn, msgType protocol.MsgType, p
 	select {
 	case rec.writeCh <- data:
 	default:
-		logger.Warn("边缘节点写队列已满，丢弃消息 uuid:", uuid, " type:", msgType)
+		// 控制消息（尤其 SecretPush/TopoResponse）不能静默丢弃，否则节点会带着
+		// 旧 secret/旧拓扑长期运行。关闭连接强制对端重连，重新注册并拉取全量状态。
+		logger.Warn("边缘节点写队列已满，关闭连接以触发重连 uuid:", uuid, " type:", msgType)
+		rec.closed = true
+		rec.conn.Close()
 	}
 	rec.sendMu.Unlock()
 }

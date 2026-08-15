@@ -25,10 +25,10 @@ const DefaultGroup = "default"
 // FakeIPConfig 单个 FAKE-IP 探测项配置
 type FakeIPConfig struct {
 	IP            string  `json:"ip"`
-	Proto         string  `json:"proto,omitempty"`            // tcp/udp/icmp，默认 tcp
-	Port          int     `json:"port,omitempty"`             // tcp/udp 必填（探测 FAKE-IP 自身开放端口）
-	Weight        float64 `json:"weight,omitempty"`           // 惩罚乘数，默认 1.0
-	RTTFallbackMs int64   `json:"rtt_fallback_ms,omitempty"`  // f2n 静态兜底
+	Proto         string  `json:"proto,omitempty"`           // tcp/udp/icmp，默认 tcp
+	Port          int     `json:"port,omitempty"`            // tcp/udp 必填（探测 FAKE-IP 自身开放端口）
+	Weight        float64 `json:"weight,omitempty"`          // 惩罚乘数，默认 1.0
+	RTTFallbackMs int64   `json:"rtt_fallback_ms,omitempty"` // f2n 静态兜底
 }
 
 // SelfConfig 本节点自身的配置
@@ -37,8 +37,8 @@ type SelfConfig struct {
 
 	// 身份
 	UUID         string `json:"uuid,omitempty"`
-	Group        string `json:"group,omitempty"` // 节点分组，edge 用；留空=default
-	Addr         string `json:"addr,omitempty"`  // 本节点公网入口 IP（edge）
+	Group        string `json:"group,omitempty"`       // 节点分组，edge 用；留空=default
+	Addr         string `json:"addr,omitempty"`        // 本节点公网入口 IP（edge）
 	ListenAddr   string `json:"listen_addr,omitempty"` // 监听地址（center/client/server）
 	ListenPort   int    `json:"listen_port,omitempty"` // 监听端口（center/client/server）
 	ProbePort    int    `json:"probe_port,omitempty"`  // 探测端口（fakeip-only 或 icmp 时可空）
@@ -46,40 +46,44 @@ type SelfConfig struct {
 	TopoCacheDir string `json:"topo_cache_dir,omitempty"`
 
 	// 探测
-	ProbeMode         string         `json:"probe_mode,omitempty"`          // direct/fakeip/mixed，留空=direct
-	ProbeProto        string         `json:"probe_proto,omitempty"`         // 本机探测协议 tcp/udp/icmp，留空=udp
-	FakeIPs           []FakeIPConfig `json:"fake_ips,omitempty"`            // FAKE-IP 探测项列表
-	FakeIPMaxCount    int            `json:"fake_ip_max_count,omitempty"`   // 上报 FAKE-IP 数量上限
-	FakeIPCheckTTLS   int            `json:"fake_ip_check_ttl_s,omitempty"` // 有效 FAKE-IP 重测窗口（秒）
+	ProbeMode       string         `json:"probe_mode,omitempty"`          // direct/fakeip/mixed，留空=direct
+	ProbeProto      string         `json:"probe_proto,omitempty"`         // 本机探测协议 tcp/udp/icmp，留空=udp
+	FakeIPs         []FakeIPConfig `json:"fake_ips,omitempty"`            // FAKE-IP 探测项列表
+	FakeIPMaxCount  int            `json:"fake_ip_max_count,omitempty"`   // 上报 FAKE-IP 数量上限
+	FakeIPCheckTTLS int            `json:"fake_ip_check_ttl_s,omitempty"` // 有效 FAKE-IP 重测窗口（秒）
 
 	// 带宽控制
-	MaxBandwidthMbps  float64  `json:"max_bandwidth_mbps,omitempty"`
-	BWWarningRatio    *float64 `json:"bw_warning_ratio,omitempty"`   // nil=默认 0.80
-	BWOverloadRatio   *float64 `json:"bw_overload_ratio,omitempty"`  // nil=默认 0.95
+	MaxBandwidthMbps float64  `json:"max_bandwidth_mbps,omitempty"`
+	BWWarningRatio   *float64 `json:"bw_warning_ratio,omitempty"`  // nil=默认 0.80
+	BWOverloadRatio  *float64 `json:"bw_overload_ratio,omitempty"` // nil=默认 0.95
 
 	// 连接参数
-	CenterConnectRetryCount     int `json:"center_connect_retry_count,omitempty"`
-	CenterConnectRetryIntervalS int `json:"center_connect_retry_interval_s,omitempty"`
-	ConnectTimeoutMs            int `json:"connect_timeout_ms,omitempty"`
-	ProbeTimeoutMs              int `json:"probe_timeout_ms,omitempty"`
-	MonitorProbeTimeoutMs       int `json:"monitor_probe_timeout_ms,omitempty"`
-	IdleTimeoutS                int `json:"idle_timeout_s,omitempty"` // 透传空闲超时（秒），0=不限制
+	CenterConnectRetryCount     int  `json:"center_connect_retry_count,omitempty"`
+	CenterConnectRetryIntervalS int  `json:"center_connect_retry_interval_s,omitempty"`
+	ConnectTimeoutMs            int  `json:"connect_timeout_ms,omitempty"`
+	ProbeTimeoutMs              int  `json:"probe_timeout_ms,omitempty"`
+	MonitorProbeTimeoutMs       int  `json:"monitor_probe_timeout_ms,omitempty"`
+	IdleTimeoutS                *int `json:"idle_timeout_s,omitempty"` // 透传空闲超时（秒）；nil=默认120，0=不限制
 
 	// 链路质量
-	TopoSyncIntervalS  int      `json:"topo_sync_interval_s,omitempty"`
-	TopoSyncJitterMs   int      `json:"topo_sync_jitter_ms,omitempty"`
-	RTTWindowS         int      `json:"rtt_window_s,omitempty"`
-	LossRateThreshold  *float64 `json:"loss_rate_threshold,omitempty"` // nil=默认 0.40，0=任何丢包即告警
+	TopoSyncIntervalS int      `json:"topo_sync_interval_s,omitempty"`
+	TopoSyncJitterMs  int      `json:"topo_sync_jitter_ms,omitempty"`
+	RTTWindowS        int      `json:"rtt_window_s,omitempty"`
+	LossRateThreshold *float64 `json:"loss_rate_threshold,omitempty"` // nil=默认 0.40，0=任何丢包即告警
 
 	// 鉴权（center 为密钥管理方）
-	TokenTTLS            int    `json:"token_ttl_s,omitempty"`
-	SecretRotationIntervalS int `json:"secret_rotation_interval_s,omitempty"`
-	CommSecret           string `json:"comm_secret,omitempty"` // center 用
-	PingIntervalS        int    `json:"ping_interval_s,omitempty"` // 中心对 edge 的测活间隔（秒），默认 30
+	TokenTTLS               int    `json:"token_ttl_s,omitempty"`
+	TokenBindClientIP       *bool  `json:"token_bind_client_ip,omitempty"`     // nil=默认 true；false 时 Token 不绑定客户端 IP
+	StopReconnectOnReject   *bool  `json:"stop_reconnect_on_reject,omitempty"` // nil=默认 true；false 时被永久拒绝后仍重连
+	SecretRotationIntervalS int    `json:"secret_rotation_interval_s,omitempty"`
+	CommSecret              string `json:"comm_secret,omitempty"`     // center 控制面认证用（Edge 的 remote.center_secret 必须匹配此值）
+	PingIntervalS           int    `json:"ping_interval_s,omitempty"` // 中心对 edge 的测活间隔（秒），默认 30
 
 	// 信息采集与开放 API（center）
-	CollectClientInfo bool   `json:"collect_client_info,omitempty"` // 是否采集客户端版本/IP，默认关
-	WebAPIKey         string `json:"web_api_key,omitempty"`         // 开放 API 密钥，空=API 关闭
+	CollectClientInfo         bool   `json:"collect_client_info,omitempty"`           // 是否采集客户端版本/IP，默认关
+	WebAPIKey                 string `json:"web_api_key,omitempty"`                   // 开放 API 密钥，空=API 关闭
+	MaxEdges                  int    `json:"max_edges,omitempty"`                     // 在线 Edge 上限，默认 1024
+	EdgeRegisterRatePerMinute int    `json:"edge_register_rate_per_minute,omitempty"` // 单 UUID 每分钟注册次数上限，默认 30
 
 	// 可观测性
 	LogRealIP     bool   `json:"log_real_ip,omitempty"`
@@ -89,15 +93,16 @@ type SelfConfig struct {
 
 // RemoteConfig 连接远端组件的配置
 type RemoteConfig struct {
-	CenterAddr    string `json:"center_addr,omitempty"`
-	CenterPort    int    `json:"center_port,omitempty"`
-	OriginAddr    string `json:"origin_addr,omitempty"`
-	OriginPort    int    `json:"origin_port,omitempty"`
-	BootstrapAddr string `json:"bootstrap_addr,omitempty"`
-	BootstrapPort int    `json:"bootstrap_port,omitempty"`
-	UpstreamAddr  string `json:"upstream_addr,omitempty"`
-	UpstreamPort  int    `json:"upstream_port,omitempty"`
-	CommSecret       string   `json:"comm_secret,omitempty"` // edge/client/server 用
+	CenterAddr       string   `json:"center_addr,omitempty"`
+	CenterPort       int      `json:"center_port,omitempty"`
+	OriginAddr       string   `json:"origin_addr,omitempty"`
+	OriginPort       int      `json:"origin_port,omitempty"`
+	BootstrapAddr    string   `json:"bootstrap_addr,omitempty"`
+	BootstrapPort    int      `json:"bootstrap_port,omitempty"`
+	UpstreamAddr     string   `json:"upstream_addr,omitempty"`
+	UpstreamPort     int      `json:"upstream_port,omitempty"`
+	CenterSecret     string   `json:"center_secret,omitempty"`      // edge 用：Edge → Center 控制面认证，与 center.self.comm_secret 匹配
+	CommSecret       string   `json:"comm_secret,omitempty"`        // edge/server 数据面认证（Edge ↔ Server Agent）
 	BWWarningPenalty *float64 `json:"bw_warning_penalty,omitempty"` // nil=默认 1.15
 }
 
@@ -108,35 +113,105 @@ type Config struct {
 }
 
 func (c *Config) defaults() {
-	if c.Self.Group == ""                { c.Self.Group = DefaultGroup }
-	if c.Self.ConnectTimeoutMs == 0      { c.Self.ConnectTimeoutMs = 5000 }
-	if c.Self.ProbeTimeoutMs == 0         { c.Self.ProbeTimeoutMs = 1000 }
-	if c.Self.MonitorProbeTimeoutMs == 0  { c.Self.MonitorProbeTimeoutMs = 2000 }
-	if c.Self.IdleTimeoutS == 0           { c.Self.IdleTimeoutS = 120 }
-	if c.Self.TopoSyncIntervalS == 0      { c.Self.TopoSyncIntervalS = 10 }
-	if c.Self.TopoSyncJitterMs == 0       { c.Self.TopoSyncJitterMs = 2000 }
-	if c.Self.RTTWindowS == 0             { c.Self.RTTWindowS = 30 }
-	if c.Self.LossRateThreshold == nil    { v := 0.40; c.Self.LossRateThreshold = &v }
-	if c.Self.TokenTTLS == 0              { c.Self.TokenTTLS = 30 }
-	if c.Self.SecretRotationIntervalS == 0 { c.Self.SecretRotationIntervalS = 3600 }
-	if c.Self.PingIntervalS == 0          { c.Self.PingIntervalS = 30 }
-	if c.Self.LogLevel == ""              { c.Self.LogLevel = "info" }
-	if c.Self.CenterConnectRetryCount == 0     { c.Self.CenterConnectRetryCount = 3 }
-	if c.Self.CenterConnectRetryIntervalS == 0 { c.Self.CenterConnectRetryIntervalS = 5 }
-	if c.Self.BWWarningRatio == nil       { v := 0.80; c.Self.BWWarningRatio = &v }
-	if c.Self.BWOverloadRatio == nil      { v := 0.95; c.Self.BWOverloadRatio = &v }
-	if c.Remote.BWWarningPenalty == nil   { v := 1.15; c.Remote.BWWarningPenalty = &v }
-	if c.Self.ProbeMode == ""            { c.Self.ProbeMode = "direct" }
-	if c.Self.ProbeProto == ""           { c.Self.ProbeProto = "udp" }
-	if c.Self.FakeIPMaxCount == 0        { c.Self.FakeIPMaxCount = 5 }
-	if c.Self.FakeIPCheckTTLS == 0       { c.Self.FakeIPCheckTTLS = 60 }
+	if c.Self.UUID != "" {
+		c.Self.UUID = strings.TrimSpace(c.Self.UUID)
+	}
+	if c.Self.Group == "" {
+		c.Self.Group = DefaultGroup
+	}
+	if c.Self.ConnectTimeoutMs == 0 {
+		c.Self.ConnectTimeoutMs = 5000
+	}
+	if c.Self.ProbeTimeoutMs == 0 {
+		c.Self.ProbeTimeoutMs = 1000
+	}
+	if c.Self.MonitorProbeTimeoutMs == 0 {
+		c.Self.MonitorProbeTimeoutMs = 2000
+	}
+	if c.Self.IdleTimeoutS == nil {
+		v := 120
+		c.Self.IdleTimeoutS = &v
+	}
+	if c.Self.TopoSyncIntervalS == 0 {
+		c.Self.TopoSyncIntervalS = 10
+	}
+	if c.Self.TopoSyncJitterMs == 0 {
+		c.Self.TopoSyncJitterMs = 2000
+	}
+	if c.Self.RTTWindowS == 0 {
+		c.Self.RTTWindowS = 30
+	}
+	if c.Self.LossRateThreshold == nil {
+		v := 0.40
+		c.Self.LossRateThreshold = &v
+	}
+	if c.Self.TokenTTLS == 0 {
+		c.Self.TokenTTLS = 30
+	}
+	if c.Self.TokenBindClientIP == nil {
+		v := true
+		c.Self.TokenBindClientIP = &v
+	}
+	if c.Self.StopReconnectOnReject == nil {
+		v := true
+		c.Self.StopReconnectOnReject = &v
+	}
+	if c.Self.SecretRotationIntervalS == 0 {
+		c.Self.SecretRotationIntervalS = 3600
+	}
+	if c.Self.PingIntervalS == 0 {
+		c.Self.PingIntervalS = 30
+	}
+	if c.Self.MaxEdges == 0 {
+		c.Self.MaxEdges = 1024
+	}
+	if c.Self.EdgeRegisterRatePerMinute == 0 {
+		c.Self.EdgeRegisterRatePerMinute = 30
+	}
+	if c.Self.LogLevel == "" {
+		c.Self.LogLevel = "info"
+	}
+	if c.Self.CenterConnectRetryCount == 0 {
+		c.Self.CenterConnectRetryCount = 3
+	}
+	if c.Self.CenterConnectRetryIntervalS == 0 {
+		c.Self.CenterConnectRetryIntervalS = 5
+	}
+	if c.Self.BWWarningRatio == nil {
+		v := 0.80
+		c.Self.BWWarningRatio = &v
+	}
+	if c.Self.BWOverloadRatio == nil {
+		v := 0.95
+		c.Self.BWOverloadRatio = &v
+	}
+	if c.Remote.BWWarningPenalty == nil {
+		v := 1.15
+		c.Remote.BWWarningPenalty = &v
+	}
+	if c.Self.ProbeMode == "" {
+		c.Self.ProbeMode = "direct"
+	}
+	if c.Self.ProbeProto == "" {
+		c.Self.ProbeProto = "udp"
+	}
+	if c.Self.FakeIPMaxCount == 0 {
+		c.Self.FakeIPMaxCount = 5
+	}
+	if c.Self.FakeIPCheckTTLS == 0 {
+		c.Self.FakeIPCheckTTLS = 60
+	}
 
 	// 角色相关默认值
 	switch c.Self.Role {
 	case RoleClient:
-		if c.Self.ListenAddr == "" { c.Self.ListenAddr = "127.0.0.1" }
+		if c.Self.ListenAddr == "" {
+			c.Self.ListenAddr = "127.0.0.1"
+		}
 	case RoleServer:
-		if c.Remote.UpstreamAddr == "" { c.Remote.UpstreamAddr = "127.0.0.1" }
+		if c.Remote.UpstreamAddr == "" {
+			c.Remote.UpstreamAddr = "127.0.0.1"
+		}
 	}
 }
 
@@ -194,10 +269,16 @@ func (c *Config) Validate() error {
 	if c.Self.Role == "" {
 		return fmt.Errorf("必填字段缺失: role")
 	}
+	if err := c.validateCommonNumerics(); err != nil {
+		return err
+	}
 	switch c.Self.Role {
 	case RoleCenter:
 		if c.Self.ListenPort == 0 {
 			return fmt.Errorf("center 角色必须配置 self.listen_port")
+		}
+		if err := validatePortRange("self.listen_port", c.Self.ListenPort); err != nil {
+			return err
 		}
 		if err := validateAddr(c.Self.ListenAddr, "self.listen_addr"); err != nil {
 			return err
@@ -221,24 +302,40 @@ func (c *Config) Validate() error {
 		if err := validateAddr(c.Remote.CenterAddr, "remote.center_addr"); err != nil {
 			return err
 		}
+		if err := validatePortRange("remote.center_port", c.Remote.CenterPort); err != nil {
+			return err
+		}
+		if err := validateSecretField("remote.center_secret", c.Remote.CenterSecret, "edge"); err != nil {
+			return err
+		}
 		if c.Remote.OriginAddr == "" || c.Remote.OriginPort == 0 {
 			return fmt.Errorf("edge 角色必须配置 remote.origin_addr 和 remote.origin_port")
 		}
 		if err := validateAddr(c.Remote.OriginAddr, "remote.origin_addr"); err != nil {
 			return err
 		}
-		if c.Self.ProbePort == 0 || c.Self.BusinessPort == 0 {
+		if err := validatePortRange("remote.origin_port", c.Remote.OriginPort); err != nil {
+			return err
+		}
+		if err := validatePortRange("self.business_port", c.Self.BusinessPort); err != nil {
+			return err
+		}
+		if c.Self.ProbePort != 0 {
+			if err := validatePortRange("self.probe_port", c.Self.ProbePort); err != nil {
+				return err
+			}
+		} else {
 			// fakeip-only 或 probe_proto=icmp 时探测端口可空（ICMP 直接 ping IP，无需端口）
 			icmpOnly := c.Self.ProbeMode == "fakeip" || c.Self.ProbeProto == "icmp"
-			if c.Self.ProbePort == 0 && !icmpOnly {
+			if !icmpOnly {
 				return fmt.Errorf("edge 角色 probe_mode=%s 且 probe_proto=%s 必须配置 self.probe_port", c.Self.ProbeMode, c.Self.ProbeProto)
-			}
-			if c.Self.BusinessPort == 0 {
-				return fmt.Errorf("edge 角色必须配置 self.business_port")
 			}
 		}
 		if err := validateCommSecret(c.Remote.CommSecret, "edge"); err != nil {
 			return err
+		}
+		if c.Remote.CenterSecret == c.Remote.CommSecret {
+			return fmt.Errorf("remote.center_secret 与 remote.comm_secret 必须使用不同的独立密钥")
 		}
 		if c.Self.ProbeMode != "direct" && c.Self.ProbeMode != "fakeip" && c.Self.ProbeMode != "mixed" {
 			return fmt.Errorf("未知探测模式: %s（direct/fakeip/mixed）", c.Self.ProbeMode)
@@ -274,11 +371,17 @@ func (c *Config) Validate() error {
 		if c.Self.ListenPort == 0 {
 			return fmt.Errorf("client 角色必须配置 self.listen_port")
 		}
+		if err := validatePortRange("self.listen_port", c.Self.ListenPort); err != nil {
+			return err
+		}
 		if err := validateAddr(c.Self.ListenAddr, "self.listen_addr"); err != nil {
 			return err
 		}
 		if c.Remote.BootstrapAddr == "" || c.Remote.BootstrapPort == 0 {
 			return fmt.Errorf("client 角色必须配置 remote.bootstrap_addr 和 remote.bootstrap_port")
+		}
+		if err := validatePortRange("remote.bootstrap_port", c.Remote.BootstrapPort); err != nil {
+			return err
 		}
 		if err := validateAddr(c.Remote.BootstrapAddr, "remote.bootstrap_addr"); err != nil {
 			return err
@@ -289,6 +392,12 @@ func (c *Config) Validate() error {
 		}
 		if c.Self.ListenPort == 0 || c.Remote.UpstreamPort == 0 {
 			return fmt.Errorf("server 角色必须配置 self.listen_port 和 remote.upstream_port")
+		}
+		if err := validatePortRange("self.listen_port", c.Self.ListenPort); err != nil {
+			return err
+		}
+		if err := validatePortRange("remote.upstream_port", c.Remote.UpstreamPort); err != nil {
+			return err
 		}
 		if err := validateAddr(c.Self.ListenAddr, "self.listen_addr"); err != nil {
 			return err
@@ -305,12 +414,92 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// validateCommonNumerics 校验所有角色共用的数值范围。
+// defaults() 已把缺省 0 填充为默认值，因此这里仍为 0 的字段只可能是显式配置错误或指针型可选字段。
+func (c *Config) validateCommonNumerics() error {
+	if c.Self.ConnectTimeoutMs <= 0 {
+		return fmt.Errorf("self.connect_timeout_ms 必须 > 0，当前 %d", c.Self.ConnectTimeoutMs)
+	}
+	if c.Self.ProbeTimeoutMs <= 0 {
+		return fmt.Errorf("self.probe_timeout_ms 必须 > 0，当前 %d", c.Self.ProbeTimeoutMs)
+	}
+	if c.Self.MonitorProbeTimeoutMs <= 0 {
+		return fmt.Errorf("self.monitor_probe_timeout_ms 必须 > 0，当前 %d", c.Self.MonitorProbeTimeoutMs)
+	}
+	if c.Self.TopoSyncIntervalS <= 0 {
+		return fmt.Errorf("self.topo_sync_interval_s 必须 > 0，当前 %d", c.Self.TopoSyncIntervalS)
+	}
+	if c.Self.RTTWindowS <= 0 {
+		return fmt.Errorf("self.rtt_window_s 必须 > 0，当前 %d", c.Self.RTTWindowS)
+	}
+	if c.Self.TokenTTLS <= 0 {
+		return fmt.Errorf("self.token_ttl_s 必须 > 0，当前 %d", c.Self.TokenTTLS)
+	}
+	if c.Self.SecretRotationIntervalS <= 0 {
+		return fmt.Errorf("self.secret_rotation_interval_s 必须 > 0，当前 %d", c.Self.SecretRotationIntervalS)
+	}
+	if c.Self.PingIntervalS <= 0 {
+		return fmt.Errorf("self.ping_interval_s 必须 > 0，当前 %d", c.Self.PingIntervalS)
+	}
+	if c.Self.MaxEdges <= 0 {
+		return fmt.Errorf("self.max_edges 必须 > 0，当前 %d", c.Self.MaxEdges)
+	}
+	if c.Self.EdgeRegisterRatePerMinute <= 0 {
+		return fmt.Errorf("self.edge_register_rate_per_minute 必须 > 0，当前 %d", c.Self.EdgeRegisterRatePerMinute)
+	}
+	if c.Self.FakeIPCheckTTLS <= 0 {
+		return fmt.Errorf("self.fake_ip_check_ttl_s 必须 > 0，当前 %d", c.Self.FakeIPCheckTTLS)
+	}
+	if c.Self.CenterConnectRetryCount < 0 {
+		return fmt.Errorf("self.center_connect_retry_count 必须 ≥ 0，当前 %d", c.Self.CenterConnectRetryCount)
+	}
+	if c.Self.CenterConnectRetryIntervalS < 0 {
+		return fmt.Errorf("self.center_connect_retry_interval_s 必须 ≥ 0，当前 %d", c.Self.CenterConnectRetryIntervalS)
+	}
+	if c.Self.TopoSyncJitterMs < 0 {
+		return fmt.Errorf("self.topo_sync_jitter_ms 必须 ≥ 0，当前 %d", c.Self.TopoSyncJitterMs)
+	}
+	if c.Self.MaxBandwidthMbps < 0 {
+		return fmt.Errorf("self.max_bandwidth_mbps 必须 ≥ 0，当前 %f", c.Self.MaxBandwidthMbps)
+	}
+	if c.Self.IdleTimeoutS != nil && *c.Self.IdleTimeoutS < 0 {
+		return fmt.Errorf("self.idle_timeout_s 必须 ≥ 0，当前 %d", *c.Self.IdleTimeoutS)
+	}
+	if c.Self.LossRateThreshold != nil && (*c.Self.LossRateThreshold < 0 || *c.Self.LossRateThreshold > 1) {
+		return fmt.Errorf("self.loss_rate_threshold 必须在 0-1 之间，当前 %f", *c.Self.LossRateThreshold)
+	}
+	if c.Self.BWWarningRatio != nil && (*c.Self.BWWarningRatio < 0 || *c.Self.BWWarningRatio > 1) {
+		return fmt.Errorf("self.bw_warning_ratio 必须在 0-1 之间，当前 %f", *c.Self.BWWarningRatio)
+	}
+	if c.Self.BWOverloadRatio != nil && (*c.Self.BWOverloadRatio < 0 || *c.Self.BWOverloadRatio > 1) {
+		return fmt.Errorf("self.bw_overload_ratio 必须在 0-1 之间，当前 %f", *c.Self.BWOverloadRatio)
+	}
+	if c.Self.BWWarningRatio != nil && c.Self.BWOverloadRatio != nil && *c.Self.BWWarningRatio > *c.Self.BWOverloadRatio {
+		return fmt.Errorf("self.bw_warning_ratio 不能大于 self.bw_overload_ratio")
+	}
+	if c.Remote.BWWarningPenalty != nil && *c.Remote.BWWarningPenalty < 0 {
+		return fmt.Errorf("remote.bw_warning_penalty 必须 ≥ 0，当前 %f", *c.Remote.BWWarningPenalty)
+	}
+	return nil
+}
+
+func validatePortRange(name string, port int) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("%s 必须在 1-65535 之间，当前 %d", name, port)
+	}
+	return nil
+}
+
 func validateCommSecret(secret, role string) error {
+	return validateSecretField("comm_secret", secret, role)
+}
+
+func validateSecretField(field, secret, role string) error {
 	if secret == "" {
-		return fmt.Errorf("%s 角色必须配置 comm_secret", role)
+		return fmt.Errorf("%s 角色必须配置 %s", role, field)
 	}
 	if len(secret) != 32 {
-		return fmt.Errorf("comm_secret 长度必须为 32 字节，当前 %d 字节", len(secret))
+		return fmt.Errorf("%s 长度必须为 32 字节，当前 %d 字节", field, len(secret))
 	}
 	return nil
 }

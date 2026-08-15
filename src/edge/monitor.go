@@ -6,15 +6,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/donnie4w/go-logger/logger"
 	"github.com/MarchSnow-1/OptiRoute/util"
+	"github.com/donnie4w/go-logger/logger"
 )
 
 type Monitor struct {
 	node         *Node
 	mu           sync.Mutex
-	rttWindow    []int64 // 滑动窗口内的 RTT 样本（仅成功）
-	probeResults []bool  // 滑动窗口内的探测结果（true=成功, false=丢包）
+	rttWindow    []int64   // 滑动窗口内的 RTT 样本（仅成功）
+	probeResults []bool    // 滑动窗口内的探测结果（true=成功, false=丢包）
+	lastLossWarn time.Time // 上次丢包告警时间，用于日志节流
 }
 
 func NewMonitor(node *Node) *Monitor {
@@ -88,7 +89,11 @@ func (m *Monitor) probe() {
 		}
 		lossRate := float64(lossCount) / float64(len(m.probeResults))
 		if lossRate > *cfg.Self.LossRateThreshold {
-			logger.Warn("链路丢包率超阈值 loss_rate:", lossRate, " threshold:", *cfg.Self.LossRateThreshold)
+			// 日志节流：同一连续告警最多每 30 秒打印一次，避免每秒刷屏。
+			if m.lastLossWarn.IsZero() || time.Since(m.lastLossWarn) >= 30*time.Second {
+				logger.Warn("链路丢包率超阈值 loss_rate:", lossRate, " threshold:", *cfg.Self.LossRateThreshold)
+				m.lastLossWarn = time.Now()
+			}
 		}
 	}
 }

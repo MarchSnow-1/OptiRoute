@@ -6,25 +6,28 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	logger "github.com/donnie4w/go-logger/logger"
 	"github.com/MarchSnow-1/OptiRoute/auth"
 	"github.com/MarchSnow-1/OptiRoute/config"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
+	logger "github.com/donnie4w/go-logger/logger"
 )
 
 type Node struct {
-	cfg       *config.Config
-	version   string // 自身版本（ldflags 注入，注册时上报 center）
-	cc        *CenterClient
-	topo      *TopoCache
-	auth      *auth.AuthManager
-	monitor   *Monitor
-	bwTracker *BandwidthTracker
-	fakeMgr   *FakeIPManager
-	degraded  bool       // true 时为降级模式（使用本地缓存，未连接中心节点）
-	mu        sync.Mutex // 保护 n.cc 的并发读写
+	cfg              *config.Config
+	version          string // 自身版本（ldflags 注入，注册时上报 center）
+	cc               *CenterClient
+	topo             *TopoCache
+	auth             *auth.AuthManager
+	monitor          *Monitor
+	bwTracker        *BandwidthTracker
+	fakeMgr          *FakeIPManager
+	degraded         atomic.Bool       // true 时为降级模式（使用本地缓存，未连接中心节点）
+	mu               sync.Mutex        // 保护 n.cc 的并发读写
+	handshakeSem     chan struct{}     // 限制并发未认证/引导握手数
+	bootstrapLimiter *bootstrapLimiter // 引导流程按 IP 限速
 }
 
 func NewNode(cfg *config.Config, version string) *Node {
@@ -33,10 +36,12 @@ func NewNode(cfg *config.Config, version string) *Node {
 		cachePath = filepath.Join(cfg.Self.TopoCacheDir, "topo_cache_"+cfg.Self.UUID+".json")
 	}
 	return &Node{
-		cfg:     cfg,
-		version: version,
-		topo:    NewTopoCache(cachePath),
-		auth:    auth.NewAuthManager(),
+		cfg:              cfg,
+		version:          version,
+		topo:             NewTopoCache(cachePath),
+		auth:             auth.NewAuthManager(),
+		handshakeSem:     make(chan struct{}, maxConcurrentHandshakes),
+		bootstrapLimiter: newBootstrapLimiter(),
 	}
 }
 
@@ -75,13 +80,30 @@ func (n *Node) Start(ctx context.Context) error {
 			}
 			continue
 		}
+		waitTimeout := time.Duration(n.cfg.Self.ConnectTimeoutMs) * time.Millisecond
+		if err := n.cc.WaitRegistration(waitTimeout); err != nil {
+			logger.Warn("等待中心注册结果失败 err:", err)
+			n.cc.Disconnect()
+			if n.cc.Rejected() && stopReconnectOnReject(n.cfg) {
+				logger.Warn("Center 已永久拒绝注册，停止启动重试")
+				break
+			}
+			if attempt < n.cfg.Self.CenterConnectRetryCount {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(time.Duration(n.cfg.Self.CenterConnectRetryIntervalS) * time.Second):
+				}
+			}
+			continue
+		}
 		connected = true
 		break
 	}
 
 	if !connected {
 		// Phase 2: 重试耗尽，进入降级模式
-		n.degraded = true
+		n.degraded.Store(true)
 		if n.topo.cacheFilePath == "" {
 			return fmt.Errorf("连接中心节点失败且未配置拓扑缓存目录 (topo_cache_dir)")
 		}
@@ -91,7 +113,8 @@ func (n *Node) Start(ctx context.Context) error {
 		// 用持久化的 shared_secret 初始化 auth，使降级模式仍能签发 Token
 		if secretHex := n.topo.GetSecret(); secretHex != "" {
 			if secret, err := hex.DecodeString(secretHex); err == nil && len(secret) > 0 {
-				n.auth.UpdateSecret(secret, n.cfg.Self.TokenTTLS)
+				n.auth.ResetVersion()
+				n.auth.UpdateSecret(secret, n.cfg.Self.TokenTTLS, 1)
 				logger.Info("已从缓存加载 shared_secret，降级模式可签发 Token")
 			}
 		} else {
@@ -108,7 +131,7 @@ func (n *Node) Start(ctx context.Context) error {
 	}
 	go runMonitor(ctx, n.monitor)
 
-	if n.degraded {
+	if n.degraded.Load() {
 		logger.Warn("边缘节点以降级模式启动，等待中心节点重连...")
 	} else {
 		logger.Info("边缘节点以正常模式启动")
@@ -119,6 +142,9 @@ func (n *Node) Start(ctx context.Context) error {
 	logger.Info("边缘节点正在关闭...")
 	if n.cc != nil {
 		n.cc.Disconnect()
+	}
+	if n.topo != nil {
+		n.topo.Close()
 	}
 
 	return nil
@@ -146,10 +172,23 @@ func (n *Node) backgroundReconnect(ctx context.Context) {
 				}
 				continue
 			}
+			waitTimeout := time.Duration(n.cfg.Self.ConnectTimeoutMs) * time.Millisecond
+			if err := newCC.WaitRegistration(waitTimeout); err != nil {
+				logger.Warn("后台重连等待注册结果失败 err:", err)
+				newCC.Disconnect()
+				if newCC.Rejected() && stopReconnectOnReject(n.cfg) {
+					logger.Warn("Center 已永久拒绝注册，停止后台重连")
+					return
+				}
+				if backoff < maxBackoff {
+					backoff *= 2
+				}
+				continue
+			}
 			// 重连成功，刷新拓扑并更新缓存，退出降级模式
 			n.mu.Lock()
 			n.cc = newCC
-			n.degraded = false
+			n.degraded.Store(false)
 			n.mu.Unlock()
 			newCC.sendMsg(protocol.MsgTypeTopoQuery, struct{}{})
 			if n.topo.cacheFilePath != "" {

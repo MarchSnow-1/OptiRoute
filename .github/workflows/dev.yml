@@ -64,6 +64,10 @@ jobs:
         with:
           go-version-file: src/go.mod
 
+      - name: Test
+        working-directory: src
+        run: go test ./...
+
       - name: Compute version
         id: version
         shell: bash

@@ -64,7 +64,10 @@ jobs:
         with:
           go-version-file: src/go.mod
 
+      # 检查类步骤显式声明 bash：Windows 运行器的默认 shell 是 PowerShell，而这几步写的是 bash 语法
+      # The check steps declare bash explicitly: the default shell of a Windows runner is PowerShell while these steps are written in bash syntax
       - name: Format check
+        shell: bash
         working-directory: src
         run: |
           unformatted=$(gofmt -l .)
@@ -75,10 +78,12 @@ jobs:
           fi
 
       - name: Vet
+        shell: bash
         working-directory: src
         run: go vet ./...
 
       - name: Test
+        shell: bash
         working-directory: src
         run: go test ./...
 
@@ -86,6 +91,7 @@ jobs:
       # Race detection needs CGO and a C toolchain, which Windows/macOS runners do not guarantee, so it runs on Linux only
       - name: Test (race)
         if: runner.os == 'Linux'
+        shell: bash
         working-directory: src
         run: go test -race ./...
 

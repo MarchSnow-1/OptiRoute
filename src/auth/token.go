@@ -35,8 +35,9 @@ type AuthManager struct {
 	prevExpiry     time.Time
 	currentVersion uint64 // 已接受的最新 secret 版本号；0 表示本进程自启动或 ResetVersion() 之后还没接受过版本推送，而 version=0 的推送会被 UpdateSecret 当作非法丢弃 / the newest accepted secret version; 0 means this process has taken no version push since start-up or since ResetVersion(), and a push carrying version=0 is dropped by UpdateSecret as invalid
 
-	nonceMu    sync.Mutex
-	usedNonces map[string]time.Time // nonce → 过期时间的映射，用于挡住 V2 Token 重放；已过期条目只在 map 长度达到 maxUsedNonces 时被顺带清理 / maps a nonce to its expiry to block V2 Token replay; expired entries are swept only when the map reaches maxUsedNonces
+	nonceMu        sync.Mutex
+	usedNonces     map[string]time.Time // nonce → 过期时间的映射，用于挡住 V2 Token 重放 / maps a nonce to its expiry to block V2 Token replay
+	lastNoncePrune time.Time            // 上次清理过期 nonce 的时刻，用于按时间触发清理而不是只在表满时清理 / the instant of the previous sweep of expired nonces, so pruning is time driven instead of happening only on a full map
 }
 
 func NewAuthManager() *AuthManager {
@@ -90,6 +91,11 @@ const (
 	routeTokenVersion  = 2
 	routeTokenNonceLen = 16
 	maxUsedNonces      = 4096
+	// noncePruneInterval 是两次过期 nonce 清理之间的最短间隔，与 maxUsedNonces 共同触发清理
+	// 只按表长触发时，表长会在并发量低的时段持续增长而得不到清理
+	// noncePruneInterval is the shortest interval between two sweeps of expired nonces and triggers a sweep together with maxUsedNonces
+	// A sweep driven by the map length alone would leave the map growing through periods of low concurrency
+	noncePruneInterval = 30 * time.Second
 )
 
 // routeTokenClaims 是 V2 Token 的签名内容，字段变化需要同步升级 routeTokenVersion
@@ -165,13 +171,17 @@ func (a *AuthManager) GenerateRouteToken(targetUUID, issuerUUID, clientIP string
 }
 
 // VerifyRouteToken 校验 V2 路由 Token
-// clientTS 与 clientIP 来自目标 Edge 当前连接，需要和签发时一致
-// 依次校验前缀、base64、JSON、Token 版本、目标 UUID、客户端 IP、时间戳与时间窗口，再用当前密钥或窗口内的上一代密钥验签，最后登记 nonce 挡住重放，任一环节不通过即返回 false
+// clientTS 与 clientIP 来自目标 Edge 当前连接，其中 clientTS 需要与签发时一致
+// clientIP 始终携带当前连接的来源 IP；是否比对由 bindClientIP 决定，该开关只在验证方生效，签发方始终把客户端 IP 写入 claims
+// 用独立的布尔量而不是空字符串表达「关闭绑定」，是为了让「连接没有可用 IP」与「不绑定」两种情况在调用点就区分开
+// 依次校验前缀、base64、JSON、Token 版本、目标 UUID、可选的客户端 IP、时间戳与时间窗口，再用当前密钥或窗口内的上一代密钥验签，最后登记 nonce 挡住重放，任一环节不通过即返回 false
 //
 // VerifyRouteToken verifies a V2 route Token
-// clientTS and clientIP come from the current connection of the target Edge and need to match the values seen at issuing time
-// It checks the prefix, the base64, the JSON, the Token version, the target UUID, the client IP, the timestamp and the time window in turn, then verifies the signature with the current secret or with the previous one inside its window, and finally records the nonce to block replay, returning false as soon as one step fails
-func (a *AuthManager) VerifyRouteToken(token string, clientTS int64, selfUUID, clientIP string, tokenTTLS int) bool {
+// clientTS and clientIP come from the current connection of the target Edge, and clientTS needs to match the value seen at issuing time
+// clientIP always carries the source IP of the current connection while bindClientIP decides whether it is compared; that switch acts on the verifying side only, and the issuing side always writes the client IP into the claims
+// A separate boolean rather than an empty string expresses "binding off" so that the call site keeps "no IP available" apart from "not bound"
+// It checks the prefix, the base64, the JSON, the Token version, the target UUID, the optional client IP, the timestamp and the time window in turn, then verifies the signature with the current secret or with the previous one inside its window, and finally records the nonce to block replay, returning false as soon as one step fails
+func (a *AuthManager) VerifyRouteToken(token string, clientTS int64, selfUUID, clientIP string, bindClientIP bool, tokenTTLS int) bool {
 	if !strings.HasPrefix(token, routeTokenPrefix) {
 		logger.Warn("[VerifyRouteToken] 未知 token 格式")
 		return false
@@ -195,7 +205,7 @@ func (a *AuthManager) VerifyRouteToken(token string, clientTS int64, selfUUID, c
 		logger.Warn("[VerifyRouteToken] token 目标 UUID 不匹配")
 		return false
 	}
-	if env.ClientIP != clientIP {
+	if bindClientIP && env.ClientIP != clientIP {
 		logger.Warn("[VerifyRouteToken] token 客户端 IP 不匹配 token_ip:", env.ClientIP, " conn_ip:", clientIP)
 		return false
 	}
@@ -233,7 +243,18 @@ func (a *AuthManager) VerifyRouteToken(token string, clientTS int64, selfUUID, c
 		return false
 	}
 
-	if !a.markNonceUsed(env.Nonce, time.Now().Add(time.Duration(tokenTTLS)*time.Second)) {
+	// nonce 的登记有效期以 Token 的签发时刻 ts 为基准，而不是以本次验签时刻为基准
+	// Token 的可接受窗口是 |now-ts| <= ttl，两侧各留 ttl；若从本次验签时刻起算，当验证方时钟落后于签发方（now < ts）时 nonce 会在 ts 时刻先于 Token 窗口失效，ts 到 ts+ttl 之间的重放就不会被挡住
+	// 以 max(now, ts) + ttl 为失效时刻，覆盖从当前时刻到窗口右边界 ts+ttl 的整个区间
+	//
+	// The recorded validity of a nonce is based on the Token issue instant ts rather than on this verification instant
+	// A Token is accepted while |now-ts| <= ttl, which leaves ttl of room on either side; counting from this verification instant instead would let the nonce expire at ts when the verifying clock lags behind the issuing one (now < ts), and a replay between ts and ts+ttl would then go through
+	// Taking max(now, ts) + ttl as the expiry covers the whole span from the current instant up to the right edge of the window at ts+ttl
+	nonceBase := now
+	if env.TS > nonceBase {
+		nonceBase = env.TS
+	}
+	if !a.markNonceUsed(env.Nonce, time.Unix(nonceBase, 0).Add(time.Duration(tokenTTLS)*time.Second)) {
 		logger.Warn("[VerifyRouteToken] nonce 重放拒绝 target:", env.Target, " nonce:", env.Nonce)
 		return false
 	}
@@ -242,26 +263,35 @@ func (a *AuthManager) VerifyRouteToken(token string, clientTS int64, selfUUID, c
 
 // markNonceUsed 登记一个 nonce，返回 true 表示本次是首次使用，返回 false 表示它在有效期内重复出现
 // 已经过期但仍在 map 中的 nonce 会被重新登记，因此重放判定只覆盖各 nonce 自己的有效窗口
+// 清理按时间触发：距上次清理达到 noncePruneInterval 或表长达到 maxUsedNonces 时遍历删除过期项，使表长不随累计连接数无界增长
 //
 // markNonceUsed records a nonce and returns true when this is its first use, or false when it appears again inside its validity window
 // A nonce that has expired but is still in the map gets recorded again, so the replay check only covers each nonce's own validity window
+// Pruning is time driven: the map is swept once noncePruneInterval has passed since the previous sweep or its length reaches maxUsedNonces, so the map cannot grow without bound with the number of connections
 func (a *AuthManager) markNonceUsed(nonce string, expireAt time.Time) bool {
 	a.nonceMu.Lock()
 	defer a.nonceMu.Unlock()
 
 	now := time.Now()
-	if len(a.usedNonces) >= maxUsedNonces {
-		for n, exp := range a.usedNonces {
-			if now.After(exp) {
-				delete(a.usedNonces, n)
-			}
-		}
+	if len(a.usedNonces) >= maxUsedNonces || now.Sub(a.lastNoncePrune) >= noncePruneInterval {
+		a.pruneNoncesLocked(now)
 	}
 	if exp, ok := a.usedNonces[nonce]; ok && now.Before(exp) {
 		return false
 	}
 	a.usedNonces[nonce] = expireAt
 	return true
+}
+
+// pruneNoncesLocked 删除已过期的 nonce 并记录本次清理时刻，调用方需持有 a.nonceMu
+// pruneNoncesLocked drops the expired nonces and records the sweep time, and expects the caller to hold a.nonceMu
+func (a *AuthManager) pruneNoncesLocked(now time.Time) {
+	for n, exp := range a.usedNonces {
+		if now.After(exp) {
+			delete(a.usedNonces, n)
+		}
+	}
+	a.lastNoncePrune = now
 }
 
 // BuildCommSecretHeader 构造 Edge → Center WebSocket 鉴权头

@@ -48,9 +48,9 @@ Client 连接目标 Edge
 
 - Token 版本是否正确
 - `target` 是否等于自身 UUID
-- `client_ip` 是否与当前连接来源 IP 一致
+- `client_ip` 是否与当前连接来源 IP 一致（`token_bind_client_ip` 关闭时跳过该项）
 - 首帧 `timestamp` 是否与 Token 内时间戳一致
-- Token 是否仍在 `token_ttl_s` 有效窗口内
+- Token 是否仍在 `token_ttl_s` 有效窗口内；窗口以签发时刻为基准双向判定，即 `|now - ts| <= token_ttl_s`，因此签发方时钟超前或落后 `token_ttl_s` 以内的 Token 都会通过，且窗口长度取验证方（目标 Edge）自身的 `self.token_ttl_s`
 - HMAC 是否由当前或过渡期 shared_secret 签发
 - `nonce` 是否已使用过
 
@@ -67,14 +67,17 @@ Client 连接目标 Edge
 ```
 
 - 默认 `true`：Token 与客户端 IP 严格绑定
-- 设为 `false`：不绑定客户端 IP，适用于多出口 NAT、IPv6 临时地址变化等场景
+- 设为 `false`：不比对客户端 IP，适用于多出口 NAT、IPv6 临时地址变化等场景
+- 该开关只在**验证方**（目标 Edge）生效：签发方始终把客户端 IP 写入 claims，因此关闭绑定时是"跳过比对"而不是 claims 中没有 IP
+- 由此可知关闭绑定会放宽安全性：同一 Token 可从其它来源 IP 使用；需要严格绑定时保持默认 `true`
 
 ## nonce 防重放
 
 - 每次引导生成 16 字节随机 nonce
 - 目标 Edge 验签通过后，将 nonce 写入本地短 TTL 缓存
 - 相同 nonce 在有效期内再次出现时直接拒绝
-- 缓存会按过期时间自动清理
+- nonce 的失效时刻以 `max(当前时刻, 签发时刻) + token_ttl_s` 计算，从而覆盖 Token 窗口的整个区间；若以验签时刻单独起算，当验证方时钟落后于签发方时，窗口右边界附近的重放不会被挡住
+- 缓存按时间清理：距上次清理达到 30 秒或条目数达到 4096 时遍历删除已过期条目，因此低并发时段也能回收，表长不随累计连接数无界增长
 
 ## 注册拒绝与重连策略
 

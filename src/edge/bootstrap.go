@@ -392,14 +392,11 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	best := candidates[0].node
 
 	// 6. 生成 Token
+	// 无论 token_bind_client_ip 如何取值，签发方都把客户端 IP 写入 claims；该开关只在验证方决定是否比对，从而使同一 Token 在不同节点上的判定一致
+	//
 	// 6. Generate the Token
-	tokenClientIP := ""
-	// 开关为 nil 时按绑定处理；显式关闭时不写入客户端 IP
-	// A nil switch means binding, and an explicit false leaves the client IP out of the Token
-	if n.cfg.Self.TokenBindClientIP == nil || *n.cfg.Self.TokenBindClientIP {
-		tokenClientIP = host
-	}
-	token, ts, err := n.auth.GenerateRouteToken(best.UUID, n.cfg.Self.UUID, tokenClientIP)
+	// The issuing side always writes the client IP into the claims whatever token_bind_client_ip says, because that switch only makes the verifying side skip the comparison, which keeps one Token judged the same way on every node
+	token, ts, err := n.auth.GenerateRouteToken(best.UUID, n.cfg.Self.UUID, host)
 	if err != nil {
 		logger.Error("[", remote, "] Token 生成失败 err:", err)
 		return

@@ -48,9 +48,9 @@ The target Edge checks:
 
 - The token version.
 - Whether `target` equals its own UUID.
-- Whether `client_ip` matches the current connection's source IP.
+- Whether `client_ip` matches the current connection's source IP, skipped when `token_bind_client_ip` is off.
 - Whether the first packet `timestamp` matches the token timestamp.
-- Whether the token is still within `token_ttl_s`.
+- Whether the token is still inside the `token_ttl_s` window, which is judged in both directions from the issue instant as `|now - ts| <= token_ttl_s`, so a token issued by a clock that runs up to `token_ttl_s` fast or slow still passes, and the window length comes from the verifying side's own `self.token_ttl_s`.
 - Whether the HMAC was produced by the current or transition shared_secret.
 - Whether the `nonce` has already been used.
 
@@ -67,14 +67,17 @@ Configuration:
 ```
 
 - Default `true`: the token is strictly bound to the client IP.
-- Set to `false` for multi-egress NAT, changing IPv6 addresses, or similar environments.
+- Set to `false`: the client IP is not compared, which suits multi-egress NAT, changing IPv6 addresses, or similar environments.
+- The switch acts on the **verifying** side (the target Edge) only: the issuing side always writes the client IP into the claims, so turning the binding off skips the comparison rather than leaving the claims without an IP.
+- Turning the binding off therefore relaxes security: the same token can be used from another source IP, so keep the default `true` when strict binding is required.
 
 ## nonce replay protection
 
 - Each bootstrap generates a 16-byte random nonce.
 - After successful verification, the target Edge records the nonce in a short-TTL cache.
 - Reusing the same nonce within the validity window is rejected.
-- Expired entries are pruned automatically.
+- A nonce expires at `max(present instant, issue instant) + token_ttl_s`, which covers the whole span of the token window; counting from the verification instant alone would leave replays near the right edge of the window unblocked when the verifying clock lags behind the issuing one.
+- The cache is pruned by time: once 30 seconds have passed since the previous sweep or the entry count reaches 4096, expired entries are deleted, so they are reclaimed even during low-concurrency periods and the map cannot grow without bound with the number of connections.
 
 ## Registration rejection and reconnect policy
 

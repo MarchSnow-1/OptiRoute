@@ -99,24 +99,29 @@ func TestGenerateAndVerifyRouteToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !a.VerifyRouteToken(token, ts, "target-edge", "192.0.2.10", 30) {
+	if !a.VerifyRouteToken(token, ts, "target-edge", "192.0.2.10", true, 30) {
 		t.Fatal("valid route token should verify")
 	}
-	if a.VerifyRouteToken(token, ts, "target-edge", "192.0.2.11", 30) {
+	if a.VerifyRouteToken(token, ts, "target-edge", "192.0.2.11", true, 30) {
 		t.Fatal("client IP mismatch should be rejected")
 	}
-	if a.VerifyRouteToken(token, ts, "other-edge", "192.0.2.10", 30) {
+	if a.VerifyRouteToken(token, ts, "other-edge", "192.0.2.10", true, 30) {
 		t.Fatal("target UUID mismatch should be rejected")
 	}
-	if a.VerifyRouteToken(token, ts+1, "target-edge", "192.0.2.10", 30) {
+	if a.VerifyRouteToken(token, ts+1, "target-edge", "192.0.2.10", true, 30) {
 		t.Fatal("timestamp mismatch should be rejected")
 	}
-	if a.VerifyRouteToken(token, ts, "target-edge", "192.0.2.10", 30) {
+	if a.VerifyRouteToken(token, ts, "target-edge", "192.0.2.10", true, 30) {
 		t.Fatal("replayed route token should be rejected")
 	}
 }
 
-func TestGenerateRouteTokenWithoutClientIPBinding(t *testing.T) {
+// TestVerifyRouteTokenWithEmptyClaimsClientIP 覆盖签发时未给出客户端 IP 的情形
+// claims 中的 client_ip 为空时，开启绑定并且连接来源 IP 非空会被拒绝；关闭绑定则跳过比对而通过
+//
+// TestVerifyRouteTokenWithEmptyClaimsClientIP covers the case where no client IP was available at issuing time
+// An empty client_ip in the claims fails once binding is on and the connection carries a non-empty source IP, while turning the binding off skips the comparison and passes
+func TestVerifyRouteTokenWithEmptyClaimsClientIP(t *testing.T) {
 	a := NewAuthManager()
 	a.UpdateSecret(bytes.Repeat([]byte{0x33}, 32), 30, 1)
 
@@ -124,8 +129,16 @@ func TestGenerateRouteTokenWithoutClientIPBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !a.VerifyRouteToken(token, ts, "target-edge", "", 30) {
-		t.Fatal("token without client IP binding should verify with empty IP")
+	if a.VerifyRouteToken(token, ts, "target-edge", "192.0.2.10", true, 30) {
+		t.Fatal("an empty claims IP should not match a non-empty connection IP while binding is on")
+	}
+
+	token, ts, err = a.GenerateRouteToken("target-edge", "bootstrap-edge", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !a.VerifyRouteToken(token, ts, "target-edge", "192.0.2.10", false, 30) {
+		t.Fatal("binding off should skip the IP comparison")
 	}
 }
 
@@ -133,10 +146,10 @@ func TestVerifyRouteTokenMalformed(t *testing.T) {
 	a := NewAuthManager()
 	a.UpdateSecret(bytes.Repeat([]byte{0x33}, 32), 30, 1)
 
-	if a.VerifyRouteToken("not-a-token", time.Now().Unix(), "target-edge", "192.0.2.10", 30) {
+	if a.VerifyRouteToken("not-a-token", time.Now().Unix(), "target-edge", "192.0.2.10", true, 30) {
 		t.Fatal("missing v2 prefix should be rejected")
 	}
-	if a.VerifyRouteToken("v2:!!!not-base64!!!", time.Now().Unix(), "target-edge", "192.0.2.10", 30) {
+	if a.VerifyRouteToken("v2:!!!not-base64!!!", time.Now().Unix(), "target-edge", "192.0.2.10", true, 30) {
 		t.Fatal("bad base64 should be rejected")
 	}
 }
@@ -153,7 +166,7 @@ func TestRouteTokenPreviousSecretTransition(t *testing.T) {
 	}
 
 	a.UpdateSecret(secret2, 30, 2)
-	if !a.VerifyRouteToken(token, ts, "target-edge", "192.0.2.10", 30) {
+	if !a.VerifyRouteToken(token, ts, "target-edge", "192.0.2.10", true, 30) {
 		t.Fatal("route token signed with previous secret should verify during transition")
 	}
 }

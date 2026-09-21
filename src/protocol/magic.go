@@ -8,9 +8,12 @@ package protocol
 import "bytes"
 
 // InitConnectMagic 是引导连接的固定首字节序列（16字节）
-// 布局为 "ORTE" + 版本 1 + DEADBEEF 后缀 + 4 字节预留位（当前写 0）+ CRLF 终止符，其中 CRLF 终止符占末 2 字节
+// 布局为 "ORTE"（4 字节）+ 版本 1（2 字节）+ DEADBEEF 后缀（4 字节）+ 预留位（4 字节，当前写 0）+ CRLF 终止符（2 字节），合计 16 字节
+// 除前 4 字节被 IsMagicPrefix 用作初筛前缀外，其余字节没有独立读取方：IsMagic 对整 16 字节做等值比较，因此「版本」「预留位」与「CRLF 终止符」只是对常量布局的说明，协议层不解析这些段
+//
 // InitConnectMagic is the fixed leading byte sequence of the bootstrap connection (16 bytes)
-// The layout is "ORTE", version 1, the DEADBEEF suffix, 4 reserved bytes written as 0 today and a CRLF terminator, which occupies the last 2 bytes
+// The layout is "ORTE" (4 bytes), version 1 (2 bytes), the DEADBEEF suffix (4 bytes), the reserved bytes (4 bytes, written as 0 today) and a CRLF terminator (2 bytes), 16 bytes in total
+// Apart from the first 4 bytes serving as the filter prefix of IsMagicPrefix, the remaining bytes have no independent reader: IsMagic compares all 16 bytes for equality, so the version, the reserved bytes and the CRLF terminator only describe the layout of this constant and the protocol layer never parses those ranges
 var InitConnectMagic = []byte{
 	0x4F, 0x52, 0x54, 0x45, // "ORTE" 字面量 / the "ORTE" literal
 	0x00, 0x01, // 版本 1 / version=1

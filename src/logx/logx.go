@@ -365,37 +365,45 @@ func (l *Logger) Warnf(key i18n.Key, args ...any) { l.outputKey(LevelWarn, 2, ke
 // Errorf logs one catalogue message at the error level, where key is the message key and the rest is handed to i18n
 func (l *Logger) Errorf(key i18n.Key, args ...any) { l.outputKey(LevelError, 2, key, args...) }
 
+// 下面八个包级函数把级别与 skip 直接交给内部方法，不经过 Logger 上的同名方法
+// 若这里写成 std.Info(args...)，调用链会多出 (*Logger).Info 一层，而 output 按 skip=2 采集调用点，采到的就是本文件里的包装函数
+// 那样 debug 行会显示 logx.go 而不是真实调用方，因此 skip 保持 2：0 为 callerSite、1 为 output、2 为本文件里的包级函数、3 为真实调用方
+//
+// The eight package-level functions below hand the level and skip straight to the internal methods instead of going through the same-named methods on Logger
+// Writing std.Info(args...) here would add a (*Logger).Info frame, while output collects the call site with skip=2 and would therefore collect the wrapper in this file
+// A debug line would then name logx.go rather than the real caller, so the skip stays 2: 0 is callerSite, 1 is output, 2 is the package-level function in this file and 3 is the real caller
+
 // Debug 输出 debug 级别日志
 // Debug logs at the debug level
-func Debug(args ...any) { std.Debug(args...) }
+func Debug(args ...any) { std.output(LevelDebug, 2, args...) }
 
 // Info 输出 info 级别日志
 // Info logs at the info level
-func Info(args ...any) { std.Info(args...) }
+func Info(args ...any) { std.output(LevelInfo, 2, args...) }
 
 // Warn 输出 warn 级别日志
 // Warn logs at the warn level
-func Warn(args ...any) { std.Warn(args...) }
+func Warn(args ...any) { std.output(LevelWarn, 2, args...) }
 
 // Error 输出 error 级别日志
 // Error logs at the error level
-func Error(args ...any) { std.Error(args...) }
+func Error(args ...any) { std.output(LevelError, 2, args...) }
 
 // Debugf 以 debug 级别输出一条目录消息
 // Debugf logs one catalogue message at the debug level
-func Debugf(key i18n.Key, args ...any) { std.Debugf(key, args...) }
+func Debugf(key i18n.Key, args ...any) { std.outputKey(LevelDebug, 2, key, args...) }
 
 // Infof 以 info 级别输出一条目录消息
 // Infof logs one catalogue message at the info level
-func Infof(key i18n.Key, args ...any) { std.Infof(key, args...) }
+func Infof(key i18n.Key, args ...any) { std.outputKey(LevelInfo, 2, key, args...) }
 
 // Warnf 以 warn 级别输出一条目录消息
 // Warnf logs one catalogue message at the warn level
-func Warnf(key i18n.Key, args ...any) { std.Warnf(key, args...) }
+func Warnf(key i18n.Key, args ...any) { std.outputKey(LevelWarn, 2, key, args...) }
 
 // Errorf 以 error 级别输出一条目录消息
 // Errorf logs one catalogue message at the error level
-func Errorf(key i18n.Key, args ...any) { std.Errorf(key, args...) }
+func Errorf(key i18n.Key, args ...any) { std.outputKey(LevelError, 2, key, args...) }
 
 // Flush 冲刷默认日志器的队列
 // Flush drains the queue of the default logger

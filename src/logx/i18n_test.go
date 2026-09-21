@@ -181,3 +181,82 @@ func TestPackageLevelKeyedHelpersLog(t *testing.T) {
 		}
 	}
 }
+
+// useDefaultLogger 把包级默认日志器接到内存缓冲并切到 debug 级别，返回读取输出的函数
+// 该函数用于覆盖「通过包级函数调用」这条路径，它与通过 Logger 实例调用相比多一层栈帧
+//
+// useDefaultLogger wires the package-level default logger to a memory buffer at the debug level and returns a reader for the output
+// It exists to cover the path through a package-level function, which carries one more stack frame than a call on a Logger instance
+func useDefaultLogger(t *testing.T) func() string {
+	t.Helper()
+
+	sink := &lockedBuffer{}
+	Init("debug", false)
+	std.SetOutput(sink)
+	t.Cleanup(func() {
+		std.SetOutput(os.Stdout)
+		Init("info", false)
+	})
+	return func() string { return sink.String() }
+}
+
+// TestPackageLevelDebugLineReportsCaller 验证通过包级函数输出时 debug 行的调用点指向调用方
+// 包级函数若转发到 Logger 上的同名方法而不是直接调用内部方法，调用链会多一层，调用点会变成 logx.go 里包装函数的行号
+//
+// TestPackageLevelDebugLineReportsCaller checks that a debug line written through a package-level function names the caller
+// A package-level function that forwards to the same-named method on Logger instead of calling the internal one directly adds a frame, and the call site then becomes the line of that wrapper in logx.go
+func TestPackageLevelDebugLineReportsCaller(t *testing.T) {
+	setLangForTest(t, i18n.LangEN)
+	read := useDefaultLogger(t)
+
+	Debug("fixed text from a package-level call")
+	Debugf(keyedTestKey, 21)
+	Flush()
+
+	for _, line := range strings.Split(strings.TrimRight(read(), "\n"), "\n") {
+		site := callSitePattern.FindString(line)
+		if site == "" {
+			t.Fatalf("debug 行未带调用点: %q / the debug line carries no call site: %q", line, line)
+		}
+		if !strings.HasPrefix(site, "i18n_test.go:") {
+			t.Fatalf("包级调用的调用点应指向本文件，实际 %q，整行 %q / the call site of a package-level call should name this file, got %q in line %q", site, line, site, line)
+		}
+	}
+}
+
+// TestEveryPackageLevelHelperReportsCaller 验证八个包级函数的调用点都指向调用方而不是 logx.go
+// 逐个函数覆盖，避免只测其中一个而漏掉其余七个的 skip 写错
+//
+// TestEveryPackageLevelHelperReportsCaller checks that the call site of all eight package-level functions names the caller rather than logx.go
+// Every function is covered one by one, so that a wrong skip in any single one of them cannot slip through
+func TestEveryPackageLevelHelperReportsCaller(t *testing.T) {
+	setLangForTest(t, i18n.LangEN)
+	read := useDefaultLogger(t)
+
+	Debug("d")
+	Info("i")
+	Warn("w")
+	Error("e")
+	Debugf(keyedTestKey, 1)
+	Infof(keyedTestKey, 2)
+	Warnf(keyedTestKey, 3)
+	Errorf(keyedTestKey, 4)
+	Flush()
+
+	lines := strings.Split(strings.TrimRight(read(), "\n"), "\n")
+	if len(lines) != 8 {
+		t.Fatalf("应有 8 行输出，实际 %d 行: %q / 8 lines were expected, got %d: %q", len(lines), lines, len(lines), lines)
+	}
+	for _, line := range lines {
+		site := callSitePattern.FindString(line)
+		if site == "" {
+			t.Fatalf("debug 行未带调用点: %q / the debug line carries no call site: %q", line, line)
+		}
+		if strings.HasPrefix(site, "logx.go:") {
+			t.Fatalf("调用点退化成了 logx 源码位置: %q / the call site degraded to a logx source location: %q", site, line)
+		}
+		if !strings.HasPrefix(site, "i18n_test.go:") {
+			t.Fatalf("调用点应指向本文件，实际 %q，整行 %q / the call site should name this file, got %q in line %q", site, line, site, line)
+		}
+	}
+}

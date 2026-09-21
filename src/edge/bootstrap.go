@@ -10,7 +10,6 @@ import (
 	"math/big"
 	"net"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/MarchSnow-1/OptiRoute/protocol"
@@ -94,66 +93,21 @@ const handshakeTimeout = 5 * time.Second
 // 防止攻击者通过大量半开握手耗尽 goroutine/fd。
 const maxConcurrentHandshakes = 1024
 
-// 引导流程按来源 IP 做固定窗口限速。固定窗口实现简单、无第三方依赖，
-// 且对跨平台（Windows/Linux）足够稳定。
+// 引导流程按来源 IP 做固定窗口限速，实现见 util.RateLimiter
+// 固定窗口实现简单、无第三方依赖，且对跨平台（Windows/Linux）足够稳定
+// The bootstrap flow applies a fixed-window rate limit per source IP, implemented by util.RateLimiter
+// The fixed window keeps the implementation small, needs no third-party dependency and behaves the same on Windows and Linux
 const (
 	bootstrapRateWindow   = 10 * time.Second
 	bootstrapRateMaxPerIP = 30
 	maxBootstrapRateIPs   = 16384
 )
 
-// maxAcceptedProbeRTTMs 是客户端回传 RTT 的可信上界。
-// 正常探测受 probe_timeout_ms 限制，成功 RTT 不应达到该值。
+// maxAcceptedProbeRTTMs 是客户端回传 RTT 的默认可信上界
+// 实际上界取 maxAcceptedProbeRTTMs 与 probe_timeout_ms*2 中的较大者，判定为「大于上界即忽略」，因此等于上界的值仍会被接受
+// maxAcceptedProbeRTTMs is the default trusted upper bound of a client-reported RTT
+// The effective bound is the larger of maxAcceptedProbeRTTMs and probe_timeout_ms*2, and the check drops values greater than the bound, so a value equal to the bound is still accepted
 const maxAcceptedProbeRTTMs = 60_000
-
-type ipRateWindow struct {
-	start time.Time
-	count int
-}
-
-type bootstrapLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*ipRateWindow
-}
-
-func newBootstrapLimiter() *bootstrapLimiter {
-	return &bootstrapLimiter{buckets: make(map[string]*ipRateWindow)}
-}
-
-func (l *bootstrapLimiter) allow(ip string) bool {
-	now := time.Now()
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	st := l.buckets[ip]
-	if st == nil {
-		if len(l.buckets) >= maxBootstrapRateIPs {
-			l.pruneLocked(now)
-			if len(l.buckets) >= maxBootstrapRateIPs {
-				return false
-			}
-		}
-		st = &ipRateWindow{start: now}
-		l.buckets[ip] = st
-	}
-	if now.Sub(st.start) >= bootstrapRateWindow {
-		st.start = now
-		st.count = 0
-	}
-	if st.count >= bootstrapRateMaxPerIP {
-		return false
-	}
-	st.count++
-	return true
-}
-
-func (l *bootstrapLimiter) pruneLocked(now time.Time) {
-	for ip, st := range l.buckets {
-		if now.Sub(st.start) >= bootstrapRateWindow {
-			delete(l.buckets, ip)
-		}
-	}
-}
 
 // dispatchConnectionHeld 对已占用握手额度的连接做分层判定：
 //   - 先读 4 字节初筛（IsMagicPrefix），绝大多数业务连接在此时即可分流；
@@ -163,21 +117,11 @@ func (l *bootstrapLimiter) pruneLocked(now time.Time) {
 // 使「判定 + 业务首帧」共用同一个超时窗口；引导分支在移交前清除判定期 deadline，
 // 由 handleBootstrap 内部的多轮交互各自设置独立超时。
 func (n *Node) tryAcquireHandshake() bool {
-	if n.handshakeSem == nil {
-		return true
-	}
-	select {
-	case n.handshakeSem <- struct{}{}:
-		return true
-	default:
-		return false
-	}
+	return n.handshakeSem.TryAcquire()
 }
 
 func (n *Node) releaseHandshake() {
-	if n.handshakeSem != nil {
-		<-n.handshakeSem
-	}
+	n.handshakeSem.Release()
 }
 
 func (n *Node) dispatchConnectionHeld(conn net.Conn, release func()) {
@@ -232,7 +176,7 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	if err != nil {
 		host = remote
 	}
-	if n.bootstrapLimiter != nil && !n.bootstrapLimiter.allow(host) {
+	if n.bootstrapLimiter != nil && !n.bootstrapLimiter.Allow(host) {
 		logger.Warn("[", remote, "] 引导请求超过限速，拒绝")
 		return
 	}

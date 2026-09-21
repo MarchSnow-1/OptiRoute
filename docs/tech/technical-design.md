@@ -170,6 +170,8 @@ Core functions:
 | `ProbeUDPEcho`                                 | Perform UDP random-payload echo probing                        |
 | `ProbeICMP`                                    | Perform ICMP echo probing and validate the payload             |
 | `Relay` / `RelayWithIdle`                      | Bidirectional transparent forwarding with half-close semantics |
+| `NewRateLimiter` / `Allow`                     | Per-key fixed-window rate limiting; evicts the earliest key when the table is full and holds no expired key |
+| `NewSemaphore` / `TryAcquire` / `Release`      | Concurrency gate; a non-positive capacity means unlimited concurrency |
 
 ### 4.5 center
 
@@ -231,7 +233,7 @@ The package contains multiple files, organized by responsibility:
 | `classifyConnection`                       | Distinguish bootstrap connections from business connections          |
 | `handleBootstrap`                          | Send the probe list, read results, select a route, and issue a Token |
 | `newProbeCode`                             | Generate a one-time probe code                                       |
-| `newBootstrapLimiter` / `allow`            | Per-IP bootstrap rate limiting                                       |
+| `util.NewRateLimiter` (`Node.bootstrapLimiter`) | Per-IP bootstrap rate limiting, reusing util                   |
 | `tryAcquireHandshake` / `releaseHandshake` | Handshake concurrency gate                                           |
 
 #### business.go: Business Access
@@ -288,7 +290,7 @@ The package contains multiple files, organized by responsibility:
 | `Start`                                    | Listen for Edge connections                                                          |
 | `tryAcquireHandshake` / `releaseHandshake` | Authentication-stage concurrency gate                                                |
 | `handleEdgeConn`                           | Validate the secret, send ACK, parse PPv2, and transparently forward to the upstream |
-| `newServerAuthLimiter` / `allow`           | Per-IP rate limiting                                                                 |
+| `util.NewRateLimiter` (`ServerAgent.authLimiter`) | Per-IP pre-authentication rate limiting, reusing util          |
 
 ### 4.8 main
 

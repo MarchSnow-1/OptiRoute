@@ -122,8 +122,9 @@ func TestShuffleItemsPreservesElements(t *testing.T) {
 }
 
 func TestCenterRegisterRateLimiter(t *testing.T) {
-	s := New(&config.Config{})
-	s.cfg.Self.EdgeRegisterRatePerMinute = 2
+	cfg := &config.Config{}
+	cfg.Self.EdgeRegisterRatePerMinute = 2
+	s := New(cfg)
 
 	if !s.allowRegister("edge-a") || !s.allowRegister("edge-a") {
 		t.Fatal("first two registrations should be allowed")

@@ -6,19 +6,20 @@ import (
 	"time"
 
 	"github.com/MarchSnow-1/OptiRoute/protocol"
+	"github.com/MarchSnow-1/OptiRoute/util"
 )
 
 func TestBootstrapLimiterPerIPWindow(t *testing.T) {
-	l := newBootstrapLimiter()
+	l := util.NewRateLimiter(bootstrapRateWindow, bootstrapRateMaxPerIP, maxBootstrapRateIPs)
 	for i := 0; i < bootstrapRateMaxPerIP; i++ {
-		if !l.allow("192.0.2.1") {
+		if !l.Allow("192.0.2.1") {
 			t.Fatalf("request %d should be allowed", i+1)
 		}
 	}
-	if l.allow("192.0.2.1") {
+	if l.Allow("192.0.2.1") {
 		t.Fatal("request over per-IP limit should be rejected")
 	}
-	if !l.allow("192.0.2.2") {
+	if !l.Allow("192.0.2.2") {
 		t.Fatal("other IP should not be affected")
 	}
 }

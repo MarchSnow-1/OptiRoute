@@ -12,6 +12,7 @@ import (
 	"github.com/MarchSnow-1/OptiRoute/auth"
 	"github.com/MarchSnow-1/OptiRoute/config"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
+	"github.com/MarchSnow-1/OptiRoute/util"
 	logger "github.com/donnie4w/go-logger/logger"
 )
 
@@ -26,8 +27,8 @@ type Node struct {
 	fakeMgr          *FakeIPManager
 	degraded         atomic.Bool       // true 时为降级模式（使用本地缓存，未连接中心节点）
 	mu               sync.Mutex        // 保护 n.cc 的并发读写
-	handshakeSem     chan struct{}     // 限制并发未认证/引导握手数
-	bootstrapLimiter *bootstrapLimiter // 引导流程按 IP 限速
+	handshakeSem     *util.Semaphore   // 限制并发未认证/引导握手数
+	bootstrapLimiter *util.RateLimiter // 引导流程按 IP 限速
 }
 
 func NewNode(cfg *config.Config, version string) *Node {
@@ -40,8 +41,8 @@ func NewNode(cfg *config.Config, version string) *Node {
 		version:          version,
 		topo:             NewTopoCache(cachePath),
 		auth:             auth.NewAuthManager(),
-		handshakeSem:     make(chan struct{}, maxConcurrentHandshakes),
-		bootstrapLimiter: newBootstrapLimiter(),
+		handshakeSem:     util.NewSemaphore(maxConcurrentHandshakes),
+		bootstrapLimiter: util.NewRateLimiter(bootstrapRateWindow, bootstrapRateMaxPerIP, maxBootstrapRateIPs),
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/MarchSnow-1/OptiRoute/config"
@@ -21,8 +20,8 @@ type ServerAgent struct {
 	cfg          *config.Config
 	version      string // 自身版本（ldflags 注入，确认帧上报）
 	uuid         string // 自身 UUID（配置必填，center 按此去重上报）
-	handshakeSem chan struct{}
-	authLimiter  *serverAuthLimiter
+	handshakeSem *util.Semaphore
+	authLimiter  *util.RateLimiter
 }
 
 func NewServerAgent(cfg *config.Config, version string) *ServerAgent {
@@ -30,8 +29,8 @@ func NewServerAgent(cfg *config.Config, version string) *ServerAgent {
 		cfg:          cfg,
 		version:      version,
 		uuid:         cfg.Self.UUID,
-		handshakeSem: make(chan struct{}, maxServerAuthHandshakes),
-		authLimiter:  newServerAuthLimiter(),
+		handshakeSem: util.NewSemaphore(maxServerAuthHandshakes),
+		authLimiter:  util.NewRateLimiter(serverAuthRateWindow, serverAuthRateMaxPerIP, maxServerAuthRateIPs),
 	}
 }
 
@@ -72,6 +71,8 @@ func (a *ServerAgent) Start(ctx context.Context) error {
 	}
 }
 
+// 认证前连接按来源 IP 做固定窗口限速，实现见 util.RateLimiter
+// The pre-authentication connection path applies a fixed-window rate limit per source IP, implemented by util.RateLimiter
 const (
 	maxServerAuthHandshakes = 1024
 	serverAuthRateWindow    = 10 * time.Second
@@ -79,71 +80,12 @@ const (
 	maxServerAuthRateIPs    = 16384
 )
 
-type serverAuthIPWindow struct {
-	start time.Time
-	count int
-}
-
-type serverAuthLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*serverAuthIPWindow
-}
-
-func newServerAuthLimiter() *serverAuthLimiter {
-	return &serverAuthLimiter{buckets: make(map[string]*serverAuthIPWindow)}
-}
-
-func (l *serverAuthLimiter) allow(ip string) bool {
-	now := time.Now()
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	st := l.buckets[ip]
-	if st == nil {
-		if len(l.buckets) >= maxServerAuthRateIPs {
-			l.pruneLocked(now)
-			if len(l.buckets) >= maxServerAuthRateIPs {
-				return false
-			}
-		}
-		st = &serverAuthIPWindow{start: now}
-		l.buckets[ip] = st
-	}
-	if now.Sub(st.start) >= serverAuthRateWindow {
-		st.start = now
-		st.count = 0
-	}
-	if st.count >= serverAuthRateMaxPerIP {
-		return false
-	}
-	st.count++
-	return true
-}
-
-func (l *serverAuthLimiter) pruneLocked(now time.Time) {
-	for ip, st := range l.buckets {
-		if now.Sub(st.start) >= serverAuthRateWindow {
-			delete(l.buckets, ip)
-		}
-	}
-}
-
 func (a *ServerAgent) tryAcquireHandshake() bool {
-	if a.handshakeSem == nil {
-		return true
-	}
-	select {
-	case a.handshakeSem <- struct{}{}:
-		return true
-	default:
-		return false
-	}
+	return a.handshakeSem.TryAcquire()
 }
 
 func (a *ServerAgent) releaseHandshake() {
-	if a.handshakeSem != nil {
-		<-a.handshakeSem
-	}
+	a.handshakeSem.Release()
 }
 
 func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
@@ -154,7 +96,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	if err != nil {
 		host = remote
 	}
-	if a.authLimiter != nil && !a.authLimiter.allow(host) {
+	if a.authLimiter != nil && !a.authLimiter.Allow(host) {
 		logger.Warn("[", remote, "] 认证前连接超过限速，拒绝")
 		return
 	}

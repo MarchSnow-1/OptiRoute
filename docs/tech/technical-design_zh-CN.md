@@ -170,6 +170,8 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 | `ProbeUDPEcho` | UDP 随机 payload echo |
 | `ProbeICMP` | ICMP echo，校验 payload |
 | `Relay` / `RelayWithIdle` | 双向透传，半关闭语义 |
+| `NewRateLimiter` / `Allow` | 按键固定窗口限速，键表满且无过期键时淘汰最早的键 |
+| `NewSemaphore` / `TryAcquire` / `Release` | 并发闸，非正容量表示不限制并发 |
 
 ### 4.5 center
 
@@ -231,7 +233,7 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 | `classifyConnection` | 区分引导连接与业务连接 |
 | `handleBootstrap` | 下发探测列表、读取结果、选路、签发 Token |
 | `newProbeCode` | 生成一次性探测编码 |
-| `newBootstrapLimiter` / `allow` | 每 IP 引导限速 |
+| `util.NewRateLimiter`（Node.bootstrapLimiter） | 每 IP 引导限速，实现复用 util |
 | `tryAcquireHandshake` / `releaseHandshake` | 并发握手闸 |
 
 #### business.go：业务接入
@@ -288,7 +290,7 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 | `Start` | 监听 Edge 接入 |
 | `tryAcquireHandshake` / `releaseHandshake` | 认证前并发闸 |
 | `handleEdgeConn` | 密钥校验、ACK、PPv2、上游透传 |
-| `newServerAuthLimiter` / `allow` | 每 IP 限速 |
+| `util.NewRateLimiter`（ServerAgent.authLimiter） | 每 IP 认证前限速，实现复用 util |
 
 ### 4.8 main
 

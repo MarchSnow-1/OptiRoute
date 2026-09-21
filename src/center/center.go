@@ -73,17 +73,20 @@ type CenterServer struct {
 	currentSecret []byte // 32 字节随机密钥
 	secretVersion uint64 // shared_secret 单调递增版本号
 
-	registerMu      sync.Mutex
-	registerWindows map[string]*registerWindow
+	registerLimiter *util.RateLimiter // 单 UUID 注册频率限速，键为边缘节点 UUID
 }
 
 func New(cfg *config.Config) *CenterServer {
+	rate := cfg.Self.EdgeRegisterRatePerMinute
+	if rate <= 0 {
+		rate = 30
+	}
 	return &CenterServer{
 		cfg:             cfg,
 		edges:           make(map[string]*EdgeRecord),
 		uuidByConn:      make(map[*websocket.Conn]string),
 		serverRecords:   make(map[string]*ServerRecord),
-		registerWindows: make(map[string]*registerWindow),
+		registerLimiter: util.NewRateLimiter(time.Minute, rate, maxRegisterRateUUIDs),
 	}
 }
 
@@ -243,47 +246,16 @@ func (s *CenterServer) handleEdge(conn *websocket.Conn) {
 	}
 }
 
-type registerWindow struct {
-	start time.Time
-	count int
-}
-
+// maxRegisterRateUUIDs 是注册频率键表的容量上限
+// maxRegisterRateUUIDs is the capacity cap of the registration rate-limit key table
 const maxRegisterRateUUIDs = 16384
 
-// allowRegister 对单个 UUID 的注册频率做固定窗口限速。
+// allowRegister 对单个 UUID 的注册频率做固定窗口限速
+// 键表已满且没有过期键时由 util.RateLimiter 淘汰最早的键，因此键表压力不会拒绝首次注册的 UUID
+// allowRegister applies a fixed-window registration rate limit per UUID
+// When the key table is full and holds no expired key, util.RateLimiter evicts the earliest key, so key-table pressure does not reject a UUID that registers for the first time
 func (s *CenterServer) allowRegister(uuid string) bool {
-	rate := s.cfg.Self.EdgeRegisterRatePerMinute
-	if rate <= 0 {
-		rate = 30
-	}
-	now := time.Now()
-	s.registerMu.Lock()
-	defer s.registerMu.Unlock()
-
-	st := s.registerWindows[uuid]
-	if st == nil {
-		if len(s.registerWindows) >= maxRegisterRateUUIDs {
-			for id, w := range s.registerWindows {
-				if now.Sub(w.start) >= time.Minute {
-					delete(s.registerWindows, id)
-				}
-			}
-			if len(s.registerWindows) >= maxRegisterRateUUIDs {
-				return false
-			}
-		}
-		st = &registerWindow{start: now}
-		s.registerWindows[uuid] = st
-	}
-	if now.Sub(st.start) >= time.Minute {
-		st.start = now
-		st.count = 0
-	}
-	if st.count >= rate {
-		return false
-	}
-	st.count++
-	return true
+	return s.registerLimiter.Allow(uuid)
 }
 
 // sendRegisterReject 在连接尚未写入 edges 映射前直接下发拒绝结果。

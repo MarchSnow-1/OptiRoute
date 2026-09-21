@@ -246,6 +246,7 @@ Common types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, 
 - **标点** —— 注释行尾不加句号，除非一行内有两个句子需要区分
 - **收尾检查** —— 完成任务后排查本次变更是否遗漏注释，如有遗漏须补全
 - **禁止妄下定论** —— 注释、文案与说明中不得使用「永久」「永远」「绝不」「一定会」这类无限定范围的断言，也不得把当前观察到的情况说成普遍规律；应写清边界：在什么条件下、哪个函数走哪条分支、因此不会出现什么结果
+- **时效性** —— 修改任何功能后，必须检查 docs 文件夹、双语 README.md 及其他全部文档，更新其中全部与修改部分相关的说明；新增模块时，应补充其对应的说明文档，风格仿照现有文档
 
 - **Explain before modifying** — state the goal and the blast radius; for high-risk changes, plan first and execute afterwards
 - **Ask when uncertain, never guess**
@@ -274,3 +275,4 @@ Common types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, 
 - **Punctuation** — do not end a comment line with a period unless two sentences on that line need separating
 - **Final pass** — after finishing a task, check whether this change left any comment behind and fill the gap
 - **No absolute claims** — comments, copy and explanations must not use unbounded assertions such as "permanent", "forever", "never" or "always", nor present a current observation as a general rule; state the boundary instead: under which condition, which branch of which function runs, and therefore what result cannot occur
+- **Timeliness** — after changing any feature, check the docs folder, both README.md files and every other document, and update all descriptions related to the change; when adding a module, add its documentation in the style of the existing docs

@@ -72,16 +72,21 @@ var (
 )
 
 // Register 登记一批消息，只应由各包的 init 调用
-// 同一个键被登记两次时 panic：重复键会静默覆盖先登记的文案，属于必须在启动前暴露的编程错误
+// 同一个键以不同文案登记两次时 panic：那会静默覆盖先登记的文案，属于必须在启动前暴露的编程错误
+// 同一个键以完全相同的文案重复登记视为无操作，使登记具备幂等性，测试在同一进程内重复登记同一批消息不会失败
 //
 // Register adds a batch of messages and should only be called from a package init
-// A key registered twice panics, because a duplicate key silently replaces the text registered first and that is a programming error which has to surface before start-up
+// A key registered twice with different text panics, because that silently replaces the text registered first and is a programming error which has to surface before start-up
+// A key registered again with exactly the same text is a no-op, which makes registration idempotent so that a test registering the same batch twice in one process does not fail
 func Register(entries map[Key]Entry) {
 	catMu.Lock()
 	defer catMu.Unlock()
 	for k, e := range entries {
-		if _, dup := catalog[k]; dup {
-			panic("i18n: 消息键重复 / duplicate message key: " + string(k))
+		if prev, dup := catalog[k]; dup {
+			if prev == e {
+				continue
+			}
+			panic("i18n: 消息键重复且文案不同 / duplicate message key with different text: " + string(k))
 		}
 		catalog[k] = e
 	}

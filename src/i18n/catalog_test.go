@@ -115,17 +115,42 @@ func TestTFollowsCurrentLanguage(t *testing.T) {
 }
 
 // TestRegisterDuplicateKeyPanics 验证同一个键登记两次会 panic
-// TestRegisterDuplicateKeyPanics checks that registering the same key twice panics
+// TestRegisterDuplicateKeyPanics 验证同一个键以不同文案登记两次会 panic
+// TestRegisterDuplicateKeyPanics checks that registering the same key twice with different text panics
 func TestRegisterDuplicateKeyPanics(t *testing.T) {
 	key := Key("catalog.test.duplicate")
 	Register(map[Key]Entry{key: New("first", "第一", "第一")})
 
 	defer func() {
 		if recover() == nil {
-			t.Fatal("重复登记同一个键时应 panic / registering the same key twice should panic")
+			t.Fatal("同一个键以不同文案重复登记时应 panic / registering the same key again with different text should panic")
 		}
 	}()
 	Register(map[Key]Entry{key: New("second", "第二", "第二")})
+}
+
+// TestRegisterIdenticalEntryIsIdempotent 验证同一个键以完全相同的文案重复登记不 panic 且不改变已有条目
+// 测试常在同一进程内重复登记同一批消息，因此登记必须幂等；这条断言也让 go test -count>1 可用
+//
+// TestRegisterIdenticalEntryIsIdempotent checks that registering the same key again with exactly the same text neither panics nor changes the stored entry
+// Tests commonly register the same batch twice in one process, so registration has to be idempotent, and the assertion also keeps go test -count>1 usable
+func TestRegisterIdenticalEntryIsIdempotent(t *testing.T) {
+	key := Key("catalog.test.idempotent")
+	entry := New("same text", "相同文案", "相同文案")
+
+	Register(map[Key]Entry{key: entry})
+	Register(map[Key]Entry{key: entry})
+
+	got, ok := Lookup(key)
+	if !ok {
+		t.Fatalf("键 %q 未登记 / key %q is not registered", key, key)
+	}
+	if got != entry {
+		t.Fatalf("重复登记改变了条目: %v / registering again changed the entry", got)
+	}
+	if text := Text(LangZHHans, key); text != "相同文案" {
+		t.Fatalf("取到的文案 = %q，期望 %q / text %q, want %q", text, "相同文案", text, "相同文案")
+	}
 }
 
 // TestKeysAreSortedAndComplete 验证键列表按字典序排列且包含已登记的键

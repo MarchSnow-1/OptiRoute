@@ -1,25 +1,27 @@
-# OptiRoute 技术设计文档
+# OptiRoute Technical Design Document
 
-本文档用于帮助开发者和 Coding Agent 在修改代码前建立整体认知。它按包和文件拆解主要函数，说明数据流、状态机、并发模型与安全边界。
+This document is intended to help developers and Coding Agents establish a comprehensive understanding of the system before modifying the code.
 
-## 1. 总体架构
+It breaks down the main functions by package and file, and describes the data flow, state machines, concurrency model, and security boundaries.
 
-OptiRoute 是 Go 编写的分布式四层反向代理系统，包含四个角色：
+## 1. Overall Architecture
 
-- `center`：控制面，负责 Edge 管理、拓扑、shared_secret 轮换、注册限流。
-- `edge`：数据面，负责引导、探测、选路、V2 Token 验签、L4 转发。
-- `client`：用户侧 Client Agent，负责本地接入、探测、透传。
-- `server`：源站侧 Server Agent，负责接入认证、PPv2 解析、上游转发。
+OptiRoute is a distributed four-tier reverse proxy system written in Go. It consists of four roles:
 
-数据流总览：
+* `center`: Control plane, responsible for Edge management, topology, `shared_secret` rotation, and registration rate limiting
+* `edge`: Data plane, responsible for bootstrapping, probing, route selection, V2 Token verification, and L4 forwarding
+* `client`: User-side Client Agent, responsible for local ingress, probing, and transparent forwarding
+* `server`: Origin-side Server Agent, responsible for ingress authentication, PPv2 parsing, and upstream forwarding
+
+Overall data flow:
 
 ```text
 Client -> Client Agent -> Bootstrap Edge -> Target Edge -> Server Agent -> Upstream
                               |
-                            Center (控制面)
+                            Center (Control Plane)
 ```
 
-## 2. 模块依赖
+## 2. Module Dependencies
 
 ```text
 main
@@ -32,305 +34,298 @@ center
 agent
   -> protocol, util, config
 protocol
-  -> (无内部依赖，纯消息定义)
+  -> (no internal dependencies, pure message definitions)
 ```
 
-依赖方向保持单向：`protocol` 和 `util` 是最底层，`config` 独立，业务层引用它们。
+Dependency direction remains one-way: `protocol` and `util` are the lowest-level packages, while `config` is independent and business-layer packages depend on them.
 
-## 3. 核心流程
+## 3. Core Flows
 
-### 3.1 Edge 启动
+### 3.1 Edge Startup
 
-1. 加载并校验配置。
-2. 创建 Monitor、BandwidthTracker、FakeIPManager、CenterClient、TopoCache。
-3. 连接 Center 并等待注册结果。
-4. 注册成功后启动探测端口和业务端口。
-5. 注册失败且配置允许时进入降级模式。
+1. Load and validate configuration
+2. Create `Monitor`, `BandwidthTracker`, `FakeIPManager`, `CenterClient`, and `TopoCache`
+3. Connect to Center and wait for the registration result
+4. After successful registration, start the probe port and business port
+5. If registration fails and the configuration permits it, enter degraded mode
 
-### 3.2 客户端接入
+### 3.2 Client Access
 
-1. Client Agent 连接配置的 Bootstrap Edge。
-2. 发送 16 字节 Magic，触发引导流程。
-3. Bootstrap Edge 下发探测列表（真实项 + FAKE 项，混合洗牌）。
-4. Client Agent 并发探测，回传成功项 RTT。
-5. Bootstrap Edge 计算全链路 RTT 并选择最优节点。
-6. Bootstrap Edge 签发 V2 Route Token。
-7. Client Agent 连接 Target Edge 业务端口并携带 Token。
-8. Target Edge 验签 Token、nonce、可选客户端 IP，通过后透传。
-9. Edge 向 Server Agent 写入数据面密钥和 PPv2 包头。
-10. Server Agent 校验密钥、解析 PPv2、回确认帧、连接上游并透传。
+1. Client Agent connects to the configured Bootstrap Edge
+2. Sends a 16-byte Magic to trigger the bootstrap flow
+3. Bootstrap Edge sends a probe list (real items + FAKE items, shuffled together)
+4. Client Agent probes all items concurrently and reports RTTs for successful items
+5. Bootstrap Edge calculates the end-to-end RTT and selects the optimal node
+6. Bootstrap Edge issues a V2 Route Token
+7. Client Agent connects to the Target Edge business port and carries the Token
+8. Target Edge verifies the Token, nonce, and optional client IP; after successful verification, it transparently forwards the connection
+9. Edge writes the data-plane secret and PPv2 header to the Server Agent
+10. Server Agent validates the secret, parses PPv2, sends an acknowledgment frame, connects to the upstream, and transparently forwards traffic
 
-### 3.3 Token 签发与验证
+### 3.3 Token Issuance and Verification
 
-Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
+The Token format is `v2:<base64url(json)>`. The JSON contains:
 
-- `v`：版本
-- `target`：目标 Edge UUID
-- `issuer`：签发 Edge UUID
-- `client_ip`：客户端 IP
-- `nonce`：一次性随机数
-- `ts`：Unix 时间戳
-- `hmac`：对除 `hmac` 外字段的 HMAC-SHA256
+* `v`: version
+* `target`: target Edge UUID
+* `issuer`: issuing Edge UUID
+* `client_ip`: client IP
+* `nonce`: one-time random value
+* `ts`: Unix timestamp
+* `hmac`: HMAC-SHA256 calculated over all fields except `hmac`
 
-验证方为 Target Edge，验签通过后必须检查 nonce 防重放。
+The verifier is the Target Edge. After signature verification succeeds, the Target Edge must also check the nonce to prevent replay attacks.
 
-### 3.4 Center 注册
+### 3.4 Center Registration
 
-1. Edge 建立 WS 连接，使用 `Authorization: Bearer <hex(center_secret)>`。
-2. Edge 发送 `register`。
-3. Center 校验注册数据。
-4. Center 检查 Edge 容量与单 UUID 注册频率。
-5. 注册成功：返回 `ok:true` 并推送当前 shared_secret。
-6. 注册失败：返回 `ok:false` 与 `reason`，Edge 按配置决定是否停止重连。
+1. Edge establishes a WS connection using `Authorization: Bearer <hex(center_secret)>`
+2. Edge sends `register`
+3. Center validates the registration data
+4. Center checks Edge capacity and the registration frequency for the given UUID
+5. Successful registration: return `ok:true` and push the current `shared_secret`
+6. Failed registration: return `ok:false` with a `reason`; Edge decides whether to stop reconnecting according to its configuration
 
-## 4. 包级拆解
+## 4. Package-Level Breakdown
 
 ### 4.1 config
 
-职责：配置加载、默认值、校验。
+Responsibility: configuration loading, default values, and validation
 
-核心类型：
+Core types:
 
-- `Config`
-- `SelfConfig`
-- `RemoteConfig`
-- `FakeIPConfig`
+* `Config`
+* `SelfConfig`
+* `RemoteConfig`
+* `FakeIPConfig`
 
-核心函数：
+Core functions:
 
-| 函数 | 说明 |
-|---|---|
-| `Load` | 从 `--config-path` 或 `--config-base64` 加载 |
-| `parse` | 解析 JSON 并执行 defaults |
-| `defaults` | 填充默认值，trim UUID |
-| `Validate` | 角色完整性校验 |
-| `validateCommonNumerics` | 数值范围校验 |
-| `validateSecretField` | 密钥长度与必填校验 |
-| `validatePortRange` | 端口 1-65535 校验 |
-| `validateAddr` | IP/域名/IPv6 方括号校验 |
+| Function                 | Description                                                    |
+| ------------------------ | -------------------------------------------------------------- |
+| `Load`                   | Load configuration from `--config-path` or `--config-base64`   |
+| `parse`                  | Parse JSON and apply defaults                                  |
+| `defaults`               | Populate default values and trim UUIDs                         |
+| `Validate`               | Validate role-specific completeness                            |
+| `validateCommonNumerics` | Validate numeric ranges                                        |
+| `validateSecretField`    | Validate secret length and required fields                     |
+| `validatePortRange`      | Validate that ports are in the range 1-65535                   |
+| `validateAddr`           | Validate IP addresses, domain names, and IPv6 bracket notation |
 
 ### 4.2 protocol
 
-职责：控制面消息、Magic、PPv2。
+Responsibility: control-plane messages, Magic, and PPv2
 
-文件：
+Files:
 
-- `message.go`：Envelope 和所有 payload 类型。
-- `magic.go`：引导 Magic 判定。
-- `proxy_protocol.go`：PPv2 构造与解析。
+* `message.go`: Envelope and all payload types
+* `magic.go`: Bootstrap Magic detection
+* `proxy_protocol.go`: PPv2 construction and parsing
 
-核心函数：
+Core functions:
 
-| 函数 | 说明 |
-|---|---|
-| `NodeInfo.EffectiveItems` | 区分旧缓存 nil 与新模式空列表 |
-| `ProbeItemInfo.EffectiveRTT` | 实测优先、兜底其次 |
-| `IsMagic` / `IsMagicPrefix` | 引导连接初筛与完整判定 |
-| `BuildPPv2Header` | 自动选择 IPv4/IPv6 包头 |
-| `ParsePPv2Header` | 校验签名、地址族、长度 |
+| Function                     | Description                                                                |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `NodeInfo.EffectiveItems`    | Distinguish a legacy cached `nil` value from an empty list in the new mode |
+| `ProbeItemInfo.EffectiveRTT` | Prefer measured RTT, with fallback to the configured value                 |
+| `IsMagic` / `IsMagicPrefix`  | Perform initial filtering and complete detection of bootstrap connections  |
+| `BuildPPv2Header`            | Automatically select the IPv4 or IPv6 header format                        |
+| `ParsePPv2Header`            | Validate the signature, address family, and length                         |
 
 ### 4.3 auth
 
-职责：shared_secret 管理、V2 Route Token、Header 鉴权。
+Responsibility: `shared_secret` management, V2 Route Tokens, and Header authentication
 
-核心函数：
+Core functions:
 
-| 函数 | 说明 |
-|---|---|
-| `NewAuthManager` | 初始化密钥和 nonce 缓存 |
-| `UpdateSecret` | 严格递增版本号更新 secret |
-| `ResetVersion` | 新连接建立时重置版本基准 |
-| `GenerateRouteToken` | 签发 V2 Token |
-| `VerifyRouteToken` | 验签、时间窗、IP、nonce |
-| `markNonceUsed` | nonce 防重放 |
-| `BuildCommSecretHeader` | 构造 Authorization Header |
-| `VerifyCommSecretHeader` | 常量时间校验 Header |
+| Function                 | Description                                                       |
+| ------------------------ | ----------------------------------------------------------------- |
+| `NewAuthManager`         | Initialize keys and the nonce cache                               |
+| `UpdateSecret`           | Update the secret only when the version number strictly increases |
+| `ResetVersion`           | Reset the version baseline when a new connection is established   |
+| `GenerateRouteToken`     | Issue a V2 Token                                                  |
+| `VerifyRouteToken`       | Verify the signature, time window, IP, and nonce                  |
+| `markNonceUsed`          | Prevent nonce replay                                              |
+| `BuildCommSecretHeader`  | Construct the Authorization Header                                |
+| `VerifyCommSecretHeader` | Verify the Header using constant-time comparison                  |
 
 ### 4.4 util
 
-职责：通用网络工具。
+Responsibility: common networking utilities
 
-文件：
+Files:
 
-- `addr.go`：IPv4/IPv6/域名拼接。
-- `framing.go`：帧读写、写超时。
-- `probe.go`：TCP/UDP/ICMP 探测。
-- `relay.go`：双向透传与空闲超时。
+* `addr.go`: IPv4/IPv6/domain host-port joining
+* `framing.go`: frame read/write and write timeouts
+* `probe.go`: TCP/UDP/ICMP probing
+* `relay.go`: bidirectional forwarding and idle timeouts
 
-核心函数：
+Core functions:
 
-| 函数 | 说明 |
-|---|---|
-| `JoinHostPort` | host:port 拼接 |
-| `WriteFrame` / `ReadFrame` | 4 字节长度帧 |
-| `WriteWithDeadline` / `WriteFrameWithDeadline` | 带写超时写入 |
-| `ProbeTCP` | TCP 握手 RTT |
-| `ProbeUDPEcho` | UDP 随机 payload echo |
-| `ProbeICMP` | ICMP echo，校验 payload |
-| `Relay` / `RelayWithIdle` | 双向透传，半关闭语义 |
+| Function                                       | Description                                                    |
+| ---------------------------------------------- | -------------------------------------------------------------- |
+| `JoinHostPort`                                 | Join a host and port                                           |
+| `WriteFrame` / `ReadFrame`                     | 4-byte length-prefixed framing                                 |
+| `WriteWithDeadline` / `WriteFrameWithDeadline` | Write with a timeout                                           |
+| `ProbeTCP`                                     | Measure TCP handshake RTT                                      |
+| `ProbeUDPEcho`                                 | Perform UDP random-payload echo probing                        |
+| `ProbeICMP`                                    | Perform ICMP echo probing and validate the payload             |
+| `Relay` / `RelayWithIdle`                      | Bidirectional transparent forwarding with half-close semantics |
 
 ### 4.5 center
 
-职责：控制面权威。
+Responsibility: control-plane authority
 
-文件：`center.go`。
+File: `center.go`
 
-核心函数：
+Core functions:
 
-| 函数 | 说明 |
-|---|---|
-| `Start` | HTTP/WS 服务入口 |
-| `rotateSecret` | 生成并广播 shared_secret |
-| `handleEdge` | WS 读循环、ping、超时 |
-| `handleRegister` | 注册处理 |
-| `normalizeAndValidateRegister` | 注册数据校验 |
-| `allowRegister` | 单 UUID 注册频率限制 |
-| `sendRegisterReject` | 直接下发拒绝原因 |
-| `handleTopoQuery` | 构建并下发拓扑 |
-| `buildItems` | 按模式构建真实/FAKE 探测项 |
-| `broadcastSecret` | 推送新 secret 到所有 Edge |
-| `sendMsg` | 写队列，满则断连 |
-| `unregisterByConn` | 下线清理 |
-| `removeEdgeFromServerRecords` | Server 记录清理 |
-| `handleFakeUpdate` | FAKE-IP 列表更新与旧 RTT 清理 |
-| `apiAuth` / `handleAPIVersion` / `handleAPIClients` | 开放 API |
+| Function                                            | Description                                                    |
+| --------------------------------------------------- | -------------------------------------------------------------- |
+| `Start`                                             | HTTP/WS service entry point                                    |
+| `rotateSecret`                                      | Generate and broadcast a new `shared_secret`                   |
+| `handleEdge`                                        | WS read loop, ping handling, and timeouts                      |
+| `handleRegister`                                    | Process Edge registration                                      |
+| `normalizeAndValidateRegister`                      | Validate and normalize registration data                       |
+| `allowRegister`                                     | Enforce registration frequency limits per UUID                 |
+| `sendRegisterReject`                                | Directly send the registration rejection reason                |
+| `handleTopoQuery`                                   | Build and send topology information                            |
+| `buildItems`                                        | Build real/FAKE probe items according to the configured mode   |
+| `broadcastSecret`                                   | Push the new secret to all Edges                               |
+| `sendMsg`                                           | Write to the outbound queue; disconnect when the queue is full |
+| `unregisterByConn`                                  | Clean up on disconnection                                      |
+| `removeEdgeFromServerRecords`                       | Remove the Edge from Server records                            |
+| `handleFakeUpdate`                                  | Update the FAKE-IP list and clear stale RTT values             |
+| `apiAuth` / `handleAPIVersion` / `handleAPIClients` | Public API endpoints                                           |
 
 ### 4.6 edge
 
-职责：数据面与引导面。
+Responsibility: data plane and bootstrap plane
 
-文件较多，按职责拆解：
+The package contains multiple files, organized by responsibility:
 
-#### edge.go：CenterClient
+#### edge.go: CenterClient
 
-| 函数 | 说明 |
-|---|---|
-| `Connect` | 建立 WS、初始化注册等待、启动后台循环 |
-| `readLoop` / `dispatch` | 接收并分发控制面消息 |
-| `sendMsg` | 并发安全写队列 |
-| `WaitRegistration` | 等待注册结果 |
-| `Disconnect` | 安全关闭连接并重置 channel |
-| `reconnectLoop` | 断线重连，支持永久拒绝停止 |
+| Function                | Description                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------- |
+| `Connect`               | Establish the WS connection, initialize the registration wait state, and start background loops |
+| `readLoop` / `dispatch` | Receive and dispatch control-plane messages                                                     |
+| `sendMsg`               | Concurrency-safe outbound queueing                                                              |
+| `WaitRegistration`      | Wait for the registration result                                                                |
+| `Disconnect`            | Safely close the connection and reset the channel                                               |
+| `reconnectLoop`         | Reconnect after disconnection, with support for permanent rejection termination                 |
 
-#### node.go：Node 生命周期
+#### node.go: Node Lifecycle
 
-| 函数 | 说明 |
-|---|---|
-| `NewNode` | 初始化 Node 与握手限流 |
-| `Start` | 启动所有子组件 |
-| `backgroundReconnect` | 降级模式后台重连 |
-| `ccClient` | 并发安全返回 CenterClient |
+| Function              | Description                                    |
+| --------------------- | ---------------------------------------------- |
+| `NewNode`             | Initialize the Node and handshake rate limiter |
+| `Start`               | Start all child components                     |
+| `backgroundReconnect` | Background reconnection in degraded mode       |
+| `ccClient`            | Concurrency-safe accessor for `CenterClient`   |
 
-#### bootstrap.go：引导与握手
+#### bootstrap.go: Bootstrap and Handshake
 
-| 函数 | 说明 |
-|---|---|
-| `runBusinessServer` | 业务端口监听与握手预占 |
-| `classifyConnection` | 区分引导连接与业务连接 |
-| `handleBootstrap` | 下发探测列表、读取结果、选路、签发 Token |
-| `newProbeCode` | 生成一次性探测编码 |
-| `newBootstrapLimiter` / `allow` | 每 IP 引导限速 |
-| `tryAcquireHandshake` / `releaseHandshake` | 并发握手闸 |
+| Function                                   | Description                                                          |
+| ------------------------------------------ | -------------------------------------------------------------------- |
+| `runBusinessServer`                        | Listen on the business port and reserve handshake capacity           |
+| `classifyConnection`                       | Distinguish bootstrap connections from business connections          |
+| `handleBootstrap`                          | Send the probe list, read results, select a route, and issue a Token |
+| `newProbeCode`                             | Generate a one-time probe code                                       |
+| `newBootstrapLimiter` / `allow`            | Per-IP bootstrap rate limiting                                       |
+| `tryAcquireHandshake` / `releaseHandshake` | Handshake concurrency gate                                           |
 
-#### business.go：业务接入
+#### business.go: Business Access
 
-| 函数 | 说明 |
-|---|---|
-| `readFirstPacketWithPrefix` | 解析带已读前缀的首帧 |
-| `handleBusiness` | Token 验签、释放握手额度、连接源站、透传 |
+| Function                    | Description                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `readFirstPacketWithPrefix` | Parse the first frame when part of the frame has already been read                                     |
+| `handleBusiness`            | Verify the Token, release handshake capacity, connect to the origin, and transparently forward traffic |
 
-#### fakeip.go：FAKE-IP 健康检查
+#### fakeip.go: FAKE-IP Health Checks
 
-| 函数 | 说明 |
-|---|---|
-| `NewFakeIPManager` | 初始化 FAKE-IP 状态 |
-| `checkDue` / `checkItem` | 周期性健康检查 |
-| `notifyChanged` | 状态变化上报 Center |
-| `Selected` | 筛选排序 |
-| `FakeRTTs` | 返回 f2n 延迟 |
-| `effRTT` | 实测优先、兜底其次 |
+| Function                 | Description                                                |
+| ------------------------ | ---------------------------------------------------------- |
+| `NewFakeIPManager`       | Initialize FAKE-IP state                                   |
+| `checkDue` / `checkItem` | Perform periodic health checks                             |
+| `notifyChanged`          | Report state changes to Center                             |
+| `Selected`               | Filter and sort candidates                                 |
+| `FakeRTTs`               | Return f2n latency values                                  |
+| `effRTT`                 | Prefer measured RTT, with fallback to the configured value |
 
-#### topo_cache.go：拓扑缓存
+#### topo_cache.go: Topology Cache
 
-| 函数 | 说明 |
-|---|---|
-| `NewTopoCache` | 启动异步写盘 goroutine |
-| `Update` / `SetSecret` | 更新内存并异步落盘 |
-| `SaveToFile` | 同步原子写盘，权限 0600 |
-| `Close` | 冲刷并关闭写盘 goroutine |
-| `LoadFromFile` | 加载缓存进入降级模式 |
+| Function               | Description                                                        |
+| ---------------------- | ------------------------------------------------------------------ |
+| `NewTopoCache`         | Start the asynchronous disk-write goroutine                        |
+| `Update` / `SetSecret` | Update in-memory state and persist asynchronously                  |
+| `SaveToFile`           | Synchronously perform an atomic write with file permissions `0600` |
+| `Close`                | Flush pending writes and stop the disk-write goroutine             |
+| `LoadFromFile`         | Load the cache and enter degraded mode                             |
 
 #### monitor.go / bandwidth.go / probe.go
 
-- `monitor.go`：源站连通性 RTT 与丢包率窗口，日志节流。
-- `bandwidth.go`：每秒带宽采样与状态判定。
-- `probe.go`：对外探测服务，TCP accept-close、UDP echo。
+* `monitor.go`: origin connectivity RTT and packet-loss windows, with log throttling
+* `bandwidth.go`: per-second bandwidth sampling and state determination
+* `probe.go`: externally accessible probe service, including TCP accept-close and UDP echo
 
 ### 4.7 agent
 
-#### client.go：Client Agent
+#### client.go: Client Agent
 
-| 函数 | 说明 |
-|---|---|
-| `Start` | 监听本地端口 |
-| `handleLocalConn` | 每个本地连接执行接入流程 |
-| `doAccessFlow` | 引导 + 探测 + 重定向 + 业务连接 |
-| `probeItems` | 并发探测所有项 |
-| `probeOne` | 单协议探测，TCP/UDP 可降级 ICMP |
-| `connectWithToken` | 携带 Token 连接 Target Edge |
+| Function           | Description                                             |
+| ------------------ | ------------------------------------------------------- |
+| `Start`            | Listen on the local port                                |
+| `handleLocalConn`  | Execute the access flow for each local connection       |
+| `doAccessFlow`     | Bootstrap + probing + redirection + business connection |
+| `probeItems`       | Probe all items concurrently                            |
+| `probeOne`         | Probe a single protocol; TCP/UDP may fall back to ICMP  |
+| `connectWithToken` | Connect to the Target Edge with the Token               |
 
-#### server.go：Server Agent
+#### server.go: Server Agent
 
-| 函数 | 说明 |
-|---|---|
-| `Start` | 监听 Edge 接入 |
-| `tryAcquireHandshake` / `releaseHandshake` | 认证前并发闸 |
-| `handleEdgeConn` | 密钥校验、ACK、PPv2、上游透传 |
-| `newServerAuthLimiter` / `allow` | 每 IP 限速 |
+| Function                                   | Description                                                                          |
+| ------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `Start`                                    | Listen for Edge connections                                                          |
+| `tryAcquireHandshake` / `releaseHandshake` | Authentication-stage concurrency gate                                                |
+| `handleEdgeConn`                           | Validate the secret, send ACK, parse PPv2, and transparently forward to the upstream |
+| `newServerAuthLimiter` / `allow`           | Per-IP rate limiting                                                                 |
 
 ### 4.8 main
 
-- `main`：加载配置、初始化日志、启动角色。
-- `initLogger`：日志级别与格式。
+* `main`: Load configuration, initialize logging, and start the configured role
+* `initLogger`: Configure log level and output format
 
-## 5. 关键数据结构
+## 5. Key Data Structures
 
-| 结构 | 位置 | 说明 |
-|---|---|---|
-| `Config` | config | 全部配置入口 |
-| `Envelope` | protocol | 控制面消息信封 |
-| `NodeInfo` | protocol | 拓扑中的单节点 |
-| `ProbeItemInfo` | protocol | 客户端可见探测项 |
-| `RouteToken` 相关 | auth | V2 Token 内部结构 |
-| `CenterServer` | center | Center 状态 |
-| `EdgeRecord` | center | 单个 Edge 在线状态 |
-| `Node` | edge | Edge 运行状态 |
-| `CenterClient` | edge | Edge 到 Center 的客户端 |
-| `TopoCache` | edge | 拓扑与 secret 缓存 |
-| `FakeIPManager` | edge | FAKE-IP 状态机 |
+| Structure                  | Location | Description                                       |
+| -------------------------- | -------- | ------------------------------------------------- |
+| `Config`                   | config   | Main entry point for all configuration            |
+| `Envelope`                 | protocol | Control-plane message envelope                    |
+| `NodeInfo`                 | protocol | Individual node in the topology                   |
+| `ProbeItemInfo`            | protocol | Probe item exposed to the Client Agent            |
+| `RouteToken` related types | auth     | Internal structures used by the V2 Token          |
+| `CenterServer`             | center   | Center state                                      |
+| `EdgeRecord`               | center   | Online state of an individual Edge                |
+| `Node`                     | edge     | Edge runtime state                                |
+| `CenterClient`             | edge     | Client used by an Edge to communicate with Center |
+| `TopoCache`                | edge     | Cached topology and secret                        |
+| `FakeIPManager`            | edge     | FAKE-IP state machine                             |
 
-## 6. 并发与安全边界
+## 6. Concurrency and Security Boundaries
 
-- Center 是 shared_secret 唯一权威。
-- Edge 是数据面，不信任客户端探测结果。
-- WS 控制面使用读上限与写队列满断连。
-- 公网入口均有握手并发闸与每 IP 限速。
-- Token 绑定 target、issuer、client_ip、nonce、ts。
-- nonce 防重放缓存为本地内存，重启后清空。
-- 密钥不得出现在 URL query 中。
-- 缓存文件权限为 0600，异步写盘避免阻塞控制面。
+* Center is the sole authority for `shared_secret`
+* Edge is part of the data plane and does not trust client-provided probe results
+* WS control-plane connections enforce read limits and disconnect when the outbound queue is full
+* All public-facing entry points have a handshake concurrency gate and per-IP rate limiting
+* Tokens are bound to `target`, `issuer`, `client_ip`, `nonce`, and `ts`
+* The nonce replay-prevention cache is in local memory and is cleared on process restart
+* Secrets must not appear in URL query parameters
+* Cache files use permissions `0600`, and asynchronous disk writes prevent the control plane from being blocked
 
-## 7. 测试策略
+## 7. Testing Strategy
 
-- 单元测试按包放在同目录 `*_test.go`。
-- 网络测试使用本机回环或 `net.Pipe`，禁止无超时阻塞。
-- 并发相关测试必须通过 `-race`。
-- Windows 兼容性通过交叉编译验证。
-- 新增功能必须同步补测试和技术文档。
-
-## 8. 文档维护规则
-
-- 修改任何功能后，必须更新本技术文档中对应模块的函数说明。
-- 修改配置项时，必须同步更新配置文档。
-- 修改协议或 Token 时，必须同步更新 protocol / auth 相关章节。
-- 新增文件时，应在对应包章节补充文件职责和核心函数表。
+* Unit tests are colocated with each package in `*_test.go`
+* Network tests use the local loopback interface or `net.Pipe`; blocking operations without timeouts are prohibited
+* Concurrency-related tests must pass with `-race`
+* Windows compatibility is validated through cross-compilation
+* Any new feature must be accompanied by corresponding tests and updates to the technical documentation

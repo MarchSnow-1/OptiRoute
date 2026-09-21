@@ -753,7 +753,16 @@ func (s *CenterServer) handleVersionReport(conn *websocket.Conn, raw json.RawMes
 	}
 	record.mu.Unlock()
 
-	logx.Debugf(KeyVersionReportApplied, uuid, len(report.Clients), report.Server)
+	// 日志标签声明的是 UUID，因此这里取 report.Server.UUID 而不是整个结构体
+	// report.Server 可为 nil（上游允许不带该字段），此时输出空串而不是把 nil 渲染进日志
+	//
+	// The log label declares a UUID, so report.Server.UUID is taken here rather than the whole struct
+	// report.Server may be nil because the reporting side may omit that field, and an empty string is logged instead of rendering a nil into the line
+	serverUUID := ""
+	if report.Server != nil {
+		serverUUID = report.Server.UUID
+	}
+	logx.Debugf(KeyVersionReportApplied, uuid, len(report.Clients), serverUUID)
 }
 
 // ServerRecord 全局 Server Agent 记录（按 UUID 去重）

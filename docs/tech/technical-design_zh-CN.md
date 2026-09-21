@@ -227,7 +227,7 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 | `sendMsg` | 并发安全写队列 |
 | `WaitRegistration` | 等待注册结果 |
 | `Disconnect` | 安全关闭连接并重置 channel |
-| `reconnectLoop` | 断线重连，支持永久拒绝停止 |
+| `reconnectLoop` | 断线重连，在注册已被中心节点拒绝且 `stop_reconnect_on_reject` 为真时停止 |
 
 #### node.go：Node 生命周期
 

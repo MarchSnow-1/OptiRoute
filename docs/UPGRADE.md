@@ -82,7 +82,7 @@ In degraded mode an Edge reconnects to the Center in the background with an expo
 | Topology source | The local cache, which may lag behind the current state of the cluster |
 | Bandwidth penalty multiplier | It arrives from the control plane, and degraded mode receives no topology response, so the multiplier stays 0 and route selection applies no bandwidth penalty |
 | Version and client information reports | There is no control-plane connection, so the reports go nowhere |
-| FAKE-IP list updates | The report is still attempted, and the message stays in a write queue nothing drains, so the Center never receives it |
+| FAKE-IP list updates | The report is still attempted, and the message stays in a write queue that degraded mode does not drain, so the Center does not receive it |
 
 ## 5. Rolling back to an older build
 

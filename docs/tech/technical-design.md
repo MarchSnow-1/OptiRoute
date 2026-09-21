@@ -50,7 +50,7 @@ Dependency direction remains one-way: `protocol`, `i18n` and `util` are the lowe
 
 `logx` is the shared logging exit for every package: a caller only queues a record in a bounded in-memory queue that a dedicated writer goroutine flushes, so a blocked standard output cannot stall the caller. Rendering is done by `logx` itself, and the format is compared field by field against the real output of go-logger under the configuration of `main.initLogger` as a golden reference (see `src/logx/format_test.go`).
 
-`i18n` holds the language tag parser and the message catalogue. Every package that produces user-visible text declares its own keys as exported constants in its own `messages.go` and registers them from `init`, so a key cannot be used before it is registered and the catalogue is read-only afterwards. Application code logs through `logx.Debugf`, `logx.Infof`, `logx.Warnf` and `logx.Errorf`, which take a key instead of a message, and `config` builds its errors through `config.errf`; both look the text up after the level or validation check, so a message that is never emitted costs no lookup and no formatting.
+`i18n` holds the language tag parser and the message catalogue. Every package that produces user-visible text declares its own keys as exported constants in its own `messages.go` and registers them from `init`, so a key cannot be used before it is registered and the catalogue is read-only afterwards. Application code logs through `logx.Debugf`, `logx.Infof`, `logx.Warnf` and `logx.Errorf`, which take a key instead of a message, and `config` builds its errors through `config.errf`; both look the text up after the level or validation check, so a message below the current level costs no lookup and no formatting.
 
 ## 3. Core Flows
 
@@ -227,7 +227,7 @@ The package contains multiple files, organized by responsibility:
 | `sendMsg`               | Concurrency-safe outbound queueing                                                              |
 | `WaitRegistration`      | Wait for the registration result                                                                |
 | `Disconnect`            | Safely close the connection and reset the channel                                               |
-| `reconnectLoop`         | Reconnect after disconnection, with support for permanent rejection termination                 |
+| `reconnectLoop`         | Reconnect after disconnection, stopping when the Center has rejected the registration and `stop_reconnect_on_reject` is true |
 
 #### node.go: Node Lifecycle
 
@@ -346,7 +346,7 @@ The cross-package gate `src/i18n_catalog_test.go` lives in `package main` becaus
 
 * `main`: Settle the language, load the configuration, validate it, initialise logging and start the configured role, flushing the log queue before exit
 * Logging initialisation calls `logx.Init` and rendering belongs to logx, so main no longer configures the logging library
-* `resolveLang`: Turn the effective tag into a supported language, returning a notice for an unsupported one; the notice is always rendered in the default language so that its value does not depend on call order
+* `resolveLang`: Turn the effective tag into a supported language, returning a notice for an unsupported one; the notice is rendered in the default language so that its value does not depend on call order
 * The language is settled before the configuration is validated, which puts validation failures in the selected language, while a configuration load failure can only use `--lang` because `self.lang` is not readable at that point
 
 ## 5. Key Data Structures

@@ -88,7 +88,7 @@ At the end of bootstrap, the client receives the selected node's real IP and est
 
 The Edge runs an independent health check per configured FAKE-IP (5s scan interval):
 
-- **State machine**: `Unknown` (never succeeded; not reportable) → `Valid` / `Invalid` (failed; retried next round).
+- **State machine**: `Unknown` (has not succeeded yet; not reportable) → `Valid` / `Invalid` (failed; retried next round).
 - **TTL gating**: Valid items are not re-probed within the `fake_ip_check_ttl_s` window; re-probe only after expiry (reducing overhead).
 - **Self-reference guard**: a FAKE-IP equal to the local address is skipped with a warning; the comparison strips IPv6 brackets and normalises both sides, so it still matches when self.addr is written as `[2001:db8::1]` while fake_ips[].ip holds the bare IP.
 - **Probe protocol**: follows the configured proto (tcp handshake / udp echo / icmp ping), sharing the same probe implementation as clients.
@@ -107,7 +107,7 @@ The bootstrap node computes total latency per probe item by type and picks the m
 Rules:
 
 - **f2n latency** ($RTT_{FakeIP \to Edge}$): health-check measurement, falling back to the static `rtt_fallback_ms` when missing.
-- **Weight** `weight`: the item's configured penalty multiplier (default 1.0; e.g. 1.1 = ×1.1 latency). Real items multiply only the client-side segment; FAKE items multiply the whole front segments; the **Edge→Origin segment is never penalized** (unaffected by FAKE routes).
+- **Weight** `weight`: the item's configured penalty multiplier (default 1.0; e.g. 1.1 = ×1.1 latency). Real items multiply only the client-side segment; FAKE items multiply the whole front segments; the **Edge→Origin segment carries no weight** (unaffected by FAKE routes).
 - **Bandwidth penalty**: warning nodes multiply the final latency by penalty; overloaded nodes are excluded from routing (if all nodes are saturated, fall back to the overloaded node with the lowest latency).
 - Weight applies in both filtering and routing: the Edge filters FAKE-IPs for reporting by `latency × weight`, and routing compares using the formulas above.
 

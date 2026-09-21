@@ -35,7 +35,7 @@ The first packet of a bootstrap connection is a fixed 16 bytes:
 | 10 | 4 | `0x00 0x00 0x00 0x00` |
 | 14 | 2 | `0x0D 0x0A` |
 
-**The implementation compares all 16 bytes for equality**: apart from the first 4 bytes serving as the filter prefix, the remaining bytes carry no independent parsing and no variable information. The table labels the intent of each byte range to make the constant readable, while the protocol layer never reads those ranges
+**The implementation compares all 16 bytes for equality**: apart from the first 4 bytes serving as the filter prefix, the remaining bytes carry no independent parsing and no variable information. The table labels the intent of each byte range to make the constant readable, while no code path in the protocol layer reads those ranges
 
 ## 4. Length frames
 
@@ -122,7 +122,7 @@ The acknowledgement is a length frame on the framing layer rather than a control
 ### Connection and authentication
 
 - An Edge connects to `ws://<center_addr>:<center_port>/edge`
-- The request carries `Authorization: Bearer <hex(center_secret)>`, hex-encoded and never placed in the URL
+- The request carries `Authorization: Bearer <hex(center_secret)>`, hex-encoded and not placed in the URL
 - A failed check makes the Center answer 401 and close the connection
 
 ### Envelope

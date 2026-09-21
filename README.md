@@ -110,7 +110,7 @@ cd src && go mod tidy && cd ..
 cd src && go build -o ../dist/optiroute.exe . && cd ..
 
 # Run
-./dist/optiroute.exe --config-path=edge.json
+./dist/optiroute.exe --config-path=examples/edge.json
 ```
 
 **Linux / macOS**
@@ -126,7 +126,7 @@ cd src && go mod tidy && cd ..
 cd src && go build -o ../dist/optiroute . && cd ..
 
 # Run
-./dist/optiroute --config-path=edge.json
+./dist/optiroute --config-path=examples/edge.json
 ```
 
 ---

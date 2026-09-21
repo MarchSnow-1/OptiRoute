@@ -208,11 +208,11 @@ type Config struct {
 }
 
 // defaults 在 parse() 反序列化之后就地为缺省字段填充默认值，因此调用点只有 parse() 与测试
-// 标量与字符串字段用 ==0 或 =="" 判断是否留空，因此这些字段区分不出“未配置”与“显式配置为 0 或空串”，需要区分时改用指针型字段（IdleTimeoutS、LossRateThreshold、BWWarningRatio、BWOverloadRatio、TokenBindClientIP、StopReconnectOnReject、BWWarningPenalty）
+// 标量与字符串字段用 ==0 或 =="" 判断是否留空，因此这些字段区分不出“未配置”与“显式配置为 0 或空串”，需要区分时改用指针型字段（IdleTimeoutS、TopoSyncJitterMs、LossRateThreshold、BWWarningRatio、BWOverloadRatio、MaxConnections、TokenBindClientIP、StopReconnectOnReject、BWWarningPenalty）
 // 末尾按 c.Self.Role 走角色分支：client 补 listen_addr，server 补 upstream_addr，其它角色不补
 //
 // defaults fills the default values of unset fields in place right after parse() decodes the data, so parse() and the tests are its only callers
-// Scalar and string fields test ==0 or =="" to detect an empty value, so those fields cannot tell "unset" from "explicitly configured as 0 or an empty string", and the pointer fields (IdleTimeoutS, LossRateThreshold, BWWarningRatio, BWOverloadRatio, TokenBindClientIP, StopReconnectOnReject, BWWarningPenalty) exist for the cases that need the distinction
+// Scalar and string fields test ==0 or =="" to detect an empty value, so those fields cannot tell "unset" from "explicitly configured as 0 or an empty string", and the pointer fields (IdleTimeoutS, TopoSyncJitterMs, LossRateThreshold, BWWarningRatio, BWOverloadRatio, MaxConnections, TokenBindClientIP, StopReconnectOnReject, BWWarningPenalty) exist for the cases that need the distinction
 // The tail switch on c.Self.Role fills listen_addr for client and upstream_addr for server, and fills nothing for the other roles
 func (c *Config) defaults() {
 	if c.Self.UUID != "" {

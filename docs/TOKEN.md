@@ -68,7 +68,7 @@ Configuration:
 
 - Default `true`: the token is strictly bound to the client IP.
 - Set to `false`: the client IP is not compared, which suits multi-egress NAT, changing IPv6 addresses, or similar environments.
-- The switch acts on the **verifying** side (the target Edge) only: the issuing side always writes the client IP into the claims, so turning the binding off skips the comparison rather than leaving the claims without an IP.
+- The switch acts on the **verifying** side (the target Edge) only: the issuing side writes the client IP into the claims, so turning the binding off skips the comparison rather than leaving the claims without an IP.
 - Turning the binding off therefore relaxes security: the same token can be used from another source IP, so keep the default `true` when strict binding is required.
 
 ## nonce replay protection
@@ -108,7 +108,7 @@ Configuration:
 }
 ```
 
-- Default `true`: stop reconnecting after a permanent rejection.
+- Default `true`: once the Center has rejected the registration and this switch is true, the Edge stops reconnecting.
 - Set to `false`: keep retrying with exponential backoff.
 
 ## Center capacity and registration rate

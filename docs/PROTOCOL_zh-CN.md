@@ -122,7 +122,7 @@ Edge 在业务端口上读取连接的**前 4 字节**做快速初筛：
 ### 连接与鉴权
 
 - Edge 连接 `ws://<center_addr>:<center_port>/edge`
-- 请求头带 `Authorization: Bearer <hex(center_secret)>`，密钥以十六进制编码，不出现在 URL 中
+- 请求头带 `Authorization: Bearer <hex(center_secret)>`，密钥以十六进制编码，不放在 URL 中
 - 鉴权失败由 Center 回 401 并断开
 
 ### 信封

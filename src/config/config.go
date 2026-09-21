@@ -18,6 +18,8 @@ import (
 	"net"
 	"os"
 	"strings"
+
+	"github.com/MarchSnow-1/OptiRoute/i18n"
 )
 
 // Role 定义本进程支持的运行角色
@@ -155,6 +157,15 @@ type SelfConfig struct {
 	LogRealIP     bool   `json:"log_real_ip,omitempty"`
 	ForwardRealIP bool   `json:"forward_real_ip,omitempty"`
 	LogLevel      string `json:"log_level,omitempty"`
+	// Lang 是日志与启动文案所用语言，取值遵循 IETF BCP 47
+	// 留空由 defaults() 填为 en-US，命令行 --lang= 的取值优先于本字段
+	// 取值不在 i18n 支持范围内时不阻止启动，由 main.resolveLang 回退到 en-US 并打印一条提示
+	//
+	// Lang is the language of logs and start-up text and follows IETF BCP 47
+	// defaults() fills in en-US when it is empty, and a --lang= value on the command line takes precedence over this field
+	// A value outside what i18n supports does not stop start-up, since main.resolveLang falls back to en-US and prints a notice
+	Lang string `json:"lang,omitempty"`
+
 	// DisableLog 为 true 时关闭日志输出，默认 false 即保留日志
 	// 默认保留日志，便于排查问题；需要静默运行时用配置或命令行显式开启关闭
 	// DisableLog turns log output off when true and defaults to false, which keeps logging enabled
@@ -261,6 +272,11 @@ func (c *Config) defaults() {
 	if c.Self.LogLevel == "" {
 		c.Self.LogLevel = "info"
 	}
+	// 语言的默认值取自 i18n，避免同一个标签在两处各写一份后出现漂移
+	// The language default comes from i18n, so the same tag cannot drift apart between two literals
+	if c.Self.Lang == "" {
+		c.Self.Lang = string(i18n.Default())
+	}
 	if c.Self.CenterConnectRetryCount == 0 {
 		c.Self.CenterConnectRetryCount = 3
 	}
@@ -346,11 +362,29 @@ func Load() (*Config, error) {
 	}
 
 	// 命令行显式给出时才覆盖配置文件取值，未给出则保留文件中的设置
+	// 语言标签同样按此顺序覆盖，--lang= 显式给出空串也算给出，由 main 回退到 en-US 并提示
+	//
 	// The file value is overridden only when the command line states the switch explicitly, otherwise the file setting stands
+	// The language tag is overridden in the same order, and an explicit --lang= with an empty value counts as given so that main falls back to en-US with a notice
 	if opts.disableLog {
 		cfg.Self.DisableLog = true
 	}
+	if opts.langSet {
+		cfg.Self.Lang = opts.lang
+	}
 	return cfg, nil
+}
+
+// CLILang 返回命令行 --lang= 的原始取值与是否给出了该参数
+// main 需要在 config.Load 之前确定语言，才能在配置加载或校验失败时以同一种语言打印错误，因此该取值不能只留在 Load 内部
+// 返回值不经过解析与回退，由 main 交给 i18n.Parse 判定
+//
+// CLILang returns the raw value of the command-line --lang= together with whether the argument was given
+// main has to know the language before config.Load so that a failed load or validation prints its error in that same language, which is why the value cannot stay inside Load alone
+// The value is returned without parsing or falling back, leaving i18n.Parse to decide in main
+func CLILang() (string, bool) {
+	opts := parseArgs(os.Args[1:])
+	return opts.lang, opts.langSet
 }
 
 // cliOptions 保存命令行开关型参数的解析结果
@@ -359,6 +393,8 @@ type cliOptions struct {
 	configPath   string
 	configBase64 string
 	disableLog   bool
+	lang         string
+	langSet      bool // 是否给出了 --lang=，用于区分「未给出」与「显式空串」 / whether --lang= was given, telling "not given" apart from an explicit empty value
 }
 
 // parseArgs 扫描命令行参数，返回识别到的开关
@@ -381,6 +417,13 @@ func parseArgs(args []string) cliOptions {
 		case strings.HasPrefix(arg, "--config-base64="):
 			if opts.configPath == "" && opts.configBase64 == "" {
 				opts.configBase64 = strings.TrimPrefix(arg, "--config-base64=")
+			}
+		case strings.HasPrefix(arg, "--lang="):
+			// 语言标签与配置来源参数同样保留首个取值，使重复给出时结果可预期
+			// The language tag keeps the first value like the configuration-source arguments, which makes a repeated argument predictable
+			if !opts.langSet {
+				opts.lang = strings.TrimPrefix(arg, "--lang=")
+				opts.langSet = true
 			}
 		case arg == "--disable-log":
 			opts.disableLog = true

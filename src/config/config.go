@@ -466,12 +466,20 @@ func loadFromBase64(b64 string) (*Config, error) {
 // parse 反序列化配置，校验 self 段存在后填充默认值
 // parse deserialises the configuration and fills the defaults after checking that the self section exists
 func parse(data []byte) (*Config, error) {
-	// 检测是否为新格式（存在 self 段）
-	// Detect whether this is the new format by the presence of the self section
+	// 先探测 self 段是否存在，用于确认这是本项目认识的配置格式
+	// 两种情形分别报错：JSON 本身不合法时给出底层错误，解析通过但没有 self 段时才报缺段
+	// 合成一条会让语法错误被描述成缺段，而缺段才是用户真正需要知道的下一步
+	//
+	// The self section is probed first, which is what confirms this is a configuration format this project knows
+	// The two cases are reported apart: a malformed JSON carries the underlying error, while a JSON that parses but has no self section reports the missing section
+	// Folding them into one message would describe a syntax error as a missing section, while the missing section is what actually tells the user what to do next
 	var probe struct {
 		Self json.RawMessage `json:"self"`
 	}
-	if err := json.Unmarshal(data, &probe); err != nil || probe.Self == nil {
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return nil, errf(KeyJSONParseFailed, err)
+	}
+	if probe.Self == nil {
 		return nil, errf(KeyJSONMissingSelf)
 	}
 

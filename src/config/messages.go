@@ -188,9 +188,9 @@ var messages = map[i18n.Key]i18n.Entry{
 		"JSON 解析失敗: %w",
 	),
 	KeyJSONMissingSelf: i18n.New(
-		"JSON decoding failed: the self section is missing",
-		"JSON 解析失败: 缺少 self 配置段",
-		"JSON 解析失敗: 缺少 self 設定段",
+		"the configuration is missing the self section",
+		"配置缺少 self 配置段",
+		"設定缺少 self 設定段",
 	),
 	KeyRoleRequired: i18n.New(
 		"missing required field: role",

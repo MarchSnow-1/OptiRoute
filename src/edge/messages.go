@@ -130,8 +130,11 @@ const (
 	// KeyWriteQueueFull is the key used when the write queue is full and the current connection is dropped for it, whose argument is the message type that triggered the drop
 	KeyWriteQueueFull i18n.Key = "edge.write_queue_full"
 
-	// KeyCenterConnectionLost 是控制面连接断开且注册未被拒绝时的键，参数为读取错误
-	// KeyCenterConnectionLost is the key used when the control-plane connection drops while registration was not rejected, whose argument is the read error
+	// KeyCenterConnectionLost 是控制面连接读取失败时的键，参数为读取错误
+	// 该消息在判定是否重连之前输出，因此文案不声明随后是否重连；重连的结果由紧随其后的 KeyRejectedStopAutoReconnect 或 KeyTryingReconnect 给出
+	//
+	// KeyCenterConnectionLost is the key used when reading the control-plane connection fails, whose argument is the read error
+	// The message goes out before the reconnect decision, so its text states nothing about whether a reconnect follows; the outcome is reported by the KeyRejectedStopAutoReconnect or KeyTryingReconnect line that comes next
 	KeyCenterConnectionLost i18n.Key = "edge.center_connection_lost"
 
 	// KeyRejectedStopAutoReconnect 是注册被拒且开关为真因而不再自动重连时的键，不带参数
@@ -382,9 +385,9 @@ var messages = map[i18n.Key]i18n.Entry{
 		"等待中心註冊結果失敗 err:%v",
 	),
 	KeyCenterRejectedStopStartupRetry: i18n.New(
-		"Center rejected the registration and stop_reconnect_on_reject is true, stopping the start-up retries and entering degraded mode",
-		"Center 已拒绝注册且 stop_reconnect_on_reject 为真，停止启动重试并进入降级模式",
-		"Center 已拒絕註冊且 stop_reconnect_on_reject 為真，停止啟動重試並進入降級模式",
+		"Center rejected the registration and stop_reconnect_on_reject is true, stopping the start-up retries",
+		"Center 已拒绝注册且 stop_reconnect_on_reject 为真，停止启动重试",
+		"Center 已拒絕註冊且 stop_reconnect_on_reject 為真，停止啟動重試",
 	),
 	KeySecretLoadedFromCache: i18n.New(
 		"shared_secret loaded from the cache, so degraded mode can sign Tokens",
@@ -397,9 +400,9 @@ var messages = map[i18n.Key]i18n.Entry{
 		"快取中沒有 shared_secret，降級模式無法簽發 Token（需先以正常模式連線過中心）",
 	),
 	KeyEnterDegradedMode: i18n.New(
-		"Center is unreachable, the local cache has been loaded and the node enters degraded mode",
-		"无法连接中心节点，已加载本地缓存，进入降级模式",
-		"無法連線中心節點，已載入本機快取，進入降級模式",
+		"Center is unreachable or rejected the registration, the local cache has been loaded and the node enters degraded mode",
+		"中心节点不可达或已拒绝注册，已加载本地缓存，进入降级模式",
+		"中心節點不可達或已拒絕註冊，已載入本機快取，進入降級模式",
 	),
 	KeyStartedDegraded: i18n.New(
 		"Edge started in degraded mode and waits for Center to reconnect...",
@@ -462,9 +465,9 @@ var messages = map[i18n.Key]i18n.Entry{
 		"寫入佇列已滿，主動斷開中心連線以觸發重連 type:%s",
 	),
 	KeyCenterConnectionLost: i18n.New(
-		"the Center connection dropped and a reconnect follows err:%v",
-		"中心节点连接断开，将重连 err:%v",
-		"中心節點連線斷開，即將重連 err:%v",
+		"the Center connection dropped on a read error err:%v",
+		"中心节点连接读取失败 err:%v",
+		"中心節點連線讀取失敗 err:%v",
 	),
 	KeyRejectedStopAutoReconnect: i18n.New(
 		"registration was rejected by Center and stop_reconnect_on_reject is true, so no automatic reconnect is started",
@@ -582,9 +585,9 @@ var messages = map[i18n.Key]i18n.Entry{
 		"[%s] 忽略異常 RTT code:%s rtt_ms:%d",
 	),
 	KeyBootstrapAllOverloaded: i18n.New(
-		"[%s] every node is overloaded, falling back to the overloaded nodes",
-		"[%s] 所有节点均已满载，回退使用 overloaded 节点",
-		"[%s] 所有節點均已滿載，退回使用 overloaded 節點",
+		"[%s] no candidate node is outside the overloaded state, falling back to the overloaded nodes",
+		"[%s] 无任何非 overloaded 状态的候选节点，回退使用 overloaded 节点",
+		"[%s] 無任何非 overloaded 狀態的候選節點，退回使用 overloaded 節點",
 	),
 	KeyBootstrapNoCandidate: i18n.New(
 		"[%s] no candidate node is available",
@@ -623,8 +626,8 @@ var messages = map[i18n.Key]i18n.Entry{
 	),
 	KeyBusinessTokenRejected: i18n.New(
 		"[%s] Token verification failed, dropping the connection",
-		"[%s] Token 验签失败，丢弃连接",
-		"[%s] Token 驗簽失敗，丟棄連線",
+		"[%s] Token 校验失败，丢弃连接",
+		"[%s] Token 校驗失敗，丟棄連線",
 	),
 	KeyBusinessForwardCapReached: i18n.New(
 		"[%s] the established forwarding connections reached the cap, rejecting the connection",

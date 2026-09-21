@@ -20,13 +20,32 @@ import (
 	"github.com/MarchSnow-1/OptiRoute/util"
 )
 
+// 本地监听面向本机程序，但仍要有闸门与限速：每个本地连接都会触发一次完整的引导与全量并发探测，因此无上限接受会把引导风暴传给 Edge
+// maxLocalHandshakes 限制同时处于接入流程中的本地连接数，localRateWindow 与 localRateMaxPerIP 限制单个来源 IP 的接入频率
+//
+// The local listener faces programs on the same host and still needs a gate and a rate limit: every local connection triggers a full bootstrap and a full concurrent probe, so accepting them without bound would pass a bootstrap storm on to the Edge
+// maxLocalHandshakes caps how many local connections run the access flow at once, while localRateWindow and localRateMaxPerIP bound the access rate of one source IP
+const (
+	maxLocalHandshakes = 1024
+	localRateWindow    = 10 * time.Second
+	localRateMaxPerIP  = 60
+	maxLocalRateIPs    = 4096
+)
+
 type ClientAgent struct {
-	cfg     *config.Config
-	version string // 自身版本，由 ldflags 注入，随业务首包上报 / Own version, injected by ldflags and reported in the business first packet
+	cfg          *config.Config
+	version      string // 自身版本，由 ldflags 注入，随业务首包上报 / Own version, injected by ldflags and reported in the business first packet
+	handshakeSem *util.Semaphore
+	localLimiter *util.RateLimiter
 }
 
 func NewClientAgent(cfg *config.Config, version string) *ClientAgent {
-	return &ClientAgent{cfg: cfg, version: version}
+	return &ClientAgent{
+		cfg:          cfg,
+		version:      version,
+		handshakeSem: util.NewSemaphore(maxLocalHandshakes),
+		localLimiter: util.NewRateLimiter(localRateWindow, localRateMaxPerIP, maxLocalRateIPs),
+	}
 }
 
 func (a *ClientAgent) Start(ctx context.Context) error {
@@ -54,23 +73,73 @@ func (a *ClientAgent) Start(ctx context.Context) error {
 				continue
 			}
 		}
+		// 限速按来源 IP 计，闸门按接入流程中的连接数计，两者都在启动接入流程之前判定
+		// The rate limit counts per source IP and the gate counts the connections inside the access flow, and both are judged before that flow starts
+		if a.localLimiter != nil && !a.localLimiter.Allow(remoteHost(localConn)) {
+			logx.Warn("本地接入超过每 IP 限速，拒绝连接 remote:", remoteHost(localConn))
+			localConn.Close()
+			continue
+		}
+		if !a.tryAcquireHandshake() {
+			logx.Warn("本地接入并发已满，拒绝连接")
+			localConn.Close()
+			continue
+		}
 		go a.handleLocalConn(ctx, localConn)
 	}
+}
+
+// tryAcquireHandshake 尝试占用一个本地接入额度，额度用尽时返回 false
+// 闸门为 nil（未初始化）时按可无限占用处理，使只构造部分字段的调用方也能工作
+//
+// tryAcquireHandshake tries to take one local access slot and reports false once they run out
+// A nil gate, which happens when a caller built only part of the struct, counts as unlimited so a partly built case can still go through it
+func (a *ClientAgent) tryAcquireHandshake() bool {
+	if a.handshakeSem == nil {
+		return true
+	}
+	return a.handshakeSem.TryAcquire()
+}
+
+// releaseHandshake 归还一个本地接入额度，闸门为 nil 时为无操作
+// releaseHandshake returns one local access slot and is a no-op when the gate is nil
+func (a *ClientAgent) releaseHandshake() {
+	if a.handshakeSem == nil {
+		return
+	}
+	a.handshakeSem.Release()
+}
+
+// remoteHost 返回连接对端的主机部分，取不到时返回整个远端地址
+// remoteHost returns the host part of the peer address and falls back to the whole remote address when splitting fails
+func remoteHost(conn net.Conn) string {
+	remote := conn.RemoteAddr().String()
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		return remote
+	}
+	return host
 }
 
 // handleLocalConn 处理一条本地连接：走完接入流程后把本地连接与目标 Edge 的连接对接透传
 // 关闭职责按分支划分：接入流程失败时本函数负责关闭 localConn，成功时交给 util.Relay，它在两个方向都结束后关闭双方连接
 // 因此这里不用 defer 统一关闭，避免 Relay 关闭之后再关闭一次
 // 接入流程失败时没有 edgeConn 需要清理：doAccessFlow 只在成功时返回非 nil 的连接，失败时内部已关闭已建立的连接
+// 接入额度在接入流程结束处归还：额度覆盖引导与探测阶段，随后的长连接透传不再占用它；已建立的透传连接不在这一层设上限，其数量取决于本机程序打开的连接数
 //
 // handleLocalConn handles one local connection: it runs the access flow and then pairs the local connection with the target Edge connection for transparent forwarding
 // The closing duty follows the branch: a failed access flow leaves localConn to this function, while a successful one hands it to util.Relay, which closes both sides once both directions have finished
 // That is why no defer closes it here, since that would close it a second time after Relay has done so
 // A failed access flow leaves no edgeConn behind either: doAccessFlow returns a non-nil connection only on success and closes the established ones internally on failure
+// The access slot returns where the access flow ends: it covers the bootstrap and probe phases and the long-lived relay afterwards no longer occupies one, while established relays carry no cap at this layer and their count follows the connections the local programs open
 func (a *ClientAgent) handleLocalConn(ctx context.Context, localConn net.Conn) {
 	remote := localConn.RemoteAddr().String()
 
 	edgeConn, err := a.doAccessFlow(ctx, remote)
+	// 两条出口都在这里归还，因此额度只归还一次；闸门为空时该调用为无操作
+	// Both exits release here, so the slot is returned exactly once, and the call is a no-op when the gate is empty
+	a.releaseHandshake()
+
 	if err != nil {
 		logx.Warn("[", remote, "] 接入流程失败 err:", err)
 		localConn.Close()

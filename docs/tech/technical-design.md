@@ -283,8 +283,8 @@ The package contains multiple files, organized by responsibility:
 
 | Function           | Description                                             |
 | ------------------ | ------------------------------------------------------- |
-| `Start`            | Listen on the local port                                |
-| `handleLocalConn`  | Execute the access flow for each local connection       |
+| `Start`            | Listen on the local port, passing the per-source IP limit and the concurrency gate before accepting |
+| `handleLocalConn`  | Execute the access flow for each local connection and return the concurrency slot when it ends |
 | `doAccessFlow`     | Bootstrap + probing + redirection + business connection |
 | `probeItems`       | Probe all items concurrently                            |
 | `probeOne`         | Probe a single protocol; TCP/UDP may fall back to ICMP  |
@@ -294,12 +294,10 @@ The package contains multiple files, organized by responsibility:
 
 | Function                                   | Description                                                                          |
 | ------------------------------------------ | ------------------------------------------------------------------------------------ |
-| `Start`                                    | Listen for Edge connections                                                          |
+| `Start`                                    | Listen for Edge connections, confirming the data-plane secret is 32 bytes long before it listens |
 | `tryAcquireHandshake` / `releaseHandshake` | Authentication-stage concurrency gate                                                |
 | `handleEdgeConn`                           | Validate the secret, send ACK, parse PPv2, and transparently forward to the upstream |
 | `util.NewRateLimiter` (`ServerAgent.authLimiter`) | Per-IP pre-authentication rate limiting, reusing util          |
-
-### 4.8 main
 
 ### 4.8 logx
 

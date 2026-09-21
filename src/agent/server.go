@@ -41,7 +41,23 @@ func NewServerAgent(cfg *config.Config, version string) *ServerAgent {
 	}
 }
 
+// requiredCommSecretLen 是数据面密钥的固定长度，与配置校验保持一致
+// 认证时按该长度读取字节，因此密钥长度必须在这一层再确认一次：长度为零时空切片比较会判定相等，等于放行任何对端
+//
+// requiredCommSecretLen is the fixed length of the data-plane secret, matching the configuration check
+// The authentication reads that many bytes, so the length has to be confirmed here as well: with a length of zero the comparison of two empty slices reports equality, which would admit every peer
+const requiredCommSecretLen = 32
+
+// Start 监听 Edge 接入并逐个处理连接
+// 启动前先确认数据面密钥可用，避免带着一个会让认证恒通过或恒失败的密钥进入服务
+//
+// Start listens for Edge connections and handles them one by one
+// It confirms the data-plane secret is usable before listening, which keeps a secret that would make authentication always succeed or always fail out of the service
 func (a *ServerAgent) Start(ctx context.Context) error {
+	if len(a.cfg.Remote.CommSecret) != requiredCommSecretLen {
+		return fmt.Errorf("数据面密钥长度必须是 %d 字节，当前 %d 字节", requiredCommSecretLen, len(a.cfg.Remote.CommSecret))
+	}
+
 	addr := util.JoinHostPort(a.cfg.Self.ListenAddr, a.cfg.Self.ListenPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

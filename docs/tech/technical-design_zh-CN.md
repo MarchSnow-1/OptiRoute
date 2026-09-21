@@ -283,8 +283,8 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 
 | 函数 | 说明 |
 |---|---|
-| `Start` | 监听本地端口 |
-| `handleLocalConn` | 每个本地连接执行接入流程 |
+| `Start` | 监听本地端口，接受前先过每来源 IP 限速与并发闸 |
+| `handleLocalConn` | 每个本地连接执行接入流程，流程结束时归还并发额度 |
 | `doAccessFlow` | 引导 + 探测 + 重定向 + 业务连接 |
 | `probeItems` | 并发探测所有项 |
 | `probeOne` | 单协议探测，TCP/UDP 可降级 ICMP |
@@ -294,7 +294,7 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 
 | 函数 | 说明 |
 |---|---|
-| `Start` | 监听 Edge 接入 |
+| `Start` | 监听 Edge 接入，启动前先确认数据面密钥长度为 32 字节 |
 | `tryAcquireHandshake` / `releaseHandshake` | 认证前并发闸 |
 | `handleEdgeConn` | 密钥校验、ACK、PPv2、上游透传 |
 | `util.NewRateLimiter`（ServerAgent.authLimiter） | 每 IP 认证前限速，实现复用 util |

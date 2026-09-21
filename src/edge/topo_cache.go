@@ -133,18 +133,6 @@ func (t *TopoCache) GetAll() []protocol.NodeInfo {
 	return cp
 }
 
-// GetAllItems 展开所有节点的混合探测项列表（真实 + FAKE，不标记类型）
-// GetAllItems flattens the mixed probe item list of every node, both real and FAKE, without labelling the type
-func (t *TopoCache) GetAllItems() []protocol.ProbeItemInfo {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	out := make([]protocol.ProbeItemInfo, 0, len(t.nodes))
-	for _, n := range t.nodes {
-		out = append(out, n.EffectiveItems()...)
-	}
-	return out
-}
-
 // SaveToFile 将当前拓扑原子写入缓存文件（先写 .tmp 再 rename），writeMu 串行化并发写
 // 普通拓扑更新走 requestSave；需要立即确认落盘时可同步调用本方法
 // 权限按 0600 传入，该参数只在类 Unix 系统上生效，Windows 下文件权限由 ACL 决定，perm 参数被忽略，因此同一份代码在 Windows 上不会因该参数获得受限权限

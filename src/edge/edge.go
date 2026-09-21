@@ -612,9 +612,3 @@ func (c *CenterClient) GetBWWarningPenalty() float64 {
 	defer c.penaltyMu.RUnlock()
 	return c.bwWarningPenalty
 }
-
-// QueryTopoWithRTT 返回当前拓扑节点列表的副本
-// QueryTopoWithRTT returns a copy of the current topology node list
-func (c *CenterClient) QueryTopoWithRTT() []protocol.NodeInfo {
-	return c.topo.GetAll()
-}

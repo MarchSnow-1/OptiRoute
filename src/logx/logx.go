@@ -2,6 +2,7 @@
 // 建立原因：原先每次 logger.Info 都在调用方 goroutine 内同步写 os.Stdout，标准输出接到满的管道或不读的采集端时该写会一直阻塞
 // 数据面建连路径上的日志调用点因此可能把连接卡死，异步化把写动作从调用方 goroutine 移开
 // 渲染由本包自己完成而非复用 go-logger：go-logger 的渲染与写盘是同一步，无法只取字节不写出，而异步写需要先在调用方生成完整行
+// 应用代码用带消息键的方法输出（Debugf、Infof、Warnf、Errorf），文案由 i18n 目录按当前语言提供，级别过滤发生在取文案之前
 // 保留 go-logger 作为参考实现：format_test.go 用它与本包逐字段对比输出，确保替换后行格式不变
 // 队列满时丢弃日志并计数，不阻塞调用方；退出前用 Flush 冲刷，崩溃时队列中未写出的日志会丢失
 //
@@ -9,6 +10,7 @@
 // Reason for its existence: every logger.Info used to write os.Stdout synchronously inside the calling goroutine, and that write blocks while standard output is a full pipe or a collector that stopped reading
 // A log call on the connection setup path of the data plane could therefore stall a connection, and going asynchronous moves the write off the calling goroutine
 // Rendering is done here rather than by reusing go-logger, because go-logger renders and writes in the same step and offers no way to obtain the bytes alone, while an asynchronous write needs the complete line built in the caller
+// Application code logs through the keyed methods Debugf, Infof, Warnf and Errorf, whose text comes from the i18n catalogue in the current language, and the level check runs before that text is fetched
 // go-logger is kept as a reference implementation: format_test.go compares its output field by field with this package so that replacing it cannot change the line format
 // A full queue drops records and counts them instead of blocking the caller; Flush drains the queue before exit, while records still queued at a crash are lost
 package logx
@@ -23,6 +25,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/MarchSnow-1/OptiRoute/i18n"
 )
 
 // Level 是日志级别，数值越大越严重
@@ -69,13 +73,6 @@ func levelTag(l Level) string {
 		return "[?????]"
 	}
 }
-
-// textQueueFull 是队列丢弃日志时输出的一次性提示文案
-// Phase 12 的 i18n 会按语言从消息目录取用该文案，这里先固定为中文
-//
-// textQueueFull is the one-off notice printed when the queue drops records
-// The i18n work in Phase 12 will take this text from a message catalogue according to the language, and it stays Chinese for now
-var textQueueFull = "日志队列已满，丢弃 %d 条"
 
 // queueSize 是内存队列容量，达到该容量后新日志被丢弃并计数
 // queueSize is the in-memory queue capacity, beyond which new records are dropped and counted
@@ -163,7 +160,7 @@ func (l *Logger) write(e entry) {
 	l.mu.Unlock()
 
 	if dropped := l.dropped.Swap(0); dropped > 0 {
-		notice := fmt.Sprintf(textQueueFull, dropped)
+		notice := i18n.T(KeyQueueFull, dropped)
 		_, _ = io.WriteString(out, l.render(LevelWarn, "", notice, now()))
 	}
 	_, _ = io.WriteString(out, l.render(e.level, e.file, e.msg, now()))
@@ -203,28 +200,53 @@ func callerSite(skip int) string {
 	return fmt.Sprintf("%s:%d", filepath.Base(file), line)
 }
 
-// output 是各导出方法的共同实现
+// output 是各导出方法输出固定文案时的共同实现
 // skip 是相对 output 的调用层数：1 为导出方法本身，2 为导出方法的调用者
 // 低于当前级别的调用在渲染之前返回，因此被过滤的日志不会产生消息字符串
+// 调用点在此处直接采集后再交给 enqueue，不在中间再插入一层，使 skip 的含义与异步化之前保持一致
 //
-// output is the shared implementation behind the exported methods
+// output is the shared implementation behind the exported methods that log fixed text
 // skip counts frames from output: 1 is the exported method itself and 2 is the caller of that method
 // A call below the current level returns before rendering, so a filtered call builds no message string
+// The call site is collected right here and then handed to enqueue, with no extra frame in between, which keeps the meaning of skip the same as it was before the asynchronous rewrite
 func (l *Logger) output(level Level, skip int, args ...any) {
 	if l.disabled || level < l.level {
 		return
 	}
-
-	e := entry{level: level, msg: fmt.Sprint(args...)}
+	var file string
 	if l.withFile {
-		e.file = callerSite(skip + 1)
+		file = callerSite(skip + 1)
 	}
+	l.enqueue(level, file, fmt.Sprint(args...))
+}
 
+// outputKey 是各导出方法输出目录消息时的共同实现
+// 取文案与格式化都发生在级别过滤之后，因此被过滤的调用不查目录也不做格式化
+// skip 的含义与 output 相同
+//
+// outputKey is the shared implementation behind the exported methods that log catalogue messages
+// Both the lookup and the formatting happen after the level check, so a filtered call touches no catalogue entry and formats nothing
+// skip carries the same meaning as in output
+func (l *Logger) outputKey(level Level, skip int, key i18n.Key, args ...any) {
+	if l.disabled || level < l.level {
+		return
+	}
+	var file string
+	if l.withFile {
+		file = callerSite(skip + 1)
+	}
+	l.enqueue(level, file, i18n.T(key, args...))
+}
+
+// enqueue 把已渲染好的日志投进队列
+// 队列满时丢弃并计数，不阻塞调用方
+//
+// enqueue queues an already rendered record
+// A full queue drops the record and counts it instead of blocking the caller
+func (l *Logger) enqueue(level Level, file, msg string) {
 	select {
-	case l.ch <- e:
+	case l.ch <- entry{level: level, file: file, msg: msg}:
 	default:
-		// 队列满时丢弃而不是阻塞，避免把调用方 goroutine 卡住
-		// A full queue drops instead of blocking, so the calling goroutine cannot be stalled
 		l.dropped.Add(1)
 	}
 }
@@ -327,6 +349,22 @@ func (l *Logger) Warn(args ...any) { l.output(LevelWarn, 2, args...) }
 // Error logs at the error level
 func (l *Logger) Error(args ...any) { l.output(LevelError, 2, args...) }
 
+// Debugf 以 debug 级别输出一条目录消息，key 为消息键，args 交给 i18n 填充
+// Debugf logs one catalogue message at the debug level, where key is the message key and the rest is handed to i18n
+func (l *Logger) Debugf(key i18n.Key, args ...any) { l.outputKey(LevelDebug, 2, key, args...) }
+
+// Infof 以 info 级别输出一条目录消息，key 为消息键，args 交给 i18n 填充
+// Infof logs one catalogue message at the info level, where key is the message key and the rest is handed to i18n
+func (l *Logger) Infof(key i18n.Key, args ...any) { l.outputKey(LevelInfo, 2, key, args...) }
+
+// Warnf 以 warn 级别输出一条目录消息，key 为消息键，args 交给 i18n 填充
+// Warnf logs one catalogue message at the warn level, where key is the message key and the rest is handed to i18n
+func (l *Logger) Warnf(key i18n.Key, args ...any) { l.outputKey(LevelWarn, 2, key, args...) }
+
+// Errorf 以 error 级别输出一条目录消息，key 为消息键，args 交给 i18n 填充
+// Errorf logs one catalogue message at the error level, where key is the message key and the rest is handed to i18n
+func (l *Logger) Errorf(key i18n.Key, args ...any) { l.outputKey(LevelError, 2, key, args...) }
+
 // Debug 输出 debug 级别日志
 // Debug logs at the debug level
 func Debug(args ...any) { std.Debug(args...) }
@@ -342,6 +380,22 @@ func Warn(args ...any) { std.Warn(args...) }
 // Error 输出 error 级别日志
 // Error logs at the error level
 func Error(args ...any) { std.Error(args...) }
+
+// Debugf 以 debug 级别输出一条目录消息
+// Debugf logs one catalogue message at the debug level
+func Debugf(key i18n.Key, args ...any) { std.Debugf(key, args...) }
+
+// Infof 以 info 级别输出一条目录消息
+// Infof logs one catalogue message at the info level
+func Infof(key i18n.Key, args ...any) { std.Infof(key, args...) }
+
+// Warnf 以 warn 级别输出一条目录消息
+// Warnf logs one catalogue message at the warn level
+func Warnf(key i18n.Key, args ...any) { std.Warnf(key, args...) }
+
+// Errorf 以 error 级别输出一条目录消息
+// Errorf logs one catalogue message at the error level
+func Errorf(key i18n.Key, args ...any) { std.Errorf(key, args...) }
 
 // Flush 冲刷默认日志器的队列
 // Flush drains the queue of the default logger

@@ -12,7 +12,17 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/MarchSnow-1/OptiRoute/i18n"
 )
+
+// setLangForTest 把当前语言设为给定值，并在用例结束后还原为默认值
+// setLangForTest sets the current language and restores the default when the case ends
+func setLangForTest(t *testing.T, lang i18n.Lang) {
+	t.Helper()
+	i18n.Set(lang)
+	t.Cleanup(func() { i18n.Set(i18n.Default()) })
+}
 
 // newCaptureLogger 构造一个写入内存缓冲的日志器，返回日志器与该缓冲的读取函数
 // 缓冲由写 goroutine 与测试同时访问，因此用加锁的写入器包住它
@@ -89,27 +99,40 @@ func TestQueueFullDoesNotBlockCaller(t *testing.T) {
 	}
 }
 
-// TestDroppedRecordsAreReported 验证丢弃计数会在下一条写出的日志前以一条提示体现出来
-// TestDroppedRecordsAreReported checks that the drop count surfaces as a notice ahead of the next record written
+// TestDroppedRecordsAreReported 验证丢弃计数会在下一条写出的日志前以一条提示体现出来，且提示文案取自目录并随当前语言变化
+//
+// TestDroppedRecordsAreReported checks that the drop count surfaces as a notice ahead of the next record written, and that the notice text comes from the catalogue and follows the current language
 func TestDroppedRecordsAreReported(t *testing.T) {
-	l, read := newCaptureLogger(t, LevelInfo, false)
-
-	// 直接累加丢弃计数，模拟队列曾满
-	// Add to the drop count directly, standing for a queue that was full
-	l.dropped.Add(3)
-
-	l.Info("after drops")
-	l.Flush()
-
-	out := read()
-	if !strings.Contains(out, "丢弃 3 条") {
-		t.Fatalf("the notice should report 3 dropped records, got %q", out)
+	cases := map[i18n.Lang]string{
+		i18n.LangEN:     "log queue full, 3 records dropped",
+		i18n.LangZHHans: "日志队列已满，丢弃 3 条",
+		i18n.LangZHant:  "日誌佇列已滿，丟棄 3 條",
 	}
-	if !strings.Contains(out, "after drops") {
-		t.Fatalf("the record itself should still be written, got %q", out)
-	}
-	if l.Dropped() != 0 {
-		t.Fatalf("the drop count should be reset after being reported, got %d", l.Dropped())
+
+	for lang, want := range cases {
+		t.Run(string(lang), func(t *testing.T) {
+			setLangForTest(t, lang)
+
+			l, read := newCaptureLogger(t, LevelInfo, false)
+
+			// 直接累加丢弃计数，模拟队列曾满
+			// Add to the drop count directly, standing for a queue that was full
+			l.dropped.Add(3)
+
+			l.Info("after drops")
+			l.Flush()
+
+			out := read()
+			if !strings.Contains(out, want) {
+				t.Fatalf("the notice should read %q, got %q", want, out)
+			}
+			if !strings.Contains(out, "after drops") {
+				t.Fatalf("the record itself should still be written, got %q", out)
+			}
+			if l.Dropped() != 0 {
+				t.Fatalf("the drop count should be reset after being reported, got %d", l.Dropped())
+			}
+		})
 	}
 }
 

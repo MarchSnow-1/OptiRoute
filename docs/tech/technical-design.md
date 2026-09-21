@@ -181,7 +181,7 @@ Core functions:
 | `WriteWithDeadline` / `WriteFrameWithDeadline` | Write with a timeout                                           |
 | `ProbeTCP`                                     | Measure TCP handshake RTT                                      |
 | `ProbeUDPEcho`                                 | Perform UDP random-payload echo probing                        |
-| `ProbeICMP`                                    | Perform ICMP echo probing and validate the payload             |
+| `ProbeICMP`                                    | Perform ICMP echo probing over the ping socket first and the raw socket second, validating the payload; on the ping socket the kernel rewrites the ID and only the payload and peer address identify the reply |
 | `Relay` / `RelayWithIdle`                      | Bidirectional transparent forwarding with half-close semantics; idleness is judged per connection, so the connections close only once both directions are silent, and each write direction carries a deadline of the same threshold |
 | `NewRateLimiter` / `Allow`                     | Per-key fixed-window rate limiting; evicts the earliest key when the table is full and holds no expired key |
 | `NewSemaphore` / `TryAcquire` / `Release`      | Concurrency gate; a non-positive capacity means unlimited concurrency |

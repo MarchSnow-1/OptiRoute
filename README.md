@@ -258,7 +258,7 @@ An empty listen address binds to all IPv4 and IPv6 interfaces simultaneously.
 - **Config injection security**: `--config-base64` is not encryption; the full config (including secrets) appears in the process command line. Prefer a config file with restrictive permissions in production.
 
 - **Transport security**: control-plane and data-plane TLS are not enabled by default yet; public deployments must use a trusted network, VPN, or the future wss/mTLS option.
-- **ICMP permissions**: On Windows, ICMP probing requires administrator privileges; on Linux it requires CAP_NET_RAW or unprivileged ping sockets.
+- **ICMP permissions**: the probe tries the ping socket first and falls back to the raw socket. The ping socket (udp4/udp6) is implemented by Darwin and Linux alone, where ping_group_range or CAP_NET_RAW governs unprivileged use; the raw socket (ip4:icmp / ip6:ipv6-icmp) needs no elevation on Windows and needs CAP_NET_RAW on Linux. An item counts as unreachable only when both kinds fail.
 
 ---
 

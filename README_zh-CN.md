@@ -253,7 +253,7 @@ OptiRoute 完整支持 IPv4/IPv6 双栈运行
 - **配置注入安全**: `--config-base64` 不是加密, 完整配置(含密钥)会出现在进程命令行中; 生产环境请使用配置文件并限制权限
 
 - **传输安全**: 当前控制面/数据面尚未默认启用 TLS, 公网部署必须配合可信网络、VPN 或后续的 wss/mTLS 方案
-- **ICMP 权限**: Windows 上客户端 ICMP 探测需管理员权限; Linux 需 CAP_NET_RAW 或非特权 ping socket
+- **ICMP 权限**: 探测先试 ping socket, 建不起来再用 raw socket。ping socket (udp4/udp6) 只有 Darwin 与 Linux 实现, 免特权使用与否由 ping_group_range 或 CAP_NET_RAW 决定; raw socket (ip4:icmp / ip6:ipv6-icmp) 在 Windows 上无需提权, 在 Linux 上需要 CAP_NET_RAW。两类都失败才判定该地址不可达
 
 ## 开源协议
 

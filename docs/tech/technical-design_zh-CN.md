@@ -181,7 +181,7 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 | `WriteWithDeadline` / `WriteFrameWithDeadline` | 带写超时写入 |
 | `ProbeTCP` | TCP 握手 RTT |
 | `ProbeUDPEcho` | UDP 随机 payload echo |
-| `ProbeICMP` | ICMP echo，校验 payload |
+| `ProbeICMP` | ICMP echo，先试 ping socket 再用 raw socket，校验 payload；ping socket 上内核会改写 ID，因此只靠 payload 与对端地址辨认回包 |
 | `Relay` / `RelayWithIdle` | 双向透传，半关闭语义；空闲以连接为单位判定（两方向都静默才断开），写方向带同一阈值的 deadline |
 | `NewRateLimiter` / `Allow` | 按键固定窗口限速，键表满且无过期键时淘汰最早的键 |
 | `NewSemaphore` / `TryAcquire` / `Release` | 并发闸，非正容量表示不限制并发 |

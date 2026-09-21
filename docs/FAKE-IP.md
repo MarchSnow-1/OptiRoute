@@ -119,6 +119,6 @@ Rules:
 
 ## Notes and Limitations
 
-- **ICMP permissions**: On Windows, ICMP probing requires administrator privileges; on Linux it requires CAP_NET_RAW or unprivileged ping sockets.
+- **ICMP permissions**: the probe tries the ping socket first and falls back to the raw socket. The ping socket (udp4/udp6) is implemented by Darwin and Linux alone, where ping_group_range or CAP_NET_RAW governs unprivileged use; the raw socket (ip4:icmp / ip6:ipv6-icmp) works without administrator privileges on Windows and needs CAP_NET_RAW on Linux. An item is treated as unreachable only when both kinds fail, so on Windows the probe reports success over the raw socket without any elevation.
 - **FAKE-IPs must be truly reachable**: if a FAKE-IP is intercepted and answered by a local routing layer, client-side RTT≈0 will systematically bias routing toward it.
 - **Threat model**: within a single session, an attacker actively probing can still correlate IDs with candidate IPs (probing is itself a measurement); the ID mechanism addresses **cross-session** correlation.

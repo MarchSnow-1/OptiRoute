@@ -119,6 +119,6 @@ EDGE 对每个配置的 FAKE-IP 运行独立健康检查 (5s 扫描节拍):
 
 ## 注意与限制
 
-- **ICMP 权限**: Windows 上客户端 ICMP 探测需管理员权限; Linux 需 CAP_NET_RAW 或非特权 ping socket
+- **ICMP 权限**: 探测先试 ping socket, 建不起来再用 raw socket。ping socket (udp4/udp6) 只有 Darwin 与 Linux 实现, 免特权使用与否由 ping_group_range 或 CAP_NET_RAW 决定; raw socket (ip4:icmp / ip6:ipv6-icmp) 在 Windows 上免管理员可用, 在 Linux 上需要 CAP_NET_RAW。两类都失败才判定该地址不可达, 因此 Windows 上该探测走 raw socket 即可成功, 无需提权
 - **FAKE-IP 应选真实可达地址**: 若 FAKE-IP 由本地路由层拦截应答, 客户端探测 RTT≈0 会系统性偏优
 - **威胁面**: 同一会话内 hacker 主动探测仍可关联 ID 与候选 IP (探测行为本身即测量); ID 机制解决的是**跨会话**归并打击

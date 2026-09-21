@@ -617,6 +617,15 @@ const maxFakeRTTsPerEdge = 1024
 // It is far wider than the scale of token_ttl_s and of the probe timeouts, and it only rejects clearly abnormal numbers
 const maxReportedRTTMs = 600_000
 
+// maxFakeRTTKeysPerRecord 是单个 record 内累计保留的 FAKE-IP 延迟键数上限
+// maxFakeRTTsPerEdge 只限制单条消息的条数，而 record.FakeRTTs 是跨消息累加的映射，只按后者限制会让对端用多条消息不断加入新 IP 使映射无界增长
+// 达到上限后只更新已有的键，新键被丢弃并计入一条限次告警，因此该映射的大小不随连接数与上报轮次增长
+//
+// maxFakeRTTKeysPerRecord is the cap on the FAKE-IP latency keys one record accumulates
+// maxFakeRTTsPerEdge bounds a single message only, while record.FakeRTTs is a map accumulated across messages, so bounding the message alone would let a peer keep adding new IPs over several messages and grow the map without bound
+// Past the cap only existing keys are updated and a new key is dropped with a rate-limited warning, so the size of that map does not grow with the number of connections or reporting rounds
+const maxFakeRTTKeysPerRecord = 4096
+
 // handleRTTReport 更新边缘节点到源站的 RTT 及各 FAKE-IP 的 f2n 延迟
 // 上报的每个条目都要通过 IP 合法性与 RTT 上下界校验，条数受 maxFakeRTTsPerEdge 限制，因此这条路径同样不能把无界数据带进 record
 // 连接未注册或 record 已被清理时取到 nil，跳过更新
@@ -667,10 +676,25 @@ func (s *CenterServer) handleRTTReport(conn *websocket.Conn, raw json.RawMessage
 		default:
 			logx.Warnf(KeyRTTReportUnknownLinkStatus, report.LinkStatus)
 		}
+		// record.FakeRTTs 是跨消息累加的映射，因此除了单条消息的条数上限，这里还要限制映射本身的键数
+		// 达到上限后只更新已有的键，新键被丢弃并计数，计数在解锁之后以一条告警输出，使映射大小有界且告警不会随丢弃次数刷屏
+		//
+		// record.FakeRTTs is a map accumulated across messages, so besides the per-message entry cap the number of keys in the map itself is bounded here as well
+		// Past the cap only existing keys are updated and a new key is dropped and counted, with the count reported as one warning after unlocking, which keeps the map bounded and the warning from flooding the log
+		droppedKeys := 0
 		for _, e := range report.FakeRTTs {
-			record.FakeRTTs[strings.TrimSpace(e.IP)] = e.RTTMs
+			ip := strings.TrimSpace(e.IP)
+			if _, exists := record.FakeRTTs[ip]; !exists && len(record.FakeRTTs) >= maxFakeRTTKeysPerRecord {
+				droppedKeys++
+				continue
+			}
+			record.FakeRTTs[ip] = e.RTTMs
 		}
 		record.mu.Unlock()
+
+		if droppedKeys > 0 {
+			logx.Warnf(KeyRTTReportFakeKeysCapped, uuid, maxFakeRTTKeysPerRecord, droppedKeys)
+		}
 	}
 }
 

@@ -9,6 +9,7 @@ package center
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -108,6 +109,51 @@ func TestRuntimeReportsRejectUnboundedData(t *testing.T) {
 		s.handleRTTReport(nil, raw)
 		if len(rec.FakeRTTs) != 0 {
 			t.Fatalf("an out-of-range latency should be rejected, got %v", rec.FakeRTTs)
+		}
+	})
+
+	t.Run("rtt report caps the keys accumulated in the record", func(t *testing.T) {
+		// 该用例单独用一个 record，避免与前几个子用例共享状态
+		// This case uses its own record so that it shares no state with the cases above
+		capped := &EdgeRecord{UUID: "edge-cap", FakeRTTs: map[string]int64{}}
+		s.edges["edge-cap"] = capped
+		s.uuidByConn[nil] = "edge-cap"
+		t.Cleanup(func() {
+			delete(s.edges, "edge-cap")
+			s.uuidByConn[nil] = "edge-1"
+		})
+
+		// 先放满容量减一，再用一条消息同时加入两个新键：只应有第一个位置被占用
+		// The map is filled to one below the cap first, then one message adds two new keys, of which only the single free slot may be used
+		for i := 0; i < maxFakeRTTKeysPerRecord-1; i++ {
+			capped.FakeRTTs[fmt.Sprintf("10.%d.%d.%d", i>>16, (i>>8)&0xff, i&0xff)] = 1
+		}
+
+		raw := mustJSON(t, protocol.RTTReportPayload{
+			RTTMs:    10,
+			FakeRTTs: []protocol.FakeRTTEntry{{IP: "192.0.2.201", RTTMs: 5}, {IP: "192.0.2.202", RTTMs: 6}},
+		})
+		s.handleRTTReport(nil, raw)
+
+		if got := len(capped.FakeRTTs); got != maxFakeRTTKeysPerRecord {
+			t.Fatalf("键数应停在上限 %d，实际 %d / the key count should stop at the cap %d, got %d", maxFakeRTTKeysPerRecord, got, maxFakeRTTKeysPerRecord, got)
+		}
+		if _, ok := capped.FakeRTTs["192.0.2.201"]; !ok {
+			t.Fatal("上限前的空位应被使用 / the free slot below the cap should have been used")
+		}
+		if _, ok := capped.FakeRTTs["192.0.2.202"]; ok {
+			t.Fatal("超出上限的新键应被丢弃 / a new key beyond the cap should have been dropped")
+		}
+
+		// 已存在的键仍必须能更新，否则上限会把该节点全部上报都锁死
+		// An existing key still has to be updatable, or the cap would freeze every report of that node
+		raw = mustJSON(t, protocol.RTTReportPayload{
+			RTTMs:    20,
+			FakeRTTs: []protocol.FakeRTTEntry{{IP: "192.0.2.201", RTTMs: 44}},
+		})
+		s.handleRTTReport(nil, raw)
+		if got := capped.FakeRTTs["192.0.2.201"]; got != 44 {
+			t.Fatalf("已达上限时已有的键仍应更新，实际 %d / an existing key should still update at the cap, got %d", got, got)
 		}
 	})
 

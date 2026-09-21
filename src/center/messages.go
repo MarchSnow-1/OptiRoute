@@ -85,6 +85,13 @@ const (
 	// KeyRTTReportFakeCountExceeded is the key used when the reported f2n entry count exceeds the cap, with the count and the cap as arguments
 	KeyRTTReportFakeCountExceeded i18n.Key = "center.rtt_report_fake_count_exceeded"
 
+	// KeyRTTReportFakeKeysCapped 是 record 内累计的 FAKE-IP 延迟键数已达上限时的键，参数依次为节点 UUID、上限与本次被丢弃的键数
+	// 该键只在确实丢弃了新键时输出，且每条消息至多一次，因此不会随丢弃次数刷屏
+	//
+	// KeyRTTReportFakeKeysCapped is the key used when the FAKE-IP latency keys accumulated in one record have reached the cap, with the node UUID, the cap and the number of keys this message dropped as arguments
+	// It is emitted only when new keys were actually dropped, at most once per message, so it cannot flood the log with the number of drops
+	KeyRTTReportFakeKeysCapped i18n.Key = "center.rtt_report_fake_keys_capped"
+
 	// KeyRTTReportFakeIPInvalid 是上报的 f2n 条目携带非法 IP 时的键，参数为该 IP
 	// KeyRTTReportFakeIPInvalid is the key used when a reported f2n entry carries an invalid IP, whose argument is that IP
 	KeyRTTReportFakeIPInvalid i18n.Key = "center.rtt_report_fake_ip_invalid"
@@ -218,6 +225,11 @@ var messages = map[i18n.Key]i18n.Entry{
 		"the RTTReport carries too many f2n entries, dropping the whole report count:%d limit:%d",
 		"RTTReport 的 f2n 条数超限，整条丢弃 count:%d limit:%d",
 		"RTTReport 的 f2n 筆數超限，整筆丟棄 count:%d limit:%d",
+	),
+	KeyRTTReportFakeKeysCapped: i18n.New(
+		"the f2n keys kept for this node have reached the cap, only existing keys are updated uuid:%s limit:%d dropped:%d",
+		"该节点累计的 f2n 键数已达上限，只更新已有键 uuid:%s limit:%d dropped:%d",
+		"該節點累計的 f2n 鍵數已達上限，只更新既有鍵 uuid:%s limit:%d dropped:%d",
 	),
 	KeyRTTReportFakeIPInvalid: i18n.New(
 		"the RTTReport carries an invalid f2n IP, dropping the whole report ip:%s",

@@ -173,8 +173,8 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | business_port | int | — | Required for edge; business port (carries bootstrap + data traffic) |
 | probe_mode | string | direct | Edge probe mode: direct / fakeip / mixed |
 | probe_proto | string | udp | Edge local probe protocol: tcp / udp / icmp |
-| fake_ips | array | — | Edge FAKE-IP list; each entry has ip/proto/port/weight/rtt_fallback_ms |
-| fake_ip_max_count | int | 5 | Edge max FAKE-IPs to report |
+| fake_ips | array | — | Edge FAKE-IP list; each entry has ip/proto/port/weight/rtt_fallback_ms; an empty proto means tcp, an empty weight means 1.0 and an explicit 0 keeps the multiplier at 0 |
+| fake_ip_max_count | int | 5 | Edge max FAKE-IPs to report; accepts 1-256, where 256 is the cap shared with the Center registration check |
 | fake_ip_check_ttl_s | int | 60 | Edge valid FAKE-IP re-probe window (seconds) |
 | topo_cache_dir | string | (empty) | Edge topology cache directory; empty = no caching |
 | group | string | default | Node group; defaults to "default" if omitted |
@@ -188,7 +188,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | monitor_probe_timeout_ms | int | 2000 | Edge monitor probe timeout (milliseconds) |
 | idle_timeout_s | int | 120 | Edge relay idle timeout (seconds); 0 = no limit |
 | topo_sync_interval_s | int | 10 | Edge topology sync interval (seconds) |
-| topo_sync_jitter_ms | int | 2000 | Edge max jitter for topology sync (milliseconds) |
+| topo_sync_jitter_ms | int | 2000 | Edge max jitter for topology sync (milliseconds); an explicit 0 disables jitter |
 | rtt_window_s | int | 30 | Edge RTT sliding window size (seconds) |
 | loss_rate_threshold | float | 0.40 | Edge packet loss rate threshold |
 | token_ttl_s | int | 30 | Edge token validity window (seconds) |
@@ -203,7 +203,8 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | comm_secret | string | — | Required for center; control-plane secret; must be exactly 32 bytes; edge remote.center_secret must match |
 | log_real_ip | bool | false | Server: whether to log the client's real IP |
 | forward_real_ip | bool | false | Server: whether to inject PPv2 header upstream |
-| log_level | string | info | Log level: debug / info / warn / error |
+| log_level | string | info | Log level: must be one of debug / info / warn / error, and any other value fails during configuration validation |
+| disable_log | bool | false | Whether to turn log output off; false by default, which keeps logging enabled, so silence needs an explicit opt-in; the command line `--disable-log` overrides it to true |
 
 **remote (connecting to remote components)**
 

@@ -176,8 +176,8 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | business_port | int | — | edge 必填, 业务端口 (承载引导+业务流量) |
 | probe_mode | string | direct | edge 探测模式: direct / fakeip / mixed |
 | probe_proto | string | udp | edge 本机探测协议: tcp / udp / icmp |
-| fake_ips | array | — | edge FAKE-IP 列表, 每项含 ip/proto/port/weight/rtt_fallback_ms |
-| fake_ip_max_count | int | 5 | edge 上报 FAKE-IP 数量上限 |
+| fake_ips | array | — | edge FAKE-IP 列表, 每项含 ip/proto/port/weight/rtt_fallback_ms; proto 留空= tcp, weight 留空= 1.0, 显式 0 表示乘数为 0 |
+| fake_ip_max_count | int | 5 | edge 上报 FAKE-IP 数量上限, 取值 1-256 (256 与 Center 注册校验共用上限) |
 | fake_ip_check_ttl_s | int | 60 | edge 有效 FAKE-IP 重测窗口 (秒) |
 | topo_cache_dir | string | 空 | edge 拓扑缓存目录, 空值=不缓存 |
 | group | string | default | 节点分组, 未填=default |
@@ -191,7 +191,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | monitor_probe_timeout_ms | int | 2000 | edge Monitor 探测超时 (毫秒) |
 | idle_timeout_s | int | 120 | edge 透传空闲超时 (秒), 0=不限制 |
 | topo_sync_interval_s | int | 10 | edge 拓扑同步间隔 (秒) |
-| topo_sync_jitter_ms | int | 2000 | edge 拓扑同步抖动上限 (毫秒) |
+| topo_sync_jitter_ms | int | 2000 | edge 拓扑同步抖动上限 (毫秒); 显式 0 = 不加抖动 |
 | rtt_window_s | int | 30 | edge RTT 滑动窗口大小 (秒) |
 | loss_rate_threshold | float | 0.40 | edge 丢包率触发不稳定阈值 |
 | token_ttl_s | int | 30 | edge Token 有效时间窗口 (秒) |
@@ -206,7 +206,8 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | comm_secret | string | — | center 必填, Center 控制面密钥, 必须恰好 32 字节; Edge 的 remote.center_secret 必须与此一致 |
 | log_real_ip | bool | false | server 是否在日志中记录客户端真实 IP |
 | forward_real_ip | bool | false | server 是否向上游注入 PPv2 包头 |
-| log_level | string | info | 日志级别: debug / info / warn / error |
+| log_level | string | info | 日志级别: 取值必须是 debug / info / warn / error 之一, 其它值在配置校验阶段报错 |
+| disable_log | bool | false | 是否关闭日志输出; 默认 false 即保留日志, 需静默运行时显式开启; 也可用命令行 `--disable-log` 覆盖为 true |
 
 **remote (连接远端配置)**
 

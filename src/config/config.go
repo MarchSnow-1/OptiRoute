@@ -35,14 +35,48 @@ const (
 // DefaultGroup is the default node group, filled in by defaults() when self.group is left empty
 const DefaultGroup = "default"
 
+// MaxFakeIPsPerEdge 是单个边缘节点能被 Center 接受的 FAKE-IP 上报条数上限
+// config 校验与 center 注册校验共用该常量，避免两侧各自硬编码后出现口径漂移
+// MaxFakeIPsPerEdge is the cap on FAKE-IP entries the Center accepts from one edge node
+// Both the configuration check and the center registration check use this constant so that hard-coded values cannot drift apart
+const MaxFakeIPsPerEdge = 256
+
+// LogLevels 是 log_level 允许的取值，与 main.initLogger 的分支一一对应
+// LogLevels lists the accepted log_level values and matches the branches of main.initLogger one by one
+var LogLevels = []string{"debug", "info", "warn", "error"}
+
+// IsValidLogLevel 判断 level 是否属于 LogLevels
+// IsValidLogLevel reports whether level belongs to LogLevels
+func IsValidLogLevel(level string) bool {
+	for _, l := range LogLevels {
+		if l == level {
+			return true
+		}
+	}
+	return false
+}
+
 // FakeIPConfig 是单个 FAKE-IP 探测项的配置
 // FakeIPConfig is the configuration of one FAKE-IP probe entry
 type FakeIPConfig struct {
-	IP            string  `json:"ip"`
-	Proto         string  `json:"proto,omitempty"`           // tcp/udp/icmp；留空时的 tcp 默认值不在本文件 defaults() 中填充，而由 edge.NewFakeIPManager 与 center 的注册校验赋值 / tcp/udp/icmp; the tcp default for an empty value is assigned by edge.NewFakeIPManager and by the center registration check, not by defaults() in this file
-	Port          int     `json:"port,omitempty"`            // tcp/udp 必填（探测 FAKE-IP 自身开放端口） / required for tcp/udp, which probe a port the FAKE-IP itself listens on
-	Weight        float64 `json:"weight,omitempty"`          // 惩罚乘数，留空（0）时由 edge.NewFakeIPManager 填为 1.0 / penalty multiplier, filled with 1.0 by edge.NewFakeIPManager when left at 0
-	RTTFallbackMs int64   `json:"rtt_fallback_ms,omitempty"` // f2n 静态兜底 / static fallback for f2n
+	IP    string `json:"ip"`
+	Proto string `json:"proto,omitempty"` // tcp/udp/icmp；留空由 defaults() 填为 tcp / tcp, udp or icmp; defaults() fills in tcp when empty
+	Port  int    `json:"port,omitempty"`  // tcp/udp 必填（探测 FAKE-IP 自身开放端口） / required for tcp/udp, which probe a port the FAKE-IP itself listens on
+	// 惩罚乘数；nil 由 defaults() 填为 1.0，显式 0 保留为 0
+	// 用指针区分「未配置」与「显式 0」，否则显式 0 会被默认值覆盖而无法表达
+	// Penalty multiplier; defaults() fills in 1.0 when nil and preserves an explicit 0
+	// The pointer separates "not configured" from an explicit 0, which would otherwise be overwritten by the default
+	Weight        *float64 `json:"weight,omitempty"`
+	RTTFallbackMs int64    `json:"rtt_fallback_ms,omitempty"` // f2n 静态兜底 / static fallback for f2n
+}
+
+// EffectiveWeight 返回实际使用的惩罚乘数：显式配置时返回该值，未配置时返回 1.0
+// EffectiveWeight returns the penalty multiplier in use: the configured value when present, otherwise 1.0
+func (f FakeIPConfig) EffectiveWeight() float64 {
+	if f.Weight == nil {
+		return 1.0
+	}
+	return *f.Weight
 }
 
 // SelfConfig 是本节点自身的配置
@@ -86,8 +120,12 @@ type SelfConfig struct {
 
 	// 链路质量
 	// Link quality
+	// 拓扑同步抖动上限（毫秒）；nil 由 defaults() 填为 2000，显式 0 表示不加抖动
+	// 用指针区分「未配置」与「显式 0」，使 0 能表达「关闭抖动」
+	// Upper bound of the topology sync jitter in milliseconds; defaults() fills in 2000 when nil and an explicit 0 disables jitter
+	// The pointer separates "not configured" from an explicit 0 so that 0 can express "jitter off"
+	TopoSyncJitterMs  *int     `json:"topo_sync_jitter_ms,omitempty"`
 	TopoSyncIntervalS int      `json:"topo_sync_interval_s,omitempty"`
-	TopoSyncJitterMs  int      `json:"topo_sync_jitter_ms,omitempty"`
 	RTTWindowS        int      `json:"rtt_window_s,omitempty"`
 	LossRateThreshold *float64 `json:"loss_rate_threshold,omitempty"` // nil 由 defaults() 填为 0.40，显式 0 时丢包率大于 0 即告警 / filled with 0.40 by defaults() when nil; an explicit 0 alarms as soon as the loss rate rises above 0
 
@@ -112,6 +150,11 @@ type SelfConfig struct {
 	LogRealIP     bool   `json:"log_real_ip,omitempty"`
 	ForwardRealIP bool   `json:"forward_real_ip,omitempty"`
 	LogLevel      string `json:"log_level,omitempty"`
+	// DisableLog 为 true 时关闭日志输出，默认 false 即保留日志
+	// 默认保留日志，便于排查问题；需要静默运行时用配置或命令行显式开启关闭
+	// DisableLog turns log output off when true and defaults to false, which keeps logging enabled
+	// Logging stays enabled by default to keep troubleshooting possible; silence requires an explicit opt-in through the configuration or the command line
+	DisableLog bool `json:"disable_log,omitempty"`
 }
 
 // RemoteConfig 是连接远端组件的配置
@@ -167,8 +210,9 @@ func (c *Config) defaults() {
 	if c.Self.TopoSyncIntervalS == 0 {
 		c.Self.TopoSyncIntervalS = 10
 	}
-	if c.Self.TopoSyncJitterMs == 0 {
-		c.Self.TopoSyncJitterMs = 2000
+	if c.Self.TopoSyncJitterMs == nil {
+		v := 2000
+		c.Self.TopoSyncJitterMs = &v
 	}
 	if c.Self.RTTWindowS == 0 {
 		c.Self.RTTWindowS = 30
@@ -233,6 +277,19 @@ func (c *Config) defaults() {
 	if c.Self.FakeIPCheckTTLS == 0 {
 		c.Self.FakeIPCheckTTLS = 60
 	}
+	// fake_ips[].proto 与 weight 的默认值在此统一填充，避免各角色运行时各自兜底而出现口径差异
+	// proto 留空填为 tcp；weight 为 nil 时填为 1.0，显式 0 保持不变
+	// The defaults of fake_ips[].proto and weight are filled in here so that no role-specific fallback can disagree
+	// An empty proto becomes tcp, while a nil weight becomes 1.0 and an explicit 0 is preserved
+	for i := range c.Self.FakeIPs {
+		if c.Self.FakeIPs[i].Proto == "" {
+			c.Self.FakeIPs[i].Proto = "tcp"
+		}
+		if c.Self.FakeIPs[i].Weight == nil {
+			v := 1.0
+			c.Self.FakeIPs[i].Weight = &v
+		}
+	}
 
 	// 角色相关默认值
 	// Role-specific defaults
@@ -249,23 +306,73 @@ func (c *Config) defaults() {
 }
 
 // Load 按命令行参数优先于默认文件的顺序加载配置
-// 按 os.Args 的出现顺序扫描，第一个 --config-path= 或 --config-base64= 生效并直接返回，两个前缀都没有出现时读取工作目录下的 config.json，因此配置文件缺失会以读文件错误返回
+// 先整轮扫描 os.Args 取出开关型参数，再定位配置来源：第一个 --config-path= 或 --config-base64= 生效并直接返回，两个前缀都没有出现时读取工作目录下的 config.json，因此配置文件缺失会以读文件错误返回
+// 开关型参数在配置读取之后套用，因此命令行取值优先于配置文件中的同名字段
 //
 // Load reads the configuration with command-line arguments taking precedence over the default file
-// It scans os.Args in order and the first --config-path= or --config-base64= wins and returns immediately, while a run without either prefix reads config.json from the working directory, so a missing file comes back as a read error
+// It first scans os.Args for switch-style arguments and then locates the configuration source: the first --config-path= or --config-base64= wins and returns immediately, while a run without either prefix reads config.json from the working directory, so a missing file comes back as a read error
+// Switch-style arguments are applied after the file is read, so a command-line value takes precedence over the same field in the configuration file
 func Load() (*Config, error) {
-	args := os.Args[1:]
+	opts := parseArgs(os.Args[1:])
+
+	var (
+		cfg *Config
+		err error
+	)
+	switch {
+	case opts.configPath != "":
+		cfg, err = loadFromFile(opts.configPath)
+	case opts.configBase64 != "":
+		cfg, err = loadFromBase64(opts.configBase64)
+	default:
+		cfg, err = loadFromFile("config.json")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// 命令行显式给出时才覆盖配置文件取值，未给出则保留文件中的设置
+	// The file value is overridden only when the command line states the switch explicitly, otherwise the file setting stands
+	if opts.disableLog {
+		cfg.Self.DisableLog = true
+	}
+	return cfg, nil
+}
+
+// cliOptions 保存命令行开关型参数的解析结果
+// cliOptions holds the parsed switch-style command-line arguments
+type cliOptions struct {
+	configPath   string
+	configBase64 string
+	disableLog   bool
+}
+
+// parseArgs 扫描命令行参数，返回识别到的开关
+// 识别两种形式：带等号的 --name=value 用于取值参数，独立的 --name 用于布尔开关
+// 未识别的参数被忽略，与既有行为一致（不再新增参数时不会因未知参数报错退出）
+//
+// parseArgs scans the command-line arguments and returns the switches it recognised
+// It understands two forms: --name=value for value-carrying arguments and a bare --name for boolean switches
+// Unrecognised arguments are ignored, matching the existing behaviour of not aborting on an unknown argument
+func parseArgs(args []string) cliOptions {
+	var opts cliOptions
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "--config-path=") {
-			path := strings.TrimPrefix(arg, "--config-path=")
-			return loadFromFile(path)
-		}
-		if strings.HasPrefix(arg, "--config-base64=") {
-			b64 := strings.TrimPrefix(arg, "--config-base64=")
-			return loadFromBase64(b64)
+		switch {
+		case strings.HasPrefix(arg, "--config-path="):
+			// 保留首个出现的配置来源，后续同名参数不再覆盖
+			// Keep the first configuration source seen and let no later argument of the same name override it
+			if opts.configPath == "" && opts.configBase64 == "" {
+				opts.configPath = strings.TrimPrefix(arg, "--config-path=")
+			}
+		case strings.HasPrefix(arg, "--config-base64="):
+			if opts.configPath == "" && opts.configBase64 == "" {
+				opts.configBase64 = strings.TrimPrefix(arg, "--config-base64=")
+			}
+		case arg == "--disable-log":
+			opts.disableLog = true
 		}
 	}
-	return loadFromFile("config.json")
+	return opts
 }
 
 // loadFromFile 读取指定路径的 JSON 配置文件并交给 parse()
@@ -320,6 +427,9 @@ func parse(data []byte) (*Config, error) {
 func (c *Config) Validate() error {
 	if c.Self.Role == "" {
 		return fmt.Errorf("必填字段缺失: role")
+	}
+	if !IsValidLogLevel(c.Self.LogLevel) {
+		return fmt.Errorf("未知日志级别: %s（%s）", c.Self.LogLevel, strings.Join(LogLevels, "/"))
 	}
 	if err := c.validateCommonNumerics(); err != nil {
 		return err
@@ -397,7 +507,12 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("未知探测协议: %s（tcp/udp/icmp）", c.Self.ProbeProto)
 		}
 		if c.Self.FakeIPMaxCount < 1 {
-			return fmt.Errorf("fake_ip_max_count 必须 ≥ 1")
+			return fmt.Errorf("fake_ip_max_count 必须 ≥ 1，当前 %d", c.Self.FakeIPMaxCount)
+		}
+		// 上限与 center 注册校验共用 MaxFakeIPsPerEdge：超出该值时 center 会拒绝注册，配置阶段直接拦下以免启动后才发现
+		// The cap shares MaxFakeIPsPerEdge with the center registration check: beyond it the center rejects the registration, so the configuration stage rejects it first instead of failing after startup
+		if c.Self.FakeIPMaxCount > MaxFakeIPsPerEdge {
+			return fmt.Errorf("fake_ip_max_count 超出上限: %d > %d", c.Self.FakeIPMaxCount, MaxFakeIPsPerEdge)
 		}
 		for i, f := range c.Self.FakeIPs {
 			if net.ParseIP(f.IP) == nil {
@@ -406,8 +521,8 @@ func (c *Config) Validate() error {
 			if f.Proto != "" && f.Proto != "tcp" && f.Proto != "udp" && f.Proto != "icmp" {
 				return fmt.Errorf("fake_ips[%d].proto 非法: %s（tcp/udp/icmp）", i, f.Proto)
 			}
-			if f.Weight < 0 {
-				return fmt.Errorf("fake_ips[%d].weight 必须 ≥ 0", i)
+			if f.Weight != nil && *f.Weight < 0 {
+				return fmt.Errorf("fake_ips[%d].weight 必须 ≥ 0，当前 %f", i, *f.Weight)
 			}
 			// tcp/udp 探测必须显式端口（FAKE-IP 是外部地址，探测其自身开放端口，不适用本机 probe_port）
 			// A tcp/udp probe needs an explicit port: the FAKE-IP is an external address whose own open port gets probed, so the local probe_port does not apply
@@ -513,8 +628,10 @@ func (c *Config) validateCommonNumerics() error {
 	if c.Self.CenterConnectRetryIntervalS < 0 {
 		return fmt.Errorf("self.center_connect_retry_interval_s 必须 ≥ 0，当前 %d", c.Self.CenterConnectRetryIntervalS)
 	}
-	if c.Self.TopoSyncJitterMs < 0 {
-		return fmt.Errorf("self.topo_sync_jitter_ms 必须 ≥ 0，当前 %d", c.Self.TopoSyncJitterMs)
+	// 指针型字段显式传入负值时报错，nil 已由 defaults() 填为默认值，显式 0 允许（表示关闭抖动）
+	// Pointer-based fields report an error on an explicit negative value; defaults() has already filled a nil one, and an explicit 0 is allowed and means jitter off
+	if c.Self.TopoSyncJitterMs != nil && *c.Self.TopoSyncJitterMs < 0 {
+		return fmt.Errorf("self.topo_sync_jitter_ms 必须 ≥ 0，当前 %d", *c.Self.TopoSyncJitterMs)
 	}
 	if c.Self.MaxBandwidthMbps < 0 {
 		return fmt.Errorf("self.max_bandwidth_mbps 必须 ≥ 0，当前 %f", c.Self.MaxBandwidthMbps)

@@ -1,3 +1,6 @@
+// 本文件覆盖引导连接 Magic 的完整比对与 4 字节前缀初筛，重点验证前缀判定只接受长度恰好为 4 的实参
+// This file covers the full comparison of the bootstrap Magic and the 4-byte prefix pre-filter, checking in particular that the prefix helper only accepts an argument of exactly 4 bytes
+
 package protocol
 
 import "testing"

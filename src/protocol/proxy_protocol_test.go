@@ -1,3 +1,6 @@
+// 本文件覆盖 PPv2 包头的构造与解析：IPv4 与 IPv6 两种地址族、目标地址为空时按源地址族补全，以及签名、命令与截断包头被拒绝
+// This file covers building and parsing the PPv2 header: both address families, the same-family fill-in when the destination is empty, and the rejection of a broken signature, a broken command and a truncated header
+
 package protocol
 
 import (

@@ -275,8 +275,8 @@ func (c *CenterClient) readLoop(ctx context.Context) {
 			default:
 			}
 			logx.Warn("中心节点连接断开，将重连 err:", err)
-			if c.Rejected() {
-				logx.Warn("注册已被 Center 永久拒绝，不启动自动重连")
+			if !c.shouldReconnect() {
+				logx.Warn("注册已被 Center 拒绝且 stop_reconnect_on_reject 为真，不启动自动重连")
 				return
 			}
 			go c.reconnectLoop(ctx)
@@ -519,6 +519,20 @@ func (c *CenterClient) Rejected() bool {
 //
 // stopReconnectOnReject decides whether a rejected registration stops reconnection
 // A nil switch is treated as true, so reconnection stops by default, and an explicit false keeps reconnecting
+// shouldReconnect 判断连接断开后是否应启动重连
+// 判据是「未被拒绝，或被拒绝但 stop_reconnect_on_reject 为假」：开关为假时即使注册曾被拒绝也要继续按退避重连，与文档中该开关的说明一致
+// 抽成具名函数是为了让 readLoop 与用例共用同一处判断，避免用例复述条件表达式而测不到真实分支
+//
+// shouldReconnect reports whether a dropped connection should start reconnecting
+// The rule is "not rejected, or rejected with stop_reconnect_on_reject set to false": with the switch off a previously rejected registration still keeps retrying with a backoff, which matches what the documentation says about that switch
+// It is a named function so that readLoop and the tests share one decision point, instead of a test restating the condition and covering no real branch
+func (c *CenterClient) shouldReconnect() bool {
+	if !c.Rejected() {
+		return true
+	}
+	return !stopReconnectOnReject(c.cfg)
+}
+
 func stopReconnectOnReject(cfg *config.Config) bool {
 	return cfg.Self.StopReconnectOnReject == nil || *cfg.Self.StopReconnectOnReject
 }

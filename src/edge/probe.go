@@ -15,32 +15,66 @@ import (
 	"github.com/MarchSnow-1/OptiRoute/util"
 )
 
+// probeService 是本机探测服务需要启动的监听种类
+// probeService is the kind of listener the local probe service has to start
+type probeService int
+
+const (
+	// probeServiceNone 表示不需要监听：ICMP 由客户端直接 ping 本机地址
+	// probeServiceNone means no listener is needed, because ICMP has the client ping this address directly
+	probeServiceNone probeService = iota
+	probeServiceTCP
+	probeServiceUDP
+)
+
+// probeServiceFor 按探测协议决定启动哪种监听
+// tcp 与 udp 各自对应一种服务；icmp 不需要监听，因此即使配置里给了非零 probe_port 也不占用该端口
+// 无法识别的协议按 udp 处理，作为防御性兜底：配置校验已保证取值限于 tcp、udp 与 icmp
+//
+// probeServiceFor decides from the probe protocol which listener to start
+// tcp and udp map to one service each, while icmp needs no listener and therefore leaves a non-zero probe_port unused
+// An unrecognised protocol falls back to udp as a defensive measure, since configuration validation already limits the value to tcp, udp or icmp
+func probeServiceFor(proto string) probeService {
+	switch proto {
+	case "tcp":
+		return probeServiceTCP
+	case "icmp":
+		return probeServiceNone
+	case "udp":
+		return probeServiceUDP
+	default:
+		return probeServiceUDP
+	}
+}
+
 // runProbeServer 按探测协议启动探测服务：
 //   - tcp：accept-close，客户端以 TCP 握手测 RTT
 //   - udp：UDP echo 原样回显，客户端以往返测 RTT
+//   - icmp：不启动任何监听，客户端直接 ping 本机 IP，因而即使配置里给了非零 probe_port 也不占用该端口
 //
 // ProbePort==0 时跳过启动，配置层只在 probe_mode=fakeip 或 probe_proto=icmp 时允许 probe_port 为空
-// 未配置的协议会落到 default 分支启动 UDP 服务：配置层允许 probe_proto=icmp 同时保留非零 probe_port，该组合下本函数仍会启动 UDP 监听
-// 这是已知缺陷，待后续按协议决定是否启动以及启动哪种服务
+// 启动种类的判断集中在 probeServiceFor，便于单独覆盖而不依赖操作系统的端口占用语义
 //
 // runProbeServer starts the probe service for the configured probe protocol:
 //   - tcp: accept and close, so the client measures the RTT from the TCP handshake
 //   - udp: UDP echo the packet unchanged, so the client measures the RTT from the round trip
+//   - icmp: no listener at all, because the client pings this host's IP directly, so a non-zero probe_port in the configuration stays unused
 //
 // A ProbePort of 0 skips the start, and the config layer allows an empty probe_port only for probe_mode=fakeip or probe_proto=icmp
-// An unrecognised protocol falls to the default branch and starts the UDP service: the config layer allows probe_proto=icmp together with a non-zero probe_port, and in that combination this function still starts a UDP listener
-// That is a known defect, and a later fix should decide from the protocol whether to start and which service to start
+// The decision on which listener to start sits in probeServiceFor, so it can be covered on its own without depending on how an operating system arbitrates port ownership
 func (n *Node) runProbeServer(ctx context.Context) {
 	if n.cfg.Self.ProbePort == 0 {
 		logx.Info("probe_port 未配置，跳过探测服务（fakeip-only 或 icmp 模式）")
 		return
 	}
 
-	switch n.cfg.Self.ProbeProto {
-	case "tcp":
+	switch probeServiceFor(n.cfg.Self.ProbeProto) {
+	case probeServiceTCP:
 		n.runProbeTCPServer(ctx)
-	default:
+	case probeServiceUDP:
 		n.runProbeUDPServer(ctx)
+	default:
+		logx.Info("probe_proto 为 icmp，不启动探测监听（客户端直接 ping 本机 IP）")
 	}
 }
 

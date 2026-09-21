@@ -9,7 +9,9 @@ package edge
 
 import (
 	"context"
+	"net"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,22 +51,46 @@ type FakeIPManager struct {
 }
 
 // NewFakeIPManager 构造管理器并按配置初始化每个 FAKE-IP 项
-// proto 留空时按 tcp 处理；与本机地址相同的项跳过并告警（避免探测自身造成自指）；weight 为 0 时写入 1.0
+// 与本机地址相同的项跳过并告警（避免探测自身造成自指）；proto 与 weight 的默认值已由 config 的 defaults() 填充
 //
 // NewFakeIPManager builds the manager and initialises one entry per configured FAKE-IP
-// An empty proto becomes tcp, an entry equal to this node's own address is skipped with a warning to avoid probing itself, and a zero weight is written as 1.0
+// An entry equal to this node's own address is skipped with a warning to avoid probing itself, while config.defaults() has already filled in the defaults of proto and weight
 func NewFakeIPManager(node *Node) *FakeIPManager {
 	m := &FakeIPManager{node: node}
 	for _, f := range node.cfg.Self.FakeIPs {
-		if f.IP == node.cfg.Self.Addr {
+		if sameAddr(f.IP, node.cfg.Self.Addr) {
 			logx.Warn("FAKE-IP 与本机地址相同，已跳过 ip:", f.IP)
 			continue
 		}
-		// proto 与 weight 的默认值由 config 的 defaults() 统一填充，此处不再兜底，避免两处口径不一致
-		// config.defaults() fills in the defaults of proto and weight, so this function adds no fallback of its own and the two cannot disagree
 		m.items = append(m.items, &FakeIPStatus{cfg: f})
 	}
 	return m
+}
+
+// sameAddr 判断 FAKE-IP 与本机地址是否指向同一地址
+// 比较前先把两侧的 IPv6 方括号去掉并规范化：配置要求 self.addr 的 IPv6 带方括号，而 fake_ips[].ip 必须是裸 IP，直接比较字符串会让 IPv6 场景下的自指防护不生效
+// 任一侧不是合法 IP（例如 self.addr 填的是域名）时退回按字符串比较，此时以域名形式填写的本机地址仍按字面匹配
+//
+// sameAddr reports whether a FAKE-IP and this node's own address point at the same address
+// Both sides have their IPv6 brackets removed and are normalised before the comparison: the configuration asks for brackets in self.addr while fake_ips[].ip has to be a bare IP, so comparing the raw strings would leave the self-reference guard ineffective for IPv6
+// When either side is not a valid IP, such as a host name in self.addr, the comparison falls back to the string form, which still matches this node's address written as a host name
+func sameAddr(fakeIP, selfAddr string) bool {
+	fake := net.ParseIP(normalizeIPLiteral(fakeIP))
+	self := net.ParseIP(normalizeIPLiteral(selfAddr))
+	if fake != nil && self != nil {
+		return fake.Equal(self)
+	}
+	return fakeIP == selfAddr
+}
+
+// normalizeIPLiteral 去掉 IPv6 字面量两侧的方括号，使带括号与不带括号的写法可以互相比较
+// normalizeIPLiteral strips the brackets around an IPv6 literal so the bracketed and bare spellings can be compared
+func normalizeIPLiteral(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		return s[1 : len(s)-1]
+	}
+	return s
 }
 
 // runFakeIPCheck 独立健康检查循环：5s 扫描节拍，TTL 窗口内有效项不重测

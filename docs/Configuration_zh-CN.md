@@ -83,7 +83,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | self.role | edge | 作为边缘节点启动 |
 | self.uuid | b09ad5e0-xxx | 边缘节点的 UUID, 不可重复 |
 | self.addr | x.x.x.x | 访问本节点的入口 IP 或域名, 用于注册和故障转移自识别, IPv6 需加方括号 |
-| self.probe_port | 20001 | 探测端口, 供客户端测量 RTT (fakeip-only 或 probe_proto=icmp 时可空) |
+| self.probe_port | 20001 | 探测端口, 供客户端测量 RTT (fakeip-only 或 probe_proto=icmp 时可空); probe_proto=icmp 时即使填了端口也不会被监听 |
 | self.probe_mode | mixed | 探测模式: direct (真实 IP 直测) / fakeip (全 FAKE-IP) / mixed (混合) |
 | self.probe_proto | udp | 本机探测协议: tcp / udp / icmp |
 | self.fake_ips | [...] | FAKE-IP 列表, 每项含 ip/proto/port/weight/rtt_fallback_ms |
@@ -182,7 +182,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | addr | string | — | edge 必填, 本节点公网入口 IP 或域名, IPv6 需加方括号 |
 | listen_addr | string | 空 | center/client/server 监听地址, 空值=双栈绑定, IPv6 需加方括号如 `[::]` |
 | listen_port | int | — | center/client/server 必填, 监听端口 |
-| probe_port | int | — | edge 必填, 探测端口 (fakeip-only 或 probe_proto=icmp 时可空) |
+| probe_port | int | — | edge 必填, 探测端口 (fakeip-only 或 probe_proto=icmp 时可空); probe_proto=icmp 时不启动探测监听, 该端口不会被占用 |
 | business_port | int | — | edge 必填, 业务端口 (承载引导+业务流量) |
 | probe_mode | string | direct | edge 探测模式: direct / fakeip / mixed |
 | probe_proto | string | udp | edge 本机探测协议: tcp / udp / icmp |
@@ -206,7 +206,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | loss_rate_threshold | float | 0.40 | edge 丢包率触发不稳定阈值 |
 | token_ttl_s | int | 30 | edge Token 有效时间窗口 (秒) |
 | token_bind_client_ip | bool | true | Token 是否绑定客户端 IP, false 时关闭 |
-| stop_reconnect_on_reject | bool | true | Center 永久拒绝注册后是否停止重连, false 时继续重连 |
+| stop_reconnect_on_reject | bool | true | 注册被 Center 拒绝后是否停止重连, false 时继续按退避重连; 该开关在正常模式与降级模式下都生效 |
 | secret_rotation_interval_s | int | 3600 | center shared_secret 轮转周期 (秒) |
 | collect_client_info | bool | false | center 是否采集客户端版本/IP 信息 |
 | web_api_key | string | 空 | center 开放 API 密钥, 空=关闭; 非空=开启 Bearer 鉴权 API |

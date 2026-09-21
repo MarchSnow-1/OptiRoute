@@ -90,7 +90,7 @@ The Edge runs an independent health check per configured FAKE-IP (5s scan interv
 
 - **State machine**: `Unknown` (never succeeded; not reportable) → `Valid` / `Invalid` (failed; retried next round).
 - **TTL gating**: Valid items are not re-probed within the `fake_ip_check_ttl_s` window; re-probe only after expiry (reducing overhead).
-- **Self-reference guard**: a FAKE-IP equal to the local address is skipped with a warning.
+- **Self-reference guard**: a FAKE-IP equal to the local address is skipped with a warning; the comparison strips IPv6 brackets and normalises both sides, so it still matches when self.addr is written as `[2001:db8::1]` while fake_ips[].ip holds the bare IP.
 - **Probe protocol**: follows the configured proto (tcp handshake / udp echo / icmp ping), sharing the same probe implementation as clients.
 - **Filtered reporting**: Valid items sorted by `latency × weight`, capped at `fake_ip_max_count`; reported at registration via `RegisterPayload.FakeItems`, with full-list `fake_update` messages on list changes.
 - **Immediate invalidation reporting**: a Valid → Invalid transition also triggers `fake_update`, so the Center removes dead items immediately instead of keeping clients probing them.

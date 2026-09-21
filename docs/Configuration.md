@@ -83,7 +83,7 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 | self.role | edge | Start as an edge node |
 | self.uuid | b09ad5e0-xxx | Unique identifier for this edge node; must be globally unique |
 | self.addr | x.x.x.x | Public entry IP or domain for this node; used for registration and failover self-identification; IPv6 must use brackets |
-| self.probe_port | 20001 | Probe port used by clients to measure RTT (optional for fakeip-only or probe_proto=icmp) |
+| self.probe_port | 20001 | Probe port used by clients to measure RTT (optional for fakeip-only or probe_proto=icmp); with probe_proto=icmp no listener is started even when a port is set |
 | self.probe_mode | mixed | Probe mode: direct (real IP only) / fakeip (FAKE-IP only) / mixed |
 | self.probe_proto | udp | Local probe protocol: tcp / udp / icmp |
 | self.fake_ips | [...] | FAKE-IP list; each entry has ip/proto/port/weight/rtt_fallback_ms |
@@ -179,7 +179,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | addr | string | — | Required for edge; public entry IP or domain; IPv6 must use brackets |
 | listen_addr | string | (empty) | Listen address for center/client/server; empty = dual-stack; IPv6 must use brackets e.g. `[::]` |
 | listen_port | int | — | Required for center/client/server; listen port |
-| probe_port | int | — | Required for edge; probe port (optional for fakeip-only or probe_proto=icmp) |
+| probe_port | int | — | Required for edge; probe port (optional for fakeip-only or probe_proto=icmp); with probe_proto=icmp no probe listener starts, so the port stays unused |
 | business_port | int | — | Required for edge; business port (carries bootstrap + data traffic) |
 | probe_mode | string | direct | Edge probe mode: direct / fakeip / mixed |
 | probe_proto | string | udp | Edge local probe protocol: tcp / udp / icmp |
@@ -203,7 +203,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | loss_rate_threshold | float | 0.40 | Edge packet loss rate threshold |
 | token_ttl_s | int | 30 | Edge token validity window (seconds) |
 | token_bind_client_ip | bool | true | Bind token to client IP; false disables the check |
-| stop_reconnect_on_reject | bool | true | Stop reconnect after Center permanently rejects registration; false keeps retrying |
+| stop_reconnect_on_reject | bool | true | Stop reconnecting after the Center rejects the registration; false keeps retrying with a backoff, and the switch applies in both normal and degraded mode |
 | secret_rotation_interval_s | int | 3600 | Center secret rotation interval (seconds) |
 | collect_client_info | bool | false | Center: whether to collect client version/IP info |
 | web_api_key | string | (empty) | Center open API key; empty = disabled; non-empty = enables Bearer-authenticated API |

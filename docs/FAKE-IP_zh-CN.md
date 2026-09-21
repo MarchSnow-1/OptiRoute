@@ -90,7 +90,7 @@ EDGE 对每个配置的 FAKE-IP 运行独立健康检查 (5s 扫描节拍):
 
 - **状态机**: `Unknown` (未成功过, 不可上报) → `Valid` (有效) / `Invalid` (失败, 下一轮重试)
 - **TTL 门控**: Valid 状态在 `fake_ip_check_ttl_s` 窗口内不重测, 到期才重测 (减少开销)
-- **自指防护**: FAKE-IP 与本机地址相同时跳过并告警
+- **自指防护**: FAKE-IP 与本机地址相同时跳过并告警; 比较前会去掉 IPv6 方括号并规范化, 因此 `self.addr` 按文档写成 `[2001:db8::1]` 而 `fake_ips[].ip` 写裸 IP 时同样能命中
 - **探测协议**: 按配置的 proto 探测 (tcp 握手 / udp echo / icmp ping), 与客户端共用同一探测实现
 - **筛选上报**: Valid 项按 `延迟 × weight` 排序取前 `fake_ip_max_count` 个, 注册时经 `RegisterPayload.FakeItems` 上报, 列表变化时经 `fake_update` 消息全量列表上报
 - **失效即时上报**: Valid 项变为 Invalid 时同样会触发 `fake_update`, Center 会立即移除失效项, 避免客户端继续探测坏项

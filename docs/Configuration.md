@@ -196,7 +196,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | connect_timeout_ms | int | 5000 | Connection timeout (milliseconds) |
 | probe_timeout_ms | int | 1000 | Client probe timeout (milliseconds) |
 | monitor_probe_timeout_ms | int | 2000 | Edge monitor probe timeout (milliseconds) |
-| idle_timeout_s | int | 120 | Edge relay idle timeout (seconds); 0 = no limit |
+| idle_timeout_s | int | 120 | Edge relay idle timeout (seconds); 0 = no limit; idleness is judged per connection, so the connections are closed only once both directions have been silent for that long and a downstream-only long-lived connection is not truncated by upstream silence; the same threshold bounds the write direction, so a peer that accepts no data makes that direction fail instead of blocking for good |
 | topo_sync_interval_s | int | 10 | Edge topology sync interval (seconds) |
 | topo_sync_jitter_ms | int | 2000 | Edge max jitter for topology sync (milliseconds); an explicit 0 disables jitter |
 | rtt_window_s | int | 30 | Edge RTT sliding window size (seconds) |

@@ -21,6 +21,13 @@ import (
 	"github.com/MarchSnow-1/OptiRoute/util"
 )
 
+// defaultMaxConnections 是未配置 max_connections 时采用的已建立转发连接数上限
+// 取值与 config 的默认值一致：该常量在这里兜底，使未经 config.defaults() 的配置同样得到有限上限
+//
+// defaultMaxConnections is the cap on established forwarding connections used when max_connections is not configured
+// It matches the default in config: the constant stands in here so that a config which never went through config.defaults() still gets a finite cap
+const defaultMaxConnections = 4096
+
 // Node 是 Edge 节点的运行时根对象，持有配置、控制面客户端与本进程的各项服务组件
 // Node is the runtime root of an Edge node, holding the config, the control-plane client and this process's service components
 type Node struct {
@@ -36,17 +43,31 @@ type Node struct {
 	mu               sync.Mutex        // 保护 n.cc 的并发读写 / guards concurrent access to n.cc
 	handshakeSem     *util.Semaphore   // 限制并发未认证/引导握手数 / caps the concurrent unauthenticated and bootstrap handshakes
 	bootstrapLimiter *util.RateLimiter // 引导流程按 IP 限速 / per-IP rate limit for the bootstrap flow
+	connSem          *util.Semaphore   // 限制已建立的转发连接数 / caps the number of established forwarding connections
 }
 
 // NewNode 按配置构造 Node，并在配置了 topo_cache_dir 时把缓存路径绑定到 UUID
 // 此时不建立连接，也不启动服务
+// connSem 的容量取自 max_connections：该值为 nil 时按默认上限处理，显式 0 时不限制
 //
 // NewNode builds a Node from the config and, when topo_cache_dir is configured, binds the cache path to the UUID
 // It opens no connection and starts no service at this point
+// The capacity of connSem comes from max_connections: a nil value uses the default cap, while an explicit 0 means no limit
 func NewNode(cfg *config.Config, version string) *Node {
 	cachePath := ""
 	if cfg.Self.TopoCacheDir != "" {
 		cachePath = filepath.Join(cfg.Self.TopoCacheDir, "topo_cache_"+cfg.Self.UUID+".json")
+	}
+	// maxConnections 取自配置：显式 0 表示不限制，nil 时按默认上限处理
+	// 这里对 nil 兜底而不是依赖 config.defaults() 已填充，是因为 NewNode 也可能收到未经 defaults() 的配置，而「未配置」不应退化成「不限制」
+	// util.NewSemaphore 以非正容量表示不限制并发，因此显式 0 会得到不限制的闸，与文档一致
+	//
+	// maxConnections comes from the config: an explicit 0 means no limit while a nil value uses the default cap
+	// The nil case is handled here rather than relying on config.defaults() having filled it, because NewNode can also receive a config that never went through defaults(), and "not configured" must not degrade into "no limit"
+	// util.NewSemaphore treats a non-positive capacity as unlimited, so an explicit 0 yields an unlimited gate as documented
+	maxConnections := defaultMaxConnections
+	if cfg.Self.MaxConnections != nil {
+		maxConnections = *cfg.Self.MaxConnections
 	}
 	return &Node{
 		cfg:              cfg,
@@ -55,7 +76,34 @@ func NewNode(cfg *config.Config, version string) *Node {
 		auth:             auth.NewAuthManager(),
 		handshakeSem:     util.NewSemaphore(maxConcurrentHandshakes),
 		bootstrapLimiter: util.NewRateLimiter(bootstrapRateWindow, bootstrapRateMaxPerIP, maxBootstrapRateIPs),
+		connSem:          util.NewSemaphore(maxConnections),
 	}
+}
+
+// acquireForwardSlot 尝试占用一个已建立转发连接的额度，额度用尽时返回 false
+// connSem 为 nil（未初始化）时按可无限占用处理，使只构造部分字段的用例也能走通路
+// 上限为 0 时闸不限制并发，TryAcquire 直接成功，与「0 表示不限制」的文档一致
+//
+// acquireForwardSlot tries to take one established-forwarding-connection slot and reports false once they run out
+// A nil connSem, which happens when a caller built only part of the struct, counts as unlimited so a partly built case can still go through
+// A cap of 0 leaves the gate unlimited and TryAcquire succeeds at once, matching the documented meaning of 0 as no limit
+func (n *Node) acquireForwardSlot() bool {
+	if n.connSem == nil {
+		return true
+	}
+	return n.connSem.TryAcquire()
+}
+
+// releaseForwardSlot 归还一个已建立转发连接的额度
+// connSem 为 nil 时为无操作，因此调用方无需再判断一次
+//
+// releaseForwardSlot returns one established-forwarding-connection slot
+// A nil connSem makes it a no-op, so the caller needs no check of its own
+func (n *Node) releaseForwardSlot() {
+	if n.connSem == nil {
+		return
+	}
+	n.connSem.Release()
 }
 
 // ccClient 加锁返回当前 CenterClient，防止 backgroundReconnect 替换时竞态

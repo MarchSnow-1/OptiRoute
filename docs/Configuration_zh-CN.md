@@ -200,6 +200,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | probe_timeout_ms | int | 1000 | client 探测超时 (毫秒) |
 | monitor_probe_timeout_ms | int | 2000 | edge Monitor 探测超时 (毫秒) |
 | idle_timeout_s | int | 120 | edge 透传空闲超时 (秒), 0=不限制; 空闲以连接为单位判定, 两个方向都静默达到该时长才断开, 因此纯下行的长连接不会因上行静默被截断; 同一阈值也作为写方向的超时, 对端长期不接收数据时该方向的写会失败而不是永久阻塞 |
+| max_connections | int | 4096 | edge 已建立转发连接数上限; 显式 0 = 不限制; 达到上限后新业务连接在验签通过后拒绝, 未通过验签的连接仍只占用握手并发闸 |
 | topo_sync_interval_s | int | 10 | edge 拓扑同步间隔 (秒) |
 | topo_sync_jitter_ms | int | 2000 | edge 拓扑同步抖动上限 (毫秒); 显式 0 = 不加抖动 |
 | rtt_window_s | int | 30 | edge RTT 滑动窗口大小 (秒) |

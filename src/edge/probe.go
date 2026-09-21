@@ -10,6 +10,7 @@ package edge
 import (
 	"context"
 	"net"
+	"time"
 
 	"github.com/MarchSnow-1/OptiRoute/logx"
 	"github.com/MarchSnow-1/OptiRoute/util"
@@ -78,11 +79,26 @@ func (n *Node) runProbeServer(ctx context.Context) {
 	}
 }
 
+// 探测端口面向不可信网络，因此与业务端口一样需要并发闸与每来源 IP 限速
+// TCP 分支的 accept-close 不产生长连接，闸与限速在这里用于挡住大量短连接带来的 accept 风暴
+// UDP 分支没有连接概念，按来源 IP 限速即为其主要防护，另有 ≤512 字节的回显上限
+//
+// The probe port faces an untrusted network, so it carries a concurrency gate and a per-source IP rate limit like the business port
+// The accept-close shape of the TCP branch creates no long-lived connection, and the gate together with the limiter there absorbs an accept storm from a mass of short connections
+// The UDP branch has no notion of a connection, so the per-source IP limit is its main protection, on top of the 512-byte cap on echoed payloads
+const (
+	probeRateWindow   = 10 * time.Second
+	probeRateMaxPerIP = 60
+	maxProbeRateIPs   = 16384
+)
+
 // runProbeTCPServer TCP 握手探测服务（accept 后立即关闭，客户端以握手耗时测 RTT）
 // accept 出错时先看 ctx 是否已取消：已取消则正常返回，否则只记日志继续 accept
+// 并发闸满或来源 IP 超限时直接关闭该连接，不进入后续处理
 //
 // runProbeTCPServer is the TCP handshake probe service, closing each accepted connection at once so the client measures the RTT from the handshake
 // On an accept error it checks ctx first: a cancelled ctx returns normally, otherwise it only logs and keeps accepting
+// A full gate or an over-limit source IP closes the connection right away and skips any further handling
 func (n *Node) runProbeTCPServer(ctx context.Context) {
 	addr := util.JoinHostPort("", n.cfg.Self.ProbePort)
 	ln, err := net.Listen("tcp", addr)
@@ -92,6 +108,9 @@ func (n *Node) runProbeTCPServer(ctx context.Context) {
 	}
 	logx.Info("TCP 探测端口监听中 addr:", addr)
 	defer ln.Close()
+
+	gate := util.NewSemaphore(maxConcurrentHandshakes)
+	limiter := util.NewRateLimiter(probeRateWindow, probeRateMaxPerIP, maxProbeRateIPs)
 
 	for {
 		conn, err := ln.Accept()
@@ -103,8 +122,33 @@ func (n *Node) runProbeTCPServer(ctx context.Context) {
 				continue
 			}
 		}
+		host := remoteHost(conn)
+		if !limiter.Allow(host) {
+			logx.Debug("TCP 探测请求超过每 IP 限速，拒绝 remote:", host)
+			conn.Close()
+			continue
+		}
+		if !gate.TryAcquire() {
+			logx.Debug("TCP 探测并发已满，拒绝 remote:", host)
+			conn.Close()
+			continue
+		}
+		// 探测连接不做任何读写，因此额度在同一次循环里归还，闸只用于限制同一时刻的 accept 处理数
+		// The probe connection carries no read or write, so the slot returns inside the same iteration and the gate only caps how many accepts are handled at one instant
+		gate.Release()
 		conn.Close()
 	}
+}
+
+// remoteHost 返回连接的对端主机部分，取不到时返回整个远端地址
+// remoteHost returns the host part of the peer address, falling back to the whole remote address when splitting fails
+func remoteHost(conn net.Conn) string {
+	remote := conn.RemoteAddr().String()
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		return remote
+	}
+	return host
 }
 
 // runProbeUDPServer UDP echo 探测服务（收到包原样回显，客户端以往返测 RTT）
@@ -123,6 +167,7 @@ func (n *Node) runProbeUDPServer(ctx context.Context) {
 	defer pc.Close()
 
 	buf := make([]byte, 1500)
+	limiter := util.NewRateLimiter(probeRateWindow, probeRateMaxPerIP, maxProbeRateIPs)
 	for {
 		nRead, raddr, err := pc.ReadFrom(buf)
 		if err != nil {
@@ -136,6 +181,24 @@ func (n *Node) runProbeUDPServer(ctx context.Context) {
 		if nRead > 512 {
 			continue // 放大攻击防护：仅回显小包 / amplification guard: echo small packets only
 		}
+		// 按来源 IP 限速，超限的包直接丢弃而不回显
+		// Packets from a source over the rate limit are dropped without an echo
+		if host := addrHost(raddr); !limiter.Allow(host) {
+			continue
+		}
 		pc.WriteTo(buf[:nRead], raddr)
 	}
+}
+
+// addrHost 返回地址的主机部分，取不到时返回整个地址字符串
+// addrHost returns the host part of an address, falling back to the whole string when splitting fails
+func addrHost(addr net.Addr) string {
+	if addr == nil {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return addr.String()
+	}
+	return host
 }

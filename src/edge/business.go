@@ -116,11 +116,24 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 		return
 	}
 
-	// 验签通过后释放握手额度；后续长连接透传不再占用并发限制
-	// The handshake slot is released after the token check passes, so the long-lived relay no longer counts against the concurrency cap
+	// 验签通过后释放握手额度；后续长连接透传不再占用握手闸，但要占用已建立连接的上限
+	// The handshake slot is released after the token check passes, so the long-lived relay no longer counts against the handshake gate while it does count against the established-connection cap
 	if release != nil {
 		release()
 	}
+
+	// 已建立的转发连接数达到上限时拒绝新连接
+	// 该检查放在验签之后，使未通过验签的连接仍然只占用握手闸，不会把额度浪费在垃圾连接上
+	//
+	// A connection is refused once the established forwarding connections reach the cap
+	// The check sits after the token check, which keeps an unverified connection on the handshake gate alone and stops it from spending the allowance
+	if !n.acquireForwardSlot() {
+		logx.Warn("[", remote, "] 已建立转发连接数已达上限，拒绝连接")
+		return
+	}
+	// 从获取额度到转发结束之间无论走哪条分支都要归还，避免上限被失败的连接逐渐占满
+	// The slot is returned on every branch from acquiring it to the end of forwarding, so failed connections cannot fill the cap up over time
+	defer n.releaseForwardSlot()
 
 	if err := util.WriteWithDeadline(conn, []byte{0x01}, 5*time.Second); err != nil {
 		logx.Warn("[", remote, "] 写入验签确认失败 err:", err)

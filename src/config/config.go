@@ -94,6 +94,11 @@ type SelfConfig struct {
 	ProbePort    int    `json:"probe_port,omitempty"`  // 探测端口（fakeip-only 或 icmp 时可空） / probe port, may stay empty for fakeip-only or icmp probing
 	BusinessPort int    `json:"business_port,omitempty"`
 	TopoCacheDir string `json:"topo_cache_dir,omitempty"`
+	// 已建立转发连接数上限（edge）；留空由 defaults() 填为 4096，显式 0 表示不限制
+	// 用指针区分「未配置」与「显式 0」，因为 0 表示不限制这一语义与缺省值不同
+	// Cap on established forwarding connections (edge); defaults() fills in 4096 when nil and an explicit 0 means no limit
+	// The pointer separates "not configured" from "explicit 0", because 0 meaning no limit differs from the default
+	MaxConnections *int `json:"max_connections,omitempty"`
 
 	// 探测
 	// Probing
@@ -213,6 +218,15 @@ func (c *Config) defaults() {
 	if c.Self.TopoSyncJitterMs == nil {
 		v := 2000
 		c.Self.TopoSyncJitterMs = &v
+	}
+	if c.Self.MaxConnections == nil {
+		// 默认限制已建立转发连接数，使单个 Edge 的常驻内存与 goroutine 数有上界
+		// 该上界按「每连接约 64KiB 缓冲 + 2 个 goroutine」估算，4096 连接对应约 256MiB 缓冲
+		//
+		// The number of established forwarding connections is limited by default, which gives the resident memory and the goroutine count of one edge an upper bound
+		// The bound follows an estimate of about 64KiB of buffers plus two goroutines per connection, so 4096 connections correspond to roughly 256MiB of buffers
+		v := 4096
+		c.Self.MaxConnections = &v
 	}
 	if c.Self.RTTWindowS == 0 {
 		c.Self.RTTWindowS = 30
@@ -632,6 +646,11 @@ func (c *Config) validateCommonNumerics() error {
 	// Pointer-based fields report an error on an explicit negative value; defaults() has already filled a nil one, and an explicit 0 is allowed and means jitter off
 	if c.Self.TopoSyncJitterMs != nil && *c.Self.TopoSyncJitterMs < 0 {
 		return fmt.Errorf("self.topo_sync_jitter_ms 必须 ≥ 0，当前 %d", *c.Self.TopoSyncJitterMs)
+	}
+	// 连接数上限允许显式 0 表示不限制，负值无意义
+	// The connection cap accepts an explicit 0 meaning no limit, while a negative value has no meaning
+	if c.Self.MaxConnections != nil && *c.Self.MaxConnections < 0 {
+		return fmt.Errorf("self.max_connections 必须 ≥ 0，当前 %d", *c.Self.MaxConnections)
 	}
 	if c.Self.MaxBandwidthMbps < 0 {
 		return fmt.Errorf("self.max_bandwidth_mbps 必须 ≥ 0，当前 %f", c.Self.MaxBandwidthMbps)

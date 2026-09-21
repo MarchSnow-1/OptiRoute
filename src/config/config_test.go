@@ -1,3 +1,14 @@
+// 本文件覆盖 config 包的默认值填充与配置校验行为，用用例锁住容易回归的边界
+// 覆盖点包括指针型字段 idle_timeout_s 区分“未配置”与“显式 0”，以及显式 false 的安全开关不被 defaults() 覆盖
+// 负值时间窗口会被 validateCommonNumerics 拒绝，端口范围与 edge 角色的两个独立密钥也各有用例
+// client 角色经 parse() 走完默认值后能通过 Validate()，validateAddr 则放行 IPv4、IPv6 与域名并拒绝畸形写法
+// 采用内部测试（package config）而非外部测试包，是因为断言对象包含未导出的 defaults、parse、validateCommonNumerics 与 validateAddr
+//
+// This file covers the default filling and configuration validation behaviour of the config package, pinning the easy-to-regress boundaries with test cases
+// The cases cover the pointer field idle_timeout_s telling "unset" from "explicit 0", and security switches set to an explicit false surviving defaults()
+// A negative time window is rejected by validateCommonNumerics, and the port range together with the two independent secrets of the edge role has its own cases
+// A client role passes Validate() after parse() fills the defaults, while validateAddr accepts IPv4, IPv6 and domain names and rejects malformed spellings
+// It is an internal test (package config) rather than an external one because the assertions target the unexported defaults, parse, validateCommonNumerics and validateAddr
 package config
 
 import "testing"

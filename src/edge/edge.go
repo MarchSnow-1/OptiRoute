@@ -144,7 +144,7 @@ func (c *CenterClient) writeLoop() {
 	defer c.wg.Done()
 	for data := range c.writeCh {
 		if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			logx.Warn("写入中心节点失败 err:", err)
+			logx.Warnf(KeyWriteToCenterFailed, err)
 			return
 		}
 	}
@@ -250,7 +250,7 @@ func (c *CenterClient) sendMsg(msgType protocol.MsgType, payload any) {
 	case <-c.done:
 	case c.writeCh <- data:
 	default:
-		logx.Warn("写队列已满，主动断开中心连接以触发重连 type:", msgType)
+		logx.Warnf(KeyWriteQueueFull, msgType)
 		if c.conn != nil {
 			c.conn.Close()
 		}
@@ -274,9 +274,9 @@ func (c *CenterClient) readLoop(ctx context.Context) {
 				return
 			default:
 			}
-			logx.Warn("中心节点连接断开，将重连 err:", err)
+			logx.Warnf(KeyCenterConnectionLost, err)
 			if !c.shouldReconnect() {
-				logx.Warn("注册已被 Center 拒绝且 stop_reconnect_on_reject 为真，不启动自动重连")
+				logx.Warnf(KeyRejectedStopAutoReconnect)
 				return
 			}
 			go c.reconnectLoop(ctx)
@@ -300,7 +300,7 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 	case protocol.MsgTypeRegistered:
 		var p protocol.RegisteredPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
-			logx.Warn("RegisteredPayload 解析失败 err:", err)
+			logx.Warnf(KeyRegisteredPayloadParseFailed, err)
 			return
 		}
 		if !p.OK {
@@ -308,17 +308,17 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 			// Wake the waiter before setting the rejected flag so WaitRegistration can observe the rejection reason
 			c.finishRegistration(fmt.Errorf("中心节点拒绝注册: %s", p.Reason))
 			c.rejected.Store(true)
-			logx.Warn("中心节点拒绝注册 uuid:", c.selfUUID, " reason:", p.Reason)
+			logx.Warnf(KeyRegistrationRejected, c.selfUUID, p.Reason)
 			c.conn.Close()
 			return
 		}
 		c.finishRegistration(nil)
-		logx.Info("注册成功 uuid:", c.selfUUID)
+		logx.Infof(KeyRegistrationSucceeded, c.selfUUID)
 
 	case protocol.MsgTypeTopoResponse:
 		var p protocol.TopoResponse
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
-			logx.Warn("TopoResponse 解析失败，保留旧拓扑 err:", err)
+			logx.Warnf(KeyTopoResponseParseFailed, err)
 			return
 		}
 		c.topo.Update(p.Nodes)
@@ -333,19 +333,19 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 			c.penaltyMu.Unlock()
 		}
 		c.collectClientInfo.Store(p.CollectClientInfo)
-		logx.Debug("拓扑已更新 nodes:", len(p.Nodes), " collect_client_info:", p.CollectClientInfo)
+		logx.Debugf(KeyTopologyUpdated, len(p.Nodes), p.CollectClientInfo)
 
 	case protocol.MsgTypeSecretPush:
 		var p protocol.SecretPushPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
-			logx.Warn("SecretPushPayload 解析失败，保留旧 secret err:", err)
+			logx.Warnf(KeySecretPushParseFailed, err)
 			return
 		}
 		// 只接受能解出 32 字节的密钥，长度不符的推送一律忽略
 		// Only a key that decodes to 32 bytes is accepted, and a push with any other length is ignored
 		secret, err := hex.DecodeString(p.Secret)
 		if err != nil || len(secret) != 32 {
-			logx.Warn("SecretPushPayload secret 非法，忽略推送 err:", err, " len:", len(secret))
+			logx.Warnf(KeySecretPushInvalid, err, len(secret))
 			return
 		}
 		secretHex := hex.EncodeToString(secret) // 规范化后持久化 / normalised before persisting
@@ -353,10 +353,10 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 		// 持久化 secret 到拓扑缓存，降级模式初始化 auth 用
 		// Persist the secret into the topology cache so degraded mode can initialise auth from it
 		c.topo.SetSecret(secretHex)
-		logx.Info("shared_secret 已更新 version:", p.Version)
+		logx.Infof(KeySharedSecretUpdated, p.Version)
 
 	default:
-		logx.Warn("未知消息类型 type:", env.Type)
+		logx.Warnf(KeyUnknownMessageType, env.Type)
 	}
 }
 
@@ -586,10 +586,10 @@ func (c *CenterClient) reconnectLoop(ctx context.Context) {
 			return
 		case <-time.After(backoff):
 			if c.Rejected() && stopReconnectOnReject(c.cfg) {
-				logx.Warn("Center 已永久拒绝注册，停止重连")
+				logx.Warnf(KeyCenterRejectedStopReconnect)
 				return
 			}
-			logx.Info("尝试重连中心节点")
+			logx.Infof(KeyTryingReconnect)
 			c.Disconnect()
 			if err := c.Connect(ctx); err == nil {
 				return

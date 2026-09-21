@@ -137,9 +137,9 @@ func (n *Node) Start(ctx context.Context) error {
 	// Phase 1: retry the Center connection
 	connected := false
 	for attempt := 1; attempt <= n.cfg.Self.CenterConnectRetryCount; attempt++ {
-		logx.Info("连接中心节点 第", attempt, "/", n.cfg.Self.CenterConnectRetryCount, "次")
+		logx.Infof(KeyCenterConnectAttempt, attempt, n.cfg.Self.CenterConnectRetryCount)
 		if err := n.cc.Connect(ctx); err != nil {
-			logx.Warn("连接中心节点失败 err:", err)
+			logx.Warnf(KeyCenterConnectFailed, err)
 			if attempt < n.cfg.Self.CenterConnectRetryCount {
 				select {
 				case <-ctx.Done():
@@ -151,12 +151,12 @@ func (n *Node) Start(ctx context.Context) error {
 		}
 		waitTimeout := time.Duration(n.cfg.Self.ConnectTimeoutMs) * time.Millisecond
 		if err := n.cc.WaitRegistration(waitTimeout); err != nil {
-			logx.Warn("等待中心注册结果失败 err:", err)
+			logx.Warnf(KeyCenterWaitRegistrationFailed, err)
 			n.cc.Disconnect()
 			// 注册被拒且开关允许时不再重试本次启动，直接走降级分支
 			// When registration is rejected and the switch allows it, this startup stops retrying and falls through to the degraded branch
 			if n.cc.Rejected() && stopReconnectOnReject(n.cfg) {
-				logx.Warn("Center 已永久拒绝注册，停止启动重试")
+				logx.Warnf(KeyCenterRejectedStopStartupRetry)
 				break
 			}
 			if attempt < n.cfg.Self.CenterConnectRetryCount {
@@ -188,12 +188,12 @@ func (n *Node) Start(ctx context.Context) error {
 			if secret, err := hex.DecodeString(secretHex); err == nil && len(secret) > 0 {
 				n.auth.ResetVersion()
 				n.auth.UpdateSecret(secret, n.cfg.Self.TokenTTLS, 1)
-				logx.Info("已从缓存加载 shared_secret，降级模式可签发 Token")
+				logx.Infof(KeySecretLoadedFromCache)
 			}
 		} else {
-			logx.Warn("缓存中无 shared_secret，降级模式无法签发 Token（需先以正常模式连接过中心）")
+			logx.Warnf(KeySecretMissingInCache)
 		}
-		logx.Warn("无法连接中心节点，已加载本地缓存，进入降级模式")
+		logx.Warnf(KeyEnterDegradedMode)
 		go n.backgroundReconnect(ctx)
 	}
 
@@ -206,14 +206,14 @@ func (n *Node) Start(ctx context.Context) error {
 	go runMonitor(ctx, n.monitor)
 
 	if n.degraded.Load() {
-		logx.Warn("边缘节点以降级模式启动，等待中心节点重连...")
+		logx.Warnf(KeyStartedDegraded)
 	} else {
-		logx.Info("边缘节点以正常模式启动")
+		logx.Infof(KeyStartedNormal)
 	}
 
 	<-ctx.Done()
 
-	logx.Info("边缘节点正在关闭...")
+	logx.Infof(KeyShuttingDown)
 	if n.cc != nil {
 		n.cc.Disconnect()
 	}
@@ -240,13 +240,13 @@ func (n *Node) backgroundReconnect(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(backoff):
-			logx.Info("后台尝试重连中心节点...")
+			logx.Infof(KeyBackgroundReconnectAttempt)
 			newCC := NewCenterClient(n.cfg, n.topo, n.auth, n.version)
 			newCC.monitor = n.monitor
 			newCC.bwTracker = n.bwTracker
 			newCC.fakeMgr = n.fakeMgr
 			if err := newCC.Connect(ctx); err != nil {
-				logx.Warn("后台重连失败 err:", err)
+				logx.Warnf(KeyBackgroundReconnectFailed, err)
 				if backoff < maxBackoff {
 					backoff *= 2
 				}
@@ -254,10 +254,10 @@ func (n *Node) backgroundReconnect(ctx context.Context) {
 			}
 			waitTimeout := time.Duration(n.cfg.Self.ConnectTimeoutMs) * time.Millisecond
 			if err := newCC.WaitRegistration(waitTimeout); err != nil {
-				logx.Warn("后台重连等待注册结果失败 err:", err)
+				logx.Warnf(KeyBackgroundReconnectWaitFailed, err)
 				newCC.Disconnect()
 				if newCC.Rejected() && stopReconnectOnReject(n.cfg) {
-					logx.Warn("Center 已永久拒绝注册，停止后台重连")
+					logx.Warnf(KeyCenterRejectedStopBackgroundReconnect)
 					return
 				}
 				if backoff < maxBackoff {
@@ -275,7 +275,7 @@ func (n *Node) backgroundReconnect(ctx context.Context) {
 			if n.topo.cacheFilePath != "" {
 				n.topo.SaveToFile()
 			}
-			logx.Info("已重新连接中心节点，退出降级模式")
+			logx.Infof(KeyLeftDegradedMode)
 			return
 		}
 	}

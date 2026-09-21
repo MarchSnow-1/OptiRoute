@@ -54,7 +54,7 @@ func (a *ClientAgent) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("本地端口监听失败 %s: %w", addr, err)
 	}
-	logx.Info("Client Agent 监听中 addr:", addr)
+	logx.Infof(KeyClientListening, addr)
 
 	go func() {
 		<-ctx.Done()
@@ -68,7 +68,7 @@ func (a *ClientAgent) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			default:
-				logx.Warn("Accept 错误 err:", err)
+				logx.Warnf(KeyAcceptFailed, err)
 				time.Sleep(100 * time.Millisecond) // 退避 100ms，避免 Accept 因 fd 耗尽等错误持续失败时忙循环空转 / Backs off for 100ms so that a persistently failing Accept, for instance one caused by fd exhaustion, cannot spin the loop
 				continue
 			}
@@ -76,12 +76,12 @@ func (a *ClientAgent) Start(ctx context.Context) error {
 		// 限速按来源 IP 计，闸门按接入流程中的连接数计，两者都在启动接入流程之前判定
 		// The rate limit counts per source IP and the gate counts the connections inside the access flow, and both are judged before that flow starts
 		if a.localLimiter != nil && !a.localLimiter.Allow(remoteHost(localConn)) {
-			logx.Warn("本地接入超过每 IP 限速，拒绝连接 remote:", remoteHost(localConn))
+			logx.Warnf(KeyLocalAccessRateLimited, remoteHost(localConn))
 			localConn.Close()
 			continue
 		}
 		if !a.tryAcquireHandshake() {
-			logx.Warn("本地接入并发已满，拒绝连接")
+			logx.Warnf(KeyLocalAccessConcurrencyFull)
 			localConn.Close()
 			continue
 		}
@@ -141,12 +141,12 @@ func (a *ClientAgent) handleLocalConn(ctx context.Context, localConn net.Conn) {
 	a.releaseHandshake()
 
 	if err != nil {
-		logx.Warn("[", remote, "] 接入流程失败 err:", err)
+		logx.Warnf(KeyAccessFlowFailed, remote, err)
 		localConn.Close()
 		return
 	}
 
-	logx.Info("[", remote, "] 透传通道已建立")
+	logx.Infof(KeyRelayEstablished, remote)
 	util.Relay(localConn, edgeConn, nil)
 }
 
@@ -226,7 +226,7 @@ func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn
 	if err := json.Unmarshal(listData, &items); err != nil {
 		return nil, fmt.Errorf("解析探测项列表失败: %w", err)
 	}
-	logx.Debug("[", remote, "] 收到探测项列表 count:", len(items))
+	logx.Debugf(KeyProbeItemListReceived, remote, len(items))
 
 	probeTimeout := time.Duration(a.cfg.Self.ProbeTimeoutMs) * time.Millisecond
 	results := a.probeItems(items, probeTimeout)
@@ -247,7 +247,7 @@ func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn
 	if err := json.Unmarshal(redirectData, &cmd); err != nil {
 		return nil, fmt.Errorf("解析 Redirect 命令失败: %w", err)
 	}
-	logx.Info("[", remote, "] 收到 Redirect target:", cmd.TargetIP, " port:", cmd.BusinessPort)
+	logx.Infof(KeyRedirectReceived, remote, cmd.TargetIP, cmd.BusinessPort)
 
 	return a.connectWithToken(cmd.TargetIP, cmd.BusinessPort, cmd.Token, cmd.Timestamp)
 }

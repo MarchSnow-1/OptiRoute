@@ -59,7 +59,7 @@ func NewFakeIPManager(node *Node) *FakeIPManager {
 	m := &FakeIPManager{node: node}
 	for _, f := range node.cfg.Self.FakeIPs {
 		if sameAddr(f.IP, node.cfg.Self.Addr) {
-			logx.Warn("FAKE-IP 与本机地址相同，已跳过 ip:", f.IP)
+			logx.Warnf(KeyFakeIPSelfAddressSkipped, f.IP)
 			continue
 		}
 		m.items = append(m.items, &FakeIPStatus{cfg: f})

@@ -74,7 +74,7 @@ type EdgeRecord struct {
 func (r *EdgeRecord) writeLoop() {
 	for data := range r.writeCh {
 		if err := r.conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			logx.Warn("写入边缘节点失败 uuid:", r.UUID, " err:", err)
+			logx.Warnf(KeyWriteEdgeFailed, r.UUID, err)
 			return
 		}
 	}
@@ -143,7 +143,7 @@ func (s *CenterServer) Start(ctx context.Context) error {
 		}
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			logx.Warn("WebSocket 升级失败 err:", err)
+			logx.Warnf(KeyWSUpgradeFailed, err)
 			return
 		}
 		conn.SetReadLimit(protocol.MaxWSMessageSize)
@@ -155,7 +155,7 @@ func (s *CenterServer) Start(ctx context.Context) error {
 	if s.cfg.Self.WebAPIKey != "" {
 		mux.HandleFunc("/api/version", s.apiAuth(s.handleAPIVersion))
 		mux.HandleFunc("/api/clients", s.apiAuth(s.handleAPIClients))
-		logx.Info("开放 API 已开启（Bearer 鉴权）")
+		logx.Infof(KeyOpenAPIEnabled)
 	}
 
 	srv := &http.Server{
@@ -169,11 +169,11 @@ func (s *CenterServer) Start(ctx context.Context) error {
 	// Watch the exit signal and call srv.Close on it, which closes the listener and the in-flight connections right away
 	go func() {
 		<-ctx.Done()
-		logx.Info("中心节点正在关闭...")
+		logx.Infof(KeyShuttingDown)
 		srv.Close()
 	}()
 
-	logx.Info("中心节点启动 addr:", util.JoinHostPort(s.cfg.Self.ListenAddr, s.cfg.Self.ListenPort))
+	logx.Infof(KeyStarted, util.JoinHostPort(s.cfg.Self.ListenAddr, s.cfg.Self.ListenPort))
 	err := srv.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil
@@ -196,7 +196,7 @@ func (s *CenterServer) rotateSecret() error {
 	version := s.secretVersion
 	s.secretMu.Unlock()
 
-	logx.Info("shared_secret 已轮转 version:", version)
+	logx.Infof(KeySecretRotated, version)
 	go s.broadcastSecret(secret, version)
 	return nil
 }
@@ -270,7 +270,7 @@ func (s *CenterServer) handleEdge(conn *websocket.Conn) {
 
 		var env protocol.Envelope
 		if err := json.Unmarshal(data, &env); err != nil {
-			logx.Warn("消息解析失败 err:", err)
+			logx.Warnf(KeyMessageDecodeFailed, err)
 			continue
 		}
 
@@ -291,7 +291,7 @@ func (s *CenterServer) handleEdge(conn *websocket.Conn) {
 		case protocol.MsgTypeVersionReport:
 			s.handleVersionReport(conn, env.Payload)
 		default:
-			logx.Warn("未知消息类型 type:", env.Type)
+			logx.Warnf(KeyUnknownMessageType, env.Type)
 		}
 	}
 }
@@ -324,7 +324,7 @@ func (s *CenterServer) sendRegisterReject(conn *websocket.Conn, reason string) {
 	env := protocol.Envelope{Type: protocol.MsgTypeRegistered, Payload: raw}
 	data, _ := json.Marshal(env)
 	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		logx.Warn("下发注册拒绝失败 err:", err)
+		logx.Warnf(KeyRegisterRejectFailed, err)
 	}
 }
 
@@ -338,14 +338,14 @@ func (s *CenterServer) sendRegisterReject(conn *websocket.Conn, reason string) {
 func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage) {
 	var req protocol.RegisterPayload
 	if err := json.Unmarshal(raw, &req); err != nil {
-		logx.Warn("边缘节点注册失败：注册消息解析失败 err:", err)
+		logx.Warnf(KeyRegisterPayloadDecodeFailed, err)
 		s.sendRegisterReject(conn, "register payload is not valid json")
 		conn.Close()
 		return
 	}
 
 	if err := normalizeAndValidateRegister(&req); err != nil {
-		logx.Warn("边缘节点注册校验失败 uuid:", req.UUID, " err:", err)
+		logx.Warnf(KeyRegisterValidateFailed, req.UUID, err)
 		s.sendRegisterReject(conn, err.Error())
 		conn.Close()
 		return
@@ -357,7 +357,7 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 		maxEdges = 1024
 	}
 	if !s.allowRegister(uuid) {
-		logx.Warn("边缘节点注册失败：注册频率超限 uuid:", uuid)
+		logx.Warnf(KeyRegisterRateLimited, uuid)
 		s.sendRegisterReject(conn, "register rate limit exceeded")
 		conn.Close()
 		return
@@ -402,13 +402,13 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 			s.mu.Unlock()
 			s.sendMsg(conn, protocol.MsgTypeRegistered, protocol.RegisteredPayload{OK: true})
 			s.pushSecret(conn)
-			logx.Info("边缘节点在同一连接上重复注册，已原地复用该连接 uuid:", uuid)
+			logx.Infof(KeyRegisterReusedConnection, uuid)
 			return
 		}
 		old.conn.Close()
 	} else if edgeCount := len(s.edges); edgeCount >= maxEdges {
 		s.mu.Unlock()
-		logx.Warn("边缘节点注册失败：在线 Edge 数量已达上限 uuid:", uuid, " count:", edgeCount)
+		logx.Warnf(KeyRegisterEdgeLimitReached, uuid, edgeCount)
 		s.sendRegisterReject(conn, "online edge limit reached")
 		conn.Close()
 		return
@@ -424,7 +424,7 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 	s.sendMsg(conn, protocol.MsgTypeRegistered, protocol.RegisteredPayload{OK: true})
 	s.pushSecret(conn)
 
-	logx.Info("边缘节点注册成功 uuid:", uuid, " ip:", req.IP, " group:", record.Group)
+	logx.Infof(KeyRegisterSucceeded, uuid, req.IP, record.Group)
 }
 
 // pushSecret 向指定连接下发当前 shared_secret 与版本号
@@ -615,24 +615,24 @@ const maxReportedRTTMs = 600_000
 func (s *CenterServer) handleRTTReport(conn *websocket.Conn, raw json.RawMessage) {
 	var report protocol.RTTReportPayload
 	if err := json.Unmarshal(raw, &report); err != nil {
-		logx.Warn("RTTReport 解析失败 err:", err)
+		logx.Warnf(KeyRTTReportDecodeFailed, err)
 		return
 	}
 	if report.RTTMs < 0 || report.RTTMs > maxReportedRTTMs {
-		logx.Warn("RTTReport 的源站 RTT 超出范围，整条丢弃 rtt_ms:", report.RTTMs)
+		logx.Warnf(KeyRTTReportOriginRTTMsOutOfRange, report.RTTMs)
 		return
 	}
 	if len(report.FakeRTTs) > maxFakeRTTsPerEdge {
-		logx.Warn("RTTReport 的 f2n 条数超限，整条丢弃 count:", len(report.FakeRTTs), " limit:", maxFakeRTTsPerEdge)
+		logx.Warnf(KeyRTTReportFakeCountExceeded, len(report.FakeRTTs), maxFakeRTTsPerEdge)
 		return
 	}
 	for _, e := range report.FakeRTTs {
 		if net.ParseIP(strings.TrimSpace(e.IP)) == nil {
-			logx.Warn("RTTReport 含非法 f2n IP，整条丢弃 ip:", e.IP)
+			logx.Warnf(KeyRTTReportFakeIPInvalid, e.IP)
 			return
 		}
 		if e.RTTMs < 0 || e.RTTMs > maxReportedRTTMs {
-			logx.Warn("RTTReport 含超出范围的 f2n 延迟，整条丢弃 ip:", e.IP, " rtt_ms:", e.RTTMs)
+			logx.Warnf(KeyRTTReportFakeRTTMsOutOfRange, e.IP, e.RTTMs)
 			return
 		}
 	}
@@ -653,7 +653,7 @@ func (s *CenterServer) handleRTTReport(conn *websocket.Conn, raw json.RawMessage
 			// 留空表示该 Edge 未上报该字段，保持原值
 			// An empty value means the Edge reported no such field, so the previous one stays
 		default:
-			logx.Warn("RTTReport 含未知链路状态，忽略该字段 link_status:", report.LinkStatus)
+			logx.Warnf(KeyRTTReportUnknownLinkStatus, report.LinkStatus)
 		}
 		for _, e := range report.FakeRTTs {
 			record.FakeRTTs[strings.TrimSpace(e.IP)] = e.RTTMs
@@ -670,13 +670,13 @@ func (s *CenterServer) handleRTTReport(conn *websocket.Conn, raw json.RawMessage
 func (s *CenterServer) handleFakeUpdate(conn *websocket.Conn, raw json.RawMessage) {
 	var items []protocol.FakeItemReport
 	if err := json.Unmarshal(raw, &items); err != nil {
-		logx.Warn("FakeUpdate 解析失败 err:", err)
+		logx.Warnf(KeyFakeUpdateDecodeFailed, err)
 		return
 	}
 	// 校验就地标准化 proto，因此记录进 record 的是规范化之后的列表
 	// The check normalises proto in place, so the list stored in the record is the normalised one
 	if err := validateFakeItems(items); err != nil {
-		logx.Warn("FakeUpdate 校验失败，整条丢弃 err:", err)
+		logx.Warnf(KeyFakeUpdateValidateFailed, err)
 		return
 	}
 	s.mu.RLock()
@@ -698,7 +698,7 @@ func (s *CenterServer) handleFakeUpdate(conn *websocket.Conn, raw json.RawMessag
 			}
 		}
 		record.mu.Unlock()
-		logx.Debug("FAKE-IP 列表更新 uuid:", uuid, " count:", len(items))
+		logx.Debugf(KeyFakeListUpdated, uuid, len(items))
 	}
 }
 
@@ -713,7 +713,7 @@ const maxClientInfos = 1000
 func (s *CenterServer) handleVersionReport(conn *websocket.Conn, raw json.RawMessage) {
 	var report protocol.VersionReportPayload
 	if err := json.Unmarshal(raw, &report); err != nil {
-		logx.Warn("VersionReport 解析失败 err:", err)
+		logx.Warnf(KeyVersionReportDecodeFailed, err)
 		return
 	}
 	s.mu.RLock()
@@ -753,7 +753,7 @@ func (s *CenterServer) handleVersionReport(conn *websocket.Conn, raw json.RawMes
 	}
 	record.mu.Unlock()
 
-	logx.Debug("版本上报 uuid:", uuid, " clients:", len(report.Clients), " server_uuid:", report.Server)
+	logx.Debugf(KeyVersionReportApplied, uuid, len(report.Clients), report.Server)
 }
 
 // ServerRecord 全局 Server Agent 记录（按 UUID 去重）
@@ -1089,7 +1089,7 @@ func (s *CenterServer) unregisterByConn(conn *websocket.Conn) {
 			rec.sendMu.Unlock()
 		}
 		s.removeEdgeFromServerRecords(uuid)
-		logx.Info("边缘节点下线 uuid:", uuid)
+		logx.Infof(KeyEdgeOffline, uuid)
 	}
 }
 
@@ -1123,7 +1123,7 @@ func (s *CenterServer) sendMsg(conn *websocket.Conn, msgType protocol.MsgType, p
 		// 这里只置 closed 并关闭连接，writeCh 留给随后的 unregisterByConn 关闭
 		// A full queue means this message did not enter the queue, so it is not dropped silently: a warning is logged and the connection is closed to send the peer through its reconnect flow
 		// Only closed is set and the connection is closed here, while writeCh is left to the following unregisterByConn
-		logx.Warn("边缘节点写队列已满，关闭连接以触发重连 uuid:", uuid, " type:", msgType)
+		logx.Warnf(KeyWriteQueueFull, uuid, msgType)
 		rec.closed = true
 		rec.conn.Close()
 	}

@@ -170,6 +170,6 @@ func (m *Monitor) judgeLinkStatus() {
 	if !m.lastLossWarn.IsZero() && time.Since(m.lastLossWarn) < 30*time.Second {
 		return
 	}
-	logx.Warn("链路状态变化 from:", previous, " to:", status, " loss_rate:", lossRate, " threshold:", threshold)
+	logx.Warnf(KeyLinkStatusChanged, previous, status, lossRate, threshold)
 	m.lastLossWarn = time.Now()
 }

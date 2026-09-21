@@ -65,7 +65,7 @@ func probeServiceFor(proto string) probeService {
 // The decision on which listener to start sits in probeServiceFor, so it can be covered on its own without depending on how an operating system arbitrates port ownership
 func (n *Node) runProbeServer(ctx context.Context) {
 	if n.cfg.Self.ProbePort == 0 {
-		logx.Info("probe_port 未配置，跳过探测服务（fakeip-only 或 icmp 模式）")
+		logx.Infof(KeyProbePortUnset)
 		return
 	}
 
@@ -75,7 +75,7 @@ func (n *Node) runProbeServer(ctx context.Context) {
 	case probeServiceUDP:
 		n.runProbeUDPServer(ctx)
 	default:
-		logx.Info("probe_proto 为 icmp，不启动探测监听（客户端直接 ping 本机 IP）")
+		logx.Infof(KeyProbeICMPNoListener)
 	}
 }
 
@@ -103,10 +103,10 @@ func (n *Node) runProbeTCPServer(ctx context.Context) {
 	addr := util.JoinHostPort("", n.cfg.Self.ProbePort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		logx.Warn("TCP 探测端口监听失败 err:", err)
+		logx.Warnf(KeyProbeTCPListenFailed, err)
 		return
 	}
-	logx.Info("TCP 探测端口监听中 addr:", addr)
+	logx.Infof(KeyProbeTCPListening, addr)
 	defer ln.Close()
 
 	gate := util.NewSemaphore(maxConcurrentHandshakes)
@@ -124,12 +124,12 @@ func (n *Node) runProbeTCPServer(ctx context.Context) {
 		}
 		host := remoteHost(conn)
 		if !limiter.Allow(host) {
-			logx.Debug("TCP 探测请求超过每 IP 限速，拒绝 remote:", host)
+			logx.Debugf(KeyProbeTCPRateLimited, host)
 			conn.Close()
 			continue
 		}
 		if !gate.TryAcquire() {
-			logx.Debug("TCP 探测并发已满，拒绝 remote:", host)
+			logx.Debugf(KeyProbeTCPGateFull, host)
 			conn.Close()
 			continue
 		}
@@ -160,10 +160,10 @@ func (n *Node) runProbeUDPServer(ctx context.Context) {
 	addr := util.JoinHostPort("", n.cfg.Self.ProbePort)
 	pc, err := net.ListenPacket("udp", addr)
 	if err != nil {
-		logx.Warn("UDP 探测端口监听失败 err:", err)
+		logx.Warnf(KeyProbeUDPListenFailed, err)
 		return
 	}
-	logx.Info("UDP 探测端口监听中 addr:", addr)
+	logx.Infof(KeyProbeUDPListening, addr)
 	defer pc.Close()
 
 	buf := make([]byte, 1500)

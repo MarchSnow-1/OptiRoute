@@ -87,19 +87,19 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 
 	firstPacket, err := readFirstPacketWithPrefix(conn, alreadyRead, deadline)
 	if err != nil {
-		logx.Warn("[", remote, "] 读取首包失败 err:", err)
+		logx.Warnf(KeyBusinessReadFirstPacketFailed, remote, err)
 		return
 	}
 
 	var fp BusinessFirstPacket
 	if err := json.Unmarshal(firstPacket, &fp); err != nil {
-		logx.Warn("[", remote, "] 首包 JSON 解析失败")
+		logx.Warnf(KeyBusinessFirstPacketJSONFailed, remote)
 		return
 	}
 
 	clientTCPAddr, ok := conn.RemoteAddr().(*net.TCPAddr)
 	if !ok {
-		logx.Warn("[", remote, "] 无法解析客户端地址")
+		logx.Warnf(KeyBusinessClientAddrFailed, remote)
 		return
 	}
 
@@ -112,7 +112,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	// A nil switch means binding; with the binding off the same Token can be used from another source IP, which is the trade-off the operator opted into
 	bindClientIP := n.cfg.Self.TokenBindClientIP == nil || *n.cfg.Self.TokenBindClientIP
 	if !n.auth.VerifyRouteToken(fp.Token, fp.Timestamp, n.ccClient().GetSelfUUID(), clientTCPAddr.IP.String(), bindClientIP, n.cfg.Self.TokenTTLS) {
-		logx.Warn("[", remote, "] Token 验签失败，丢弃连接")
+		logx.Warnf(KeyBusinessTokenRejected, remote)
 		return
 	}
 
@@ -128,7 +128,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	// A connection is refused once the established forwarding connections reach the cap
 	// The check sits after the token check, which keeps an unverified connection on the handshake gate alone and stops it from spending the allowance
 	if !n.acquireForwardSlot() {
-		logx.Warn("[", remote, "] 已建立转发连接数已达上限，拒绝连接")
+		logx.Warnf(KeyBusinessForwardCapReached, remote)
 		return
 	}
 	// 从获取额度到转发结束之间无论走哪条分支都要归还，避免上限被失败的连接逐渐占满
@@ -136,7 +136,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	defer n.releaseForwardSlot()
 
 	if err := util.WriteWithDeadline(conn, []byte{0x01}, 5*time.Second); err != nil {
-		logx.Warn("[", remote, "] 写入验签确认失败 err:", err)
+		logx.Warnf(KeyBusinessWriteAckFailed, remote, err)
 		return
 	}
 
@@ -144,20 +144,20 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	originConn, err := net.DialTimeout("tcp", originAddr,
 		time.Duration(n.cfg.Self.ConnectTimeoutMs)*time.Millisecond)
 	if err != nil {
-		logx.Warn("[", remote, "] 连接源站失败 err:", err)
+		logx.Warnf(KeyBusinessDialOriginFailed, remote, err)
 		return
 	}
 	defer originConn.Close()
 
 	edgeTCPAddr, ok := conn.LocalAddr().(*net.TCPAddr)
 	if !ok {
-		logx.Warn("[", remote, "] 无法解析本端地址")
+		logx.Warnf(KeyBusinessLocalAddrFailed, remote)
 		return
 	}
 	// 写入通信密钥（Server Agent 验证）
 	// Write the communication secret for the Server Agent to verify
 	if err := util.WriteWithDeadline(originConn, []byte(n.cfg.Remote.CommSecret), 5*time.Second); err != nil {
-		logx.Warn("[", remote, "] 写入通信密钥失败 err:", err)
+		logx.Warnf(KeyBusinessWriteCommSecretFailed, remote, err)
 		return
 	}
 	ppv2Hdr := protocol.BuildPPv2Header(
@@ -165,7 +165,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 		edgeTCPAddr.IP, uint16(edgeTCPAddr.Port),
 	)
 	if err := util.WriteWithDeadline(originConn, ppv2Hdr, 5*time.Second); err != nil {
-		logx.Warn("[", remote, "] 写入 PPv2 包头失败 err:", err)
+		logx.Warnf(KeyBusinessWritePPv2Failed, remote, err)
 		return
 	}
 
@@ -174,12 +174,12 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	// Read the Server ack frame carrying the UUID and the version, which the Server Agent replies after checking the secret and before reading PPv2; a missing or unparsable frame drops the connection because an older Server Agent sends no such frame and has to be upgraded together
 	var serverVersion, serverUUID string
 	if ackData, err := util.ReadFrame(originConn, 3*time.Second); err != nil {
-		logx.Warn("[", remote, "] 读取 Server 确认帧失败 err:", err, "（Server Agent 版本过旧？）")
+		logx.Warnf(KeyBusinessReadServerAckFailed, remote, err)
 		return
 	} else {
 		var ack protocol.ServerAck
 		if err := json.Unmarshal(ackData, &ack); err != nil {
-			logx.Warn("[", remote, "] Server 确认帧解析失败 err:", err)
+			logx.Warnf(KeyBusinessServerAckParseFailed, remote, err)
 			return
 		}
 		serverVersion = ack.Version
@@ -208,7 +208,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 		}
 	}
 
-	logx.Info("[", remote, "] L4 转发通道已建立 origin:", originAddr, " client_v:", fp.Version, " server_v:", serverVersion)
+	logx.Infof(KeyBusinessRelayEstablished, remote, originAddr, fp.Version, serverVersion)
 
 	var counter *atomic.Int64
 	if n.bwTracker != nil {

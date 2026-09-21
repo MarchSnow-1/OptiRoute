@@ -22,14 +22,18 @@ func TestEffRTT(t *testing.T) {
 	}
 }
 
+// weightPtr 返回该浮点数的指针，便于在结构体字面量里给出 fake_ips[].weight
+// weightPtr returns a pointer to the float so a struct literal can carry fake_ips[].weight
+func weightPtr(v float64) *float64 { return &v }
+
 // TestFakeIPManagerSelectedSortsByWeightedRTT 验证 Selected 按 effRTT×weight 升序返回，并把状态非 Valid 的项排除在外
 // TestFakeIPManagerSelectedSortsByWeightedRTT checks that Selected returns entries in ascending effRTT×weight order and leaves out any entry whose state is not Valid
 func TestFakeIPManagerSelectedSortsByWeightedRTT(t *testing.T) {
 	node := &Node{cfg: &config.Config{Self: config.SelfConfig{
 		FakeIPMaxCount: 2,
 		FakeIPs: []config.FakeIPConfig{
-			{IP: "192.0.2.1", Proto: "tcp", Port: 443, Weight: 1},
-			{IP: "192.0.2.2", Proto: "tcp", Port: 443, Weight: 2},
+			{IP: "192.0.2.1", Proto: "tcp", Port: 443, Weight: weightPtr(1)},
+			{IP: "192.0.2.2", Proto: "tcp", Port: 443, Weight: weightPtr(2)},
 		},
 	}}}
 	m := NewFakeIPManager(node)

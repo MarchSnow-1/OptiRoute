@@ -437,10 +437,16 @@ func (c *CenterClient) bwReportLoop(ctx context.Context) {
 func (c *CenterClient) topoSyncLoop(ctx context.Context) {
 	defer c.wg.Done()
 	interval := time.Duration(c.cfg.Self.TopoSyncIntervalS) * time.Second
+	// TopoSyncJitterMs 为指针：nil 已由 defaults() 填为 2000，显式 0 表示不加抖动，因此这里只判断正数
+	// TopoSyncJitterMs is a pointer: defaults() has already filled a nil one with 2000, an explicit 0 means no jitter, so only a positive value adds jitter here
+	jitterMs := 0
+	if c.cfg.Self.TopoSyncJitterMs != nil {
+		jitterMs = *c.cfg.Self.TopoSyncJitterMs
+	}
 	for {
 		var jitter time.Duration
-		if c.cfg.Self.TopoSyncJitterMs > 0 {
-			jitter = time.Duration(rand.Intn(c.cfg.Self.TopoSyncJitterMs)) * time.Millisecond
+		if jitterMs > 0 {
+			jitter = time.Duration(rand.Intn(jitterMs)) * time.Millisecond
 		}
 		select {
 		case <-ctx.Done():

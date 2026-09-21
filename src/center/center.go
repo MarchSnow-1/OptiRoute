@@ -405,8 +405,10 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 }
 
 // maxFakeItemsPerEdge 限制单个边缘节点单次注册可上报的 FAKE-IP 数量
+// 取值与 config.MaxFakeIPsPerEdge 相同并通过该常量引用，避免配置校验与注册校验各写一个数字而出现口径漂移
 // maxFakeItemsPerEdge caps how many FAKE-IPs one edge may report in a single registration
-const maxFakeItemsPerEdge = 256
+// It carries the same value as config.MaxFakeIPsPerEdge and references that constant, so the configuration check and the registration check cannot drift apart
+const maxFakeItemsPerEdge = config.MaxFakeIPsPerEdge
 
 // normalizeAndValidateRegister 对边缘节点注册消息做标准化与边界校验
 // Center 不直接采信 Edge 上报的拓扑数据：缺少这些校验时，一个被攻破的 Edge 能把外部地址当作探测目标注入全网拓扑

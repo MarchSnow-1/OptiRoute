@@ -60,19 +60,8 @@ func NewFakeIPManager(node *Node) *FakeIPManager {
 			logger.Warn("FAKE-IP 与本机地址相同，已跳过 ip:", f.IP)
 			continue
 		}
-		proto := f.Proto
-		if proto == "" {
-			proto = "tcp"
-		}
-		f.Proto = proto
-		// Weight 为 float64 且带 omitempty，JSON 中省略该字段与显式写 0 都得到 0，目前无法区分「未配置」与「显式 0」，因此这里把 0 一律当作未配置填成 1.0
-		// 该校验只拒绝负值，`weight: 0` 的配置不会报错，其取值会被这里覆盖为 1.0；这是已知缺陷，待后续用可区分未配置与显式 0 的表示方式修正
-		//
-		// Weight is a float64 with omitempty, so an omitted JSON field and an explicit 0 both arrive as 0, and this code currently cannot tell an unset weight from an explicit 0, so it fills in 1.0 either way
-		// The validator rejects only negative values, so a `weight: 0` config is accepted and then overwritten with 1.0 here; this is a known defect and a representation that separates unset from an explicit 0 is left for a later fix
-		if f.Weight == 0 {
-			f.Weight = 1.0
-		}
+		// proto 与 weight 的默认值由 config 的 defaults() 统一填充，此处不再兜底，避免两处口径不一致
+		// config.defaults() fills in the defaults of proto and weight, so this function adds no fallback of its own and the two cannot disagree
 		m.items = append(m.items, &FakeIPStatus{cfg: f})
 	}
 	return m
@@ -220,7 +209,7 @@ func (m *FakeIPManager) Selected() []protocol.FakeItemReport {
 		it.mu.Unlock()
 	}
 	sort.Slice(scoredList, func(i, j int) bool {
-		return scoredList[i].eff*scoredList[i].it.cfg.Weight < scoredList[j].eff*scoredList[j].it.cfg.Weight
+		return scoredList[i].eff*scoredList[i].it.cfg.EffectiveWeight() < scoredList[j].eff*scoredList[j].it.cfg.EffectiveWeight()
 	})
 	maxCount := m.node.cfg.Self.FakeIPMaxCount
 	if len(scoredList) > maxCount {
@@ -235,7 +224,7 @@ func (m *FakeIPManager) Selected() []protocol.FakeItemReport {
 			IP:            it.cfg.IP,
 			Proto:         it.cfg.Proto,
 			Port:          it.cfg.Port,
-			Weight:        it.cfg.Weight,
+			Weight:        it.cfg.EffectiveWeight(),
 			RTTFallbackMs: it.cfg.RTTFallbackMs,
 		})
 		it.mu.Unlock()

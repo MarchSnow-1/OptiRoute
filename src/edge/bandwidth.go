@@ -10,17 +10,17 @@ import (
 type BWStatus string
 
 const (
-	BWStatusNormal    BWStatus = "normal"
-	BWStatusWarning   BWStatus = "warning"
+	BWStatusNormal     BWStatus = "normal"
+	BWStatusWarning    BWStatus = "warning"
 	BWStatusOverloaded BWStatus = "overloaded"
 )
 
 type BandwidthTracker struct {
-	maxBps       int64          // 由 config.MaxBandwidthMbps 换算的 Bytes/sec 上限，0=不限
-	bytesAccum   atomic.Int64   // 当前秒累计字节（由 Relay 原子递增）
-	mu           sync.Mutex
-	window       []int64        // 滑动窗口，每秒一个样本（Bps）
-	warningRatio float64
+	maxBps        int64        // 由 config.MaxBandwidthMbps 换算的 Bytes/sec 上限，0=不限
+	bytesAccum    atomic.Int64 // 当前秒累计字节（由 Relay 原子递增）
+	mu            sync.Mutex
+	window        []int64 // 滑动窗口，每秒一个样本（Bps）
+	warningRatio  float64
 	overloadRatio float64
 }
 

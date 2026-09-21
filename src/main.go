@@ -7,11 +7,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/donnie4w/go-logger/logger"
 	"github.com/MarchSnow-1/OptiRoute/agent"
 	"github.com/MarchSnow-1/OptiRoute/center"
 	"github.com/MarchSnow-1/OptiRoute/config"
 	"github.com/MarchSnow-1/OptiRoute/edge"
+	"github.com/donnie4w/go-logger/logger"
 )
 
 // version 版本号，可通过 -ldflags "-X main.version=x.y.z" 在构建时注入

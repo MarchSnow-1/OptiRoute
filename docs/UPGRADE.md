@@ -49,6 +49,7 @@ Logs and start-up messages default to `en-US`, so a deployment whose logs used t
 
 - No configuration change is required, and the previous Chinese text is still available through `--lang=zh-Hans` or `--lang=zh-Hant`
 - Both the log lines and the configuration load and validation failures follow the language, while a configuration load failure can only use `--lang` because `self.lang` is not readable at that point
+- An `error` value carried into a line through `%v` or `%w` keeps the wording of the layer that produced it, so the error values of `protocol`, `util`, `auth`, `edge`, `center` and `agent` still appear in Chinese inside an otherwise English line
 - An unsupported or malformed tag does not stop start-up: the process reports in `en-US` and prints one notice on standard error, so a mistyped tag shows up in the output rather than hiding
 - A tool that matches log lines by their Chinese text needs updating, since the wording now comes from a message catalogue
 

@@ -1,3 +1,6 @@
+// 本文件覆盖 Relay 的双向透传与字节计数，以及 RelayWithIdle 在空闲超时后关闭两侧连接的行为
+// This file covers the bidirectional passthrough and byte counting of Relay, and the behaviour of RelayWithIdle closing both sides after the idle timeout
+
 package util
 
 import (

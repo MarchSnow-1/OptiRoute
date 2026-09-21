@@ -34,7 +34,7 @@ type RateLimiter struct {
 
 // NewRateLimiter 创建限速器，window 为窗口长度，maxPerKey 为单键在窗口内的放行上限，maxKeys 为键表容量上限
 // maxKeys <= 0 表示键表容量不设上限
-// maxPerKey <= 0 时该键的每次请求都会被拒绝，因此调用方需保证传入正整数
+// maxPerKey <= 0 时该键的每次请求都会被拒绝，因此调用方需传入正整数
 // NewRateLimiter builds a limiter from the window length, the per-key admission limit inside a window and the key-table capacity
 // maxKeys <= 0 means the key table has no capacity cap
 // maxPerKey <= 0 rejects every request of that key, so callers must pass a positive value
@@ -121,9 +121,9 @@ func (l *RateLimiter) Len() int {
 }
 
 // Semaphore 是并发闸
-// 以 n <= 0 创建出的闸不限制并发，此时 TryAcquire 总是返回 true，Release 不做任何事
+// 以 n <= 0 创建出的闸不限制并发，该分支下 TryAcquire 返回 true，Release 直接返回而不动通道
 // Semaphore is a concurrency gate
-// A gate created with n <= 0 does not limit concurrency: TryAcquire then always reports true and Release does nothing
+// A gate created with n <= 0 does not limit concurrency: on that branch TryAcquire reports true and Release returns without touching the channel
 type Semaphore struct {
 	ch chan struct{}
 }

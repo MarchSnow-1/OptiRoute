@@ -64,8 +64,8 @@ func TestRateLimiterAdmitsNewKeyWhenTableFull(t *testing.T) {
 	}
 }
 
-// TestRateLimiterPrunesExpiredBeforeEvicting 覆盖键表满时优先清理过期键，不产生淘汰
-// TestRateLimiterPrunesExpiredBeforeEvicting covers that expired keys are pruned before any eviction
+// TestRateLimiterPrunesExpiredBeforeEvicting 覆盖键表满时优先清理过期键、不产生淘汰
+// TestRateLimiterPrunesExpiredBeforeEvicting covers that expired keys are pruned before an eviction happens
 func TestRateLimiterPrunesExpiredBeforeEvicting(t *testing.T) {
 	l := NewRateLimiter(30*time.Millisecond, 5, 1)
 

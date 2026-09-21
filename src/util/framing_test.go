@@ -1,3 +1,6 @@
+// 本文件覆盖帧读写的往返、1 MB 上限在写入端与读取端的拒绝，以及带超时的写入路径，链路用 net.Pipe 在进程内构造
+// This file covers the frame round trip, the rejection of the 1 MB cap on the writing and the reading side, and the deadline-aware write path, with the link built in-process by net.Pipe
+
 package util
 
 import (

@@ -1,3 +1,6 @@
+// 本文件覆盖三种探测原语的成败判定：本机 TCP/UDP 回显服务下的成功路径、回包被篡改或监听关闭时的失败路径、ICMP 对非法目标的处理与 ICMP ID 计数器的自增
+// This file covers the pass/fail judgement of the three probe primitives: the success path against a local TCP/UDP echo service, the failure path when the reply payload is tampered with or the listener is closed, how ICMP handles an invalid target, and the increment of the ICMP ID counter
+
 package util
 
 import (

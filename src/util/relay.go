@@ -1,3 +1,8 @@
+// 本文件实现两条 TCP 连接之间的双向透传，供 Client Agent 的本地接入、Server Agent 的上游转发与 Edge 的业务转发复用
+// 单独成文的原因：透传是数据面存活最久的循环，字节计数与空闲超时必须只有一处实现，否则各角色的超时行为会不一致
+// This file implements the bidirectional passthrough between two TCP connections, reused by the Client Agent local accept path, the Server Agent upstream forwarding path and the Edge business forwarding path
+// It is a separate file because passthrough is the longest-lived loop on the data plane, and byte counting together with the idle timeout must live in one place, otherwise the roles would behave differently on timeouts
+
 package util
 
 import (
@@ -7,17 +12,20 @@ import (
 	"time"
 )
 
-// Relay 在两个 TCP 连接之间建立双向透传。
-// 支持半关闭语义：src 读到 EOF 时仅传播关闭写方向（CloseWrite），
-// 保留读方向等待对端剩余响应；两个方向都结束后才全关连接。
-// bytesCounter 非 nil 时，原子累加双向传输的总字节数。
+// Relay 在两个 TCP 连接之间建立双向透传，等价于 idleTimeout 为 0 的 RelayWithIdle
+// bytesCounter 非 nil 时，按已成功写出的字节数原子累加两个方向的总量
+// Relay sets up a bidirectional passthrough between two TCP connections and equals RelayWithIdle with an idleTimeout of 0
+// When bytesCounter is non-nil it accumulates, per successful write, the bytes carried in both directions
 func Relay(a, b net.Conn, bytesCounter *atomic.Int64) {
 	RelayWithIdle(a, b, bytesCounter, 0)
 }
 
-// RelayWithIdle 在 Relay 基础上支持空闲超时：idleTimeout > 0 时，
-// 任一方 idleTimeout 内无数据到达即断开连接（滚动 deadline 续期）。
-// 半关闭语义与 Relay 相同。
+// RelayWithIdle 在 Relay 基础上支持空闲超时：idleTimeout > 0 时每次读之前续期读 deadline，某方向在 idleTimeout 内读不到数据就结束该方向的循环
+// 该方向结束时，仅当 dst 能断言为 *net.TCPConn 才调 CloseWrite 传播半关闭，让对端仍可把剩余响应写回来；dst 不能断言为 *net.TCPConn（例如 net.Pipe）时退化为 dst.Close()，该连接的两个方向一起关闭
+// 两个方向都结束之后，函数才关闭 a 与 b
+// RelayWithIdle extends Relay with an idle timeout: when idleTimeout > 0 the read deadline is renewed before every read, and a direction whose read returns nothing within idleTimeout ends its loop
+// When a direction ends, CloseWrite is called for half-close propagation only when dst asserts to *net.TCPConn, so the peer can still write its remaining response back; when dst does not assert to *net.TCPConn (net.Pipe for example) the code falls back to dst.Close(), which closes both directions of that connection
+// Only after both directions have ended does the function close a and b
 func RelayWithIdle(a, b net.Conn, bytesCounter *atomic.Int64, idleTimeout time.Duration) {
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -42,7 +50,8 @@ func RelayWithIdle(a, b net.Conn, bytesCounter *atomic.Int64, idleTimeout time.D
 				}
 			}
 		}
-		// src 读到 EOF/超时：传播半关闭（对方已说完，但可能还在等我方剩余数据）
+		// src.Read 返回错误时走到这里，EOF 与空闲超时导致的读超时在这一层不做区分
+		// Both EOF and the read timeout caused by an idle period report through src.Read and land here, and this level does not tell them apart
 		if tcp, ok := dst.(*net.TCPConn); ok {
 			tcp.CloseWrite()
 		} else {

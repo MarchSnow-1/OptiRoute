@@ -90,6 +90,12 @@ The Center may reject an Edge during registration:
 }
 ```
 
+All three paths below send a rejection carrying the reason and then close the connection, so the Edge reads the reason at once instead of waiting for its own connection timeout:
+
+- the registration message is not valid JSON
+- a registration field fails validation, where `reason` names the field and the failure
+- the registration rate is exceeded, or the online Edge count has reached its limit
+
 The Edge logs the reason and closes the connection.
 
 Configuration:

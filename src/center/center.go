@@ -309,8 +309,13 @@ func (s *CenterServer) allowRegister(uuid string) bool {
 
 // sendRegisterReject 在新 record 写入 edges 映射之前，直接向该连接下发拒绝结果
 // 这是该连接上的第二处 TextMessage 写入路径，不走 writeCh 与 writeLoop
-// sendRegisterReject sends the rejection result directly to the connection, before the new record is stored in the edges map
-// This is the second TextMessage write path on that connection and it bypasses writeCh and writeLoop
+// sendRegisterReject 在连接尚未登记进 edges 映射时直接下发拒绝结果
+// 这条路径只用于注册尚未成功、因此该连接上还没有 writeLoop 的时刻：此时在本 goroutine 内直接写不会与别的写者并发
+// 注册成功之后再下发的内容一律走 writeCh 与 writeLoop，以免同一连接出现两个写者
+//
+// sendRegisterReject sends the rejection result directly to the connection before the new record is stored in the edges map
+// This path serves only the moment when the registration has not succeeded and the connection therefore has no writeLoop yet, so writing in this goroutine cannot race with another writer
+// Everything sent after a successful registration goes through writeCh and writeLoop instead, which keeps one connection from having two writers
 func (s *CenterServer) sendRegisterReject(conn *websocket.Conn, reason string) {
 	raw, _ := json.Marshal(protocol.RegisteredPayload{OK: false, Reason: reason})
 	env := protocol.Envelope{Type: protocol.MsgTypeRegistered, Payload: raw}
@@ -321,19 +326,25 @@ func (s *CenterServer) sendRegisterReject(conn *websocket.Conn, reason string) {
 }
 
 // handleRegister 处理边缘节点注册
-// 字段校验失败时只记 Warn 并返回，不下发拒绝；注册频率超限与在线数达上限则回拒
+// 字段校验失败、注册频率超限与在线数达上限三条路径都会下发带原因的回拒并关闭连接，使对端能立刻读到原因而不是等自身超时
 // 成功时把 record 登记进 edges 与 uuidByConn，启动 writeLoop，再下发注册确认与当前 secret
+//
 // handleRegister handles an edge registration
-// A field validation failure only logs a warning and returns without sending a rejection, while an exceeded registration rate or a reached online limit is answered with a rejection
+// A field validation failure, an exceeded registration rate and a reached online limit all send a rejection carrying the reason and close the connection, which lets the peer read the reason at once instead of waiting for its own timeout
 // On success it stores the record in edges and uuidByConn, starts writeLoop and sends the registration confirmation together with the current secret
 func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage) {
 	var req protocol.RegisterPayload
 	if err := json.Unmarshal(raw, &req); err != nil {
+		logx.Warn("边缘节点注册失败：注册消息解析失败 err:", err)
+		s.sendRegisterReject(conn, "register payload is not valid json")
+		conn.Close()
 		return
 	}
 
 	if err := normalizeAndValidateRegister(&req); err != nil {
 		logx.Warn("边缘节点注册校验失败 uuid:", req.UUID, " err:", err)
+		s.sendRegisterReject(conn, err.Error())
+		conn.Close()
 		return
 	}
 	uuid := req.UUID
@@ -345,6 +356,7 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 	if !s.allowRegister(uuid) {
 		logx.Warn("边缘节点注册失败：注册频率超限 uuid:", uuid)
 		s.sendRegisterReject(conn, "register rate limit exceeded")
+		conn.Close()
 		return
 	}
 
@@ -365,12 +377,14 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 
 	s.mu.Lock()
 	// 若同一 UUID 已有旧注册，先停掉旧 record 的写循环并关闭旧连接
-	// 旧连接就是当前连接时（同一连接重复注册同一 UUID），这里关闭的正是本连接，而新 record 仍以该连接登记进 edges 与 uuidByConn
-	// 该 record 的 writeLoop 随即在这个已关闭的连接上启动，写入会失败，handleEdge 的下一次读也返回错误，由 defer 的 unregisterByConn 收尾
+	// 同一 UUID 已有注册时，先把旧 record 停掉：置 closed 并关闭其 writeCh，使 sendMsg 不再向它投递，再关闭旧连接
+	// 旧连接等于当前连接时（同一连接重复注册同一 UUID）不能关闭本连接，否则随后的确认与 secret 写不出去，因此这种情形原地复用当前连接，只重启一次 writeLoop
+	// 旧连接是另一条连接时正常关闭它，对端会读到读错误并按其重连策略处理
 	// 新 UUID 则在同一个临界区内检查容量上限，解锁之后才回拒，避免持锁时写连接
-	// When the same UUID already has an old registration, the write loop of the old record is stopped and the old connection is closed first
-	// When that old connection is the current one, as happens when one connection registers the same UUID twice, what is closed here is this very connection, while the new record is still recorded in edges and uuidByConn against it
-	// The writeLoop of that record then starts on the closed connection and its writes fail, and the next read in handleEdge also returns an error, so the deferred unregisterByConn closes this out
+	//
+	// When the same UUID already has a registration, the old record is retired first: it is marked closed with its writeCh closed so sendMsg stops queueing for it, and the old connection is then closed
+	// When that old connection is the current one, as happens when one connection registers the same UUID twice, closing it would make the later confirmation and secret unwritable, so this case reuses the current connection in place and starts writeLoop once
+	// When the old connection is a different one it is closed as usual, and the peer reads an error and follows its own reconnect policy
 	// A new UUID checks the capacity limit inside the same critical section and the rejection is sent after unlocking, so no connection is written while the lock is held
 	if old, exists := s.edges[uuid]; exists {
 		delete(s.uuidByConn, old.conn)
@@ -378,11 +392,22 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 		old.closed = true
 		close(old.writeCh)
 		old.sendMu.Unlock()
+		if old.conn == conn {
+			// 当前连接上已有 writeLoop，继续用它写确认与 secret，不重复启动
+			// The current connection already has a writeLoop, which keeps sending the confirmation and secret, so no second one is started
+			s.edges[uuid] = record
+			s.mu.Unlock()
+			s.sendMsg(conn, protocol.MsgTypeRegistered, protocol.RegisteredPayload{OK: true})
+			s.pushSecret(conn)
+			logx.Info("边缘节点在同一连接上重复注册，已原地复用该连接 uuid:", uuid)
+			return
+		}
 		old.conn.Close()
 	} else if edgeCount := len(s.edges); edgeCount >= maxEdges {
 		s.mu.Unlock()
 		logx.Warn("边缘节点注册失败：在线 Edge 数量已达上限 uuid:", uuid, " count:", edgeCount)
 		s.sendRegisterReject(conn, "online edge limit reached")
+		conn.Close()
 		return
 	}
 	s.edges[uuid] = record
@@ -394,14 +419,22 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 	go record.writeLoop()
 
 	s.sendMsg(conn, protocol.MsgTypeRegistered, protocol.RegisteredPayload{OK: true})
+	s.pushSecret(conn)
 
+	logx.Info("边缘节点注册成功 uuid:", uuid, " ip:", req.IP, " group:", record.Group)
+}
+
+// pushSecret 向指定连接下发当前 shared_secret 与版本号
+// 注册成功与同一连接重复注册两条路径都要推送，抽成一处的目的是让两处的取值口径一致
+//
+// pushSecret sends the current shared_secret together with its version to the given connection
+// Both a successful registration and a repeated registration on the same connection need the push, and keeping it in one place holds the two paths to the same values
+func (s *CenterServer) pushSecret(conn *websocket.Conn) {
 	s.secretMu.RLock()
 	secret := hex.EncodeToString(s.currentSecret)
 	version := s.secretVersion
 	s.secretMu.RUnlock()
 	s.sendMsg(conn, protocol.MsgTypeSecretPush, protocol.SecretPushPayload{Secret: secret, Version: version})
-
-	logx.Info("边缘节点注册成功 uuid:", uuid, " ip:", req.IP, " group:", record.Group)
 }
 
 // maxFakeItemsPerEdge 限制单个边缘节点单次注册可上报的 FAKE-IP 数量
@@ -458,11 +491,20 @@ func normalizeAndValidateRegister(req *protocol.RegisterPayload) error {
 	if len(req.Version) > 64 {
 		return fmt.Errorf("version 超长")
 	}
-	if len(req.FakeItems) > maxFakeItemsPerEdge {
-		return fmt.Errorf("fake_items 数量超限: %d > %d", len(req.FakeItems), maxFakeItemsPerEdge)
+	return validateFakeItems(req.FakeItems)
+}
+
+// validateFakeItems 校验一组 FAKE-IP 上报项，并把 proto 标准化为空值时的 tcp
+// 注册与运行期的 fake_update 两条路径共用本函数：两条路径都接受对端上报的探测目标，若只在校验其中一条，另一条就能把非法目标带进全网拓扑
+//
+// validateFakeItems checks one batch of reported FAKE-IP entries and normalises an empty proto into tcp
+// The registration path and the runtime fake_update path share this function: both accept probe targets reported by a peer, and validating only one of them would let the other carry an invalid target into the network-wide topology
+func validateFakeItems(items []protocol.FakeItemReport) error {
+	if len(items) > maxFakeItemsPerEdge {
+		return fmt.Errorf("fake_items 数量超限: %d > %d", len(items), maxFakeItemsPerEdge)
 	}
-	for i := range req.FakeItems {
-		f := &req.FakeItems[i]
+	for i := range items {
+		f := &items[i]
 		f.IP = strings.TrimSpace(f.IP)
 		if net.ParseIP(f.IP) == nil {
 			return fmt.Errorf("fake_items[%d].ip 非法: %s", i, f.IP)
@@ -546,17 +588,52 @@ func validHostname(name string) bool {
 	return true
 }
 
+// maxFakeRTTsPerEdge 限制单个边缘节点上报的 f2n 延迟条数
+// 每条是一对 IP 与延迟，若不加限制，一条上报消息就能让该节点的 map 按自身大小增长
+//
+// maxFakeRTTsPerEdge caps how many f2n latencies one edge may report
+// Each entry is a pair of an IP and a latency, and without a cap a single report message could grow that node's map by its own size
+const maxFakeRTTsPerEdge = 1024
+
+// maxReportedRTTMs 是运行期上报里 RTT 取值的上限，超过该值视为不可信
+// 取值比 token_ttl_s 与探测超时的量级都宽，只用于挡住明显异常的数字
+//
+// maxReportedRTTMs is the upper bound of an RTT in a runtime report, and anything above it counts as untrusted
+// It is far wider than the scale of token_ttl_s and of the probe timeouts, and it only rejects clearly abnormal numbers
+const maxReportedRTTMs = 600_000
+
 // handleRTTReport 更新边缘节点到源站的 RTT 及各 FAKE-IP 的 f2n 延迟
-// 该路径解析失败时不记 Warn 便返回，也不校验 FakeRTTs 里的 IP 是否属于本节点的 FakeItems
+// 上报的每个条目都要通过 IP 合法性与 RTT 上下界校验，条数受 maxFakeRTTsPerEdge 限制，因此这条路径同样不能把无界数据带进 record
 // 连接未注册或 record 已被清理时取到 nil，跳过更新
+//
 // handleRTTReport updates the RTT from the edge to the origin and the f2n latency of each FAKE-IP
-// This path returns without a warning when parsing fails and does not check whether an IP in FakeRTTs belongs to the FakeItems of that node
+// Every reported entry passes an IP validity check and RTT bounds, and the entry count is capped by maxFakeRTTsPerEdge, so this path cannot carry unbounded data into the record either
 // A connection that is not registered, or whose record has been cleaned up, yields nil and the update is skipped
 func (s *CenterServer) handleRTTReport(conn *websocket.Conn, raw json.RawMessage) {
 	var report protocol.RTTReportPayload
 	if err := json.Unmarshal(raw, &report); err != nil {
+		logx.Warn("RTTReport 解析失败 err:", err)
 		return
 	}
+	if report.RTTMs < 0 || report.RTTMs > maxReportedRTTMs {
+		logx.Warn("RTTReport 的源站 RTT 超出范围，整条丢弃 rtt_ms:", report.RTTMs)
+		return
+	}
+	if len(report.FakeRTTs) > maxFakeRTTsPerEdge {
+		logx.Warn("RTTReport 的 f2n 条数超限，整条丢弃 count:", len(report.FakeRTTs), " limit:", maxFakeRTTsPerEdge)
+		return
+	}
+	for _, e := range report.FakeRTTs {
+		if net.ParseIP(strings.TrimSpace(e.IP)) == nil {
+			logx.Warn("RTTReport 含非法 f2n IP，整条丢弃 ip:", e.IP)
+			return
+		}
+		if e.RTTMs < 0 || e.RTTMs > maxReportedRTTMs {
+			logx.Warn("RTTReport 含超出范围的 f2n 延迟，整条丢弃 ip:", e.IP, " rtt_ms:", e.RTTMs)
+			return
+		}
+	}
+
 	s.mu.RLock()
 	uuid := s.uuidByConn[conn]
 	record := s.edges[uuid]
@@ -565,20 +642,27 @@ func (s *CenterServer) handleRTTReport(conn *websocket.Conn, raw json.RawMessage
 		record.mu.Lock()
 		record.RTTToOriginMs = report.RTTMs
 		for _, e := range report.FakeRTTs {
-			record.FakeRTTs[e.IP] = e.RTTMs
+			record.FakeRTTs[strings.TrimSpace(e.IP)] = e.RTTMs
 		}
 		record.mu.Unlock()
 	}
 }
 
 // handleFakeUpdate 更新边缘节点的有效 FAKE-IP 列表（健康检查筛选结果变化）
-// 该路径用上报内容整体替换 FakeItems，不再重复注册期做过的条数上限与字段校验
+// 上报内容与注册期走同一套校验，因此这条运行期路径同样不能把非法目标或无上限的条数带进拓扑；校验不通过时整条丢弃并保留原列表
+//
 // handleFakeUpdate replaces the valid FAKE-IP list of an edge after a health-check selection change
-// This path replaces FakeItems with the reported list as a whole and does not repeat the count cap and field validation applied at registration
+// The report passes the same checks as at registration, so this runtime path cannot carry an invalid target or an unbounded count into the topology either, and a failed check drops the whole update and keeps the previous list
 func (s *CenterServer) handleFakeUpdate(conn *websocket.Conn, raw json.RawMessage) {
 	var items []protocol.FakeItemReport
 	if err := json.Unmarshal(raw, &items); err != nil {
 		logx.Warn("FakeUpdate 解析失败 err:", err)
+		return
+	}
+	// 校验就地标准化 proto，因此记录进 record 的是规范化之后的列表
+	// The check normalises proto in place, so the list stored in the record is the normalised one
+	if err := validateFakeItems(items); err != nil {
+		logx.Warn("FakeUpdate 校验失败，整条丢弃 err:", err)
 		return
 	}
 	s.mu.RLock()
@@ -807,6 +891,13 @@ func (s *CenterServer) apiAuth(next http.HandlerFunc) http.HandlerFunc {
 		if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte("unauthorized"))
+			return
+		}
+		// 鉴权通过后只放行 GET：两个接口都是只读查询，其它方法回 405，避免实现接受文档未描述的方法
+		// Once authenticated only GET is admitted: both endpoints are read-only queries and every other method gets a 405, which keeps the implementation from accepting methods the documentation never describes
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			w.Write([]byte("method not allowed"))
 			return
 		}
 		next(w, r)

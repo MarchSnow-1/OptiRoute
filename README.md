@@ -191,6 +191,8 @@ The Center serves an HTTP API on the same port as the WebSocket, requiring an `A
 | `GET /api/version` | Per-edge version + Server version/IP + client count, plus a client version distribution |
 | `GET /api/clients` | Client connection details (IP/version/timestamp/edge), aggregated across nodes |
 
+Both endpoints admit `GET` only: a missing or mismatched key answers 401, and an authenticated request with a method other than `GET` answers 405
+
 Example:
 
 ```bash

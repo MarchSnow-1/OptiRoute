@@ -188,6 +188,8 @@ Center 开启 HTTP API (与 WebSocket 同端口), 请求需携带 `Authorization
 | `GET /api/version` | 各 Edge 版本 + Server 版本/IP + 客户端数, 及客户端版本分布统计 |
 | `GET /api/clients` | 客户端接入明细 (IP/版本/接入时间/所属 Edge), 跨节点汇总 |
 
+两个接口均只放行 `GET`: 密钥缺失或不匹配返回 401, 鉴权通过但方法不是 `GET` 返回 405
+
 示例:
 
 ```bash

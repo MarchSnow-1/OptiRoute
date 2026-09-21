@@ -58,13 +58,22 @@ func (a *ClientAgent) Start(ctx context.Context) error {
 	}
 }
 
+// handleLocalConn 处理一条本地连接：走完接入流程后把本地连接与目标 Edge 的连接对接透传
+// 关闭职责按分支划分：接入流程失败时本函数负责关闭 localConn，成功时交给 util.Relay，它在两个方向都结束后关闭双方连接
+// 因此这里不用 defer 统一关闭，避免 Relay 关闭之后再关闭一次
+// 接入流程失败时没有 edgeConn 需要清理：doAccessFlow 只在成功时返回非 nil 的连接，失败时内部已关闭已建立的连接
+//
+// handleLocalConn handles one local connection: it runs the access flow and then pairs the local connection with the target Edge connection for transparent forwarding
+// The closing duty follows the branch: a failed access flow leaves localConn to this function, while a successful one hands it to util.Relay, which closes both sides once both directions have finished
+// That is why no defer closes it here, since that would close it a second time after Relay has done so
+// A failed access flow leaves no edgeConn behind either: doAccessFlow returns a non-nil connection only on success and closes the established ones internally on failure
 func (a *ClientAgent) handleLocalConn(ctx context.Context, localConn net.Conn) {
-	defer localConn.Close()
 	remote := localConn.RemoteAddr().String()
 
 	edgeConn, err := a.doAccessFlow(ctx, remote)
 	if err != nil {
 		logx.Warn("[", remote, "] 接入流程失败 err:", err)
+		localConn.Close()
 		return
 	}
 
@@ -97,10 +106,11 @@ func (a *ClientAgent) connectWithToken(targetIP string, businessPort int, token 
 	}
 
 	// 读取 1 字节验签确认，读之前先设置等待验签的读超时，读后清除该超时
-	// n 参与判断：n 不为 1 或首字节不是 0x01 都落到「验签未通过（服务端返回异常确认字节）」分支
+	// 确认字节分两种失败情形并各自给出对应文案：读到的字节数不是 1 时说明服务端没有给出确认字节，字节数正确但取值不是 0x01 时说明服务端给出了异常确认字节
 	// 错误分支的划分：net.Error 且 Timeout 为真落到「等待验签超时」分支，io.EOF 等其余错误落到「等待验签失败（连接中断）」分支
+	//
 	// Reads the one-byte signature-check ack: the read deadline for the signature check is set before this read and cleared after it
-	// n takes part in the check, so both a byte count other than 1 and a first byte other than 0x01 lead to the "signature check failed (server returned an unexpected ack byte)" branch
+	// The ack byte has two distinct failure modes with their own messages: a byte count other than 1 means the server sent no ack byte at all, while a correct count holding a value other than 0x01 means the server sent an unexpected ack byte
 	// How the error branches split: a net.Error whose Timeout reports true leads to the "timed out waiting for the signature check" branch, while io.EOF and the other errors lead to the "signature check failed (connection interrupted)" branch
 	edgeConn.SetReadDeadline(time.Now().Add(timeout))
 	probe := make([]byte, 1)
@@ -113,9 +123,13 @@ func (a *ClientAgent) connectWithToken(targetIP string, businessPort int, token 
 		}
 		return nil, fmt.Errorf("等待验签失败（连接中断）: %w", err)
 	}
-	if n != 1 || probe[0] != 0x01 {
+	if n != 1 {
 		edgeConn.Close()
-		return nil, fmt.Errorf("验签未通过（服务端返回异常确认字节）")
+		return nil, fmt.Errorf("验签未通过（服务端未返回确认字节，收到 %d 字节）", n)
+	}
+	if probe[0] != 0x01 {
+		edgeConn.Close()
+		return nil, fmt.Errorf("验签未通过（服务端返回的确认字节为 0x%02X）", probe[0])
 	}
 
 	return edgeConn, nil

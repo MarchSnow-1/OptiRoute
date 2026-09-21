@@ -237,7 +237,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | upstream_port | int | — | Required for server; upstream third-party server port |
 | center_secret | string | — | Required for edge; Edge → Center control-plane secret; must be exactly 32 bytes |
 | comm_secret | string | — | Required for edge/server; Edge ↔ Server Agent data-plane secret; must be exactly 32 bytes |
-| bw_warning_penalty | float | 1.15 | Center: warning node RTT penalty multiplier |
+| bw_warning_penalty | float | 1.15 | Center: warning node RTT penalty multiplier; it takes effect when configured on the center only; an explicit 0 means no penalty for a warning node and the edge adopts that 0, while leaving the field out makes the edge keep its previous value |
 
 ## Connection Flow Diagram
 

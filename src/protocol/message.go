@@ -166,9 +166,13 @@ func (i ProbeItemInfo) EffectiveRTT() int64 {
 // TopoResponse 中心节点下发的全网拓扑
 // TopoResponse is the network-wide topology the Center delivers
 type TopoResponse struct {
-	Nodes             []NodeInfo `json:"nodes"`
-	BWWarningPenalty  float64    `json:"bw_warning_penalty"`  // 中心下发的 warning 节点 RTT 惩罚乘数 / the RTT penalty multiplier the Center assigns to a warning node
-	CollectClientInfo bool       `json:"collect_client_info"` // 中心是否采集客户端版本/IP，edge 据此决定是否上报 / whether the Center collects client version and IP, which is what the edge uses to decide on reporting
+	Nodes []NodeInfo `json:"nodes"`
+	// 惩罚乘数用指针以区分「未下发」与「显式 0」：0 是有意义的取值，表示对 warning 节点不施加惩罚
+	// edge 只在指针非 nil 时更新本地取值，因此收到缺失字段时保留上一次的取值，而收到显式 0 时会采用 0
+	// The penalty multiplier is a pointer so that "not delivered" stays apart from "explicit 0": 0 is meaningful and means no penalty is applied to a warning node
+	// The edge updates its local value only when the pointer is non-nil, so a missing field keeps the previous value while an explicit 0 is adopted
+	BWWarningPenalty  *float64 `json:"bw_warning_penalty,omitempty"` // 中心下发的 warning 节点 RTT 惩罚乘数 / the RTT penalty multiplier the Center assigns to a warning node
+	CollectClientInfo bool     `json:"collect_client_info"`          // 中心是否采集客户端版本/IP，edge 据此决定是否上报 / whether the Center collects client version and IP, which is what the edge uses to decide on reporting
 }
 
 // ── 版本/IP 信息采集 / Version and IP collection ──────

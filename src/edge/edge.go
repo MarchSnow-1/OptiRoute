@@ -322,11 +322,14 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 			return
 		}
 		c.topo.Update(p.Nodes)
-		// 惩罚乘数只在中心下发正值时更新；配置允许该值为 0，此时保留上一次的取值，引导选路也会因 bwPenalty 为 0 而不施加惩罚
-		// The penalty multiplier is updated only when Center sends a positive value; the config allows 0, and that keeps the previous value while bootstrap routing applies no penalty because bwPenalty is 0
-		if p.BWWarningPenalty > 0 {
+		// 惩罚乘数用指针区分「未下发」与「显式 0」：指针非 nil 时采用该值，显式 0 也随之生效（表示对 warning 节点不施加惩罚）
+		// 指针为 nil 时保留上一次的取值，因此字段缺失不会把已生效的惩罚乘数改成 0
+		//
+		// The penalty multiplier uses a pointer to keep "not delivered" apart from "explicit 0": a non-nil pointer is adopted, and an explicit 0 takes effect too, meaning no penalty is applied to a warning node
+		// A nil pointer keeps the previous value, so a missing field cannot turn an active multiplier into 0
+		if p.BWWarningPenalty != nil {
 			c.penaltyMu.Lock()
-			c.bwWarningPenalty = p.BWWarningPenalty
+			c.bwWarningPenalty = *p.BWWarningPenalty
 			c.penaltyMu.Unlock()
 		}
 		c.collectClientInfo.Store(p.CollectClientInfo)

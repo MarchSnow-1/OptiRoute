@@ -809,8 +809,10 @@ func (s *CenterServer) handleTopoQuery(conn *websocket.Conn) {
 	}
 	s.mu.RUnlock()
 	s.sendMsg(conn, protocol.MsgTypeTopoResponse, protocol.TopoResponse{
-		Nodes:             nodes,
-		BWWarningPenalty:  *s.cfg.Remote.BWWarningPenalty,
+		Nodes: nodes,
+		// 直接下发配置里的指针，既保留「未配置」与「显式 0」的区别，也避免在指针为 nil 时解引用
+		// The configured pointer goes out as it is, which keeps "not configured" apart from "explicit 0" and avoids dereferencing a nil pointer
+		BWWarningPenalty:  s.cfg.Remote.BWWarningPenalty,
 		CollectClientInfo: s.cfg.Self.CollectClientInfo,
 	})
 }

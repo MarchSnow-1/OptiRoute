@@ -240,7 +240,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | upstream_port | int | — | server 必填, 上游第三方服务端端口 |
 | center_secret | string | — | edge 必填, Edge → Center 控制面密钥, 必须恰好 32 字节 |
 | comm_secret | string | — | edge/server 必填, Edge ↔ Server Agent 数据面密钥, 必须恰好 32 字节 |
-| bw_warning_penalty | float | 1.15 | center 下发, warning 节点 RTT 惩罚乘数 |
+| bw_warning_penalty | float | 1.15 | center 下发, warning 节点 RTT 惩罚乘数; 仅在 center 配置中生效; 显式 0 表示对 warning 节点不施加惩罚, edge 会采纳该 0, 而不下发该字段时 edge 保留上一次取值 |
 
 ## 连接流程示意图
 

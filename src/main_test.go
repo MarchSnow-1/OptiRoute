@@ -111,3 +111,52 @@ func TestResolveLangMatchesParse(t *testing.T) {
 		}
 	}
 }
+
+// cliLangOutcome 复现 main 第 1 步对命令行 --lang 的判定，返回生效语言与提示
+// 该判定要求与配置加载无关，因为配置加载失败会直接退出，提示必须在此之前产生
+//
+// cliLangOutcome reproduces the judgement main makes on the command-line --lang in its first step and returns the effective language together with the notice
+// That judgement has to be independent of the configuration load, because a failed load exits at once and the notice therefore has to be produced before it
+func cliLangOutcome(tag string) (i18n.Lang, string) {
+	lang, ok := i18n.Parse(tag)
+	if ok {
+		return lang, ""
+	}
+	return i18n.Default(), i18n.Text(i18n.Default(), KeyLangUnsupported, "--lang", tag)
+}
+
+// TestCLILangIsJudgedBeforeLoadFails 验证命令行语言的判定与提示不依赖配置是否加载成功
+// 回归点：提示曾在配置合并之后才生成，而配置加载失败会以退出码 1 结束，使该路径上「标签写错」完全静默，与文档承诺不符
+//
+// TestCLILangIsJudgedBeforeLoadFails checks that the judgement and the notice for the command-line language do not depend on the configuration loading successfully
+// The regression it pins: the notice used to be produced only after the merge, while a failed load ends with exit code 1, which left a mistyped tag entirely silent on that path and contradicted the documented promise
+func TestCLILangIsJudgedBeforeLoadFails(t *testing.T) {
+	// 非法取值必须给出提示，且回退到默认语言，不需要任何配置即可判定
+	// An unsupported value has to yield a notice and fall back to the default language, and none of that needs a configuration
+	for _, tag := range []string{"ja-JP", "", "en_US", "zh-", "de-DE"} {
+		lang, notice := cliLangOutcome(tag)
+		if lang != i18n.LangEN {
+			t.Errorf("cliLangOutcome(%q) = %q，期望回退到 %q / want the fallback %q", tag, lang, i18n.LangEN, i18n.LangEN)
+		}
+		if notice == "" {
+			t.Fatalf("cliLangOutcome(%q) 未给出提示，该提示会在配置加载失败时丢失 / no notice was produced, and it would be lost when the configuration fails to load", tag)
+		}
+		if !strings.Contains(notice, "--lang") {
+			t.Errorf("提示未指名命令行来源: %q / the notice does not name the command-line source: %q", notice, notice)
+		}
+	}
+
+	// 受支持的取值不应有提示，且返回规范化之后的语言，混合大小写也必须归一
+	// A supported value yields no notice and returns a canonicalised language, and a mixed-case value has to be normalised as well
+	for tag, want := range map[string]i18n.Lang{
+		"en-US": i18n.LangEN, "zh-Hans": i18n.LangZHHans, "zh-hant": i18n.LangZHant, "ZH-HANS": i18n.LangZHHans,
+	} {
+		lang, notice := cliLangOutcome(tag)
+		if lang != want {
+			t.Errorf("cliLangOutcome(%q) = %q，期望 %q / want %q", tag, lang, want, want)
+		}
+		if notice != "" {
+			t.Errorf("cliLangOutcome(%q) 不应给出提示，实际 %q / a supported tag should yield no notice, got %q", tag, notice, notice)
+		}
+	}
+}

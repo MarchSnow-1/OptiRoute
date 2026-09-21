@@ -53,13 +53,21 @@ func resolveLang(tag, source string) (i18n.Lang, string) {
 // main wires up language resolution, configuration loading, validation, logging initialisation, signal handling and service start-up
 func main() {
 	// 1. 配置尚未读入，先按命令行 --lang 定语言，使配置加载失败的文案也能用同一种语言输出
-	// 命令行取值此时未与配置文件合并，所以此处不判定回退，等合并之后的生效标签统一处理
+	// 命令行取值此时未与配置文件合并，但回退判定用的是同一个 i18n.Parse，因此这里的提示与合并之后的结果一致，不会重复
+	// 提示必须在此打印：配置加载失败会直接以退出码 1 结束，等到合并之后再判定就无法提示，与文档承诺的「标签写错会出现在输出里」不符
 	//
 	// 1. The configuration is not read yet, so the language comes from the command-line --lang first, which lets a failed load report in that same language
-	// The command-line value is not merged with the configuration file yet, so no fallback is judged here and the effective tag is handled once after the merge
+	// The command-line value is not merged with the configuration file yet, but the fallback call uses the same i18n.Parse, so the notice printed here matches the outcome after the merge and is not repeated
+	// The notice has to be printed here: a failed load ends the process with exit code 1, and judging the fallback only after the merge would leave that path silent, which contradicts the documented promise that a mistyped tag shows up in the output
 	cliTag, cliSet := config.CLILang()
-	if lang, ok := i18n.Parse(cliTag); ok {
-		i18n.Set(lang)
+	cliLang := i18n.Default()
+	cliAccepted := false
+	if cliSet {
+		cliLang, cliAccepted = i18n.Parse(cliTag)
+		i18n.Set(cliLang)
+		if !cliAccepted {
+			fmt.Fprintln(os.Stderr, i18n.Text(i18n.Default(), KeyLangUnsupported, "--lang", cliTag))
+		}
 	}
 
 	// 2. 加载配置，命令行参数优先于 config.json，取 os.Args 中第一个带 --config- 前缀的参数
@@ -70,19 +78,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 3. 取生效语言：命令行给出则用命令行，否则用 self.lang（defaults 已填默认值）
-	// 语言在配置校验之前确定，使校验失败的文案也使用选定的语言
+	// 3. 取生效语言：命令行给出则以命令行为准，否则用 self.lang（defaults 已填默认值）
+	// 命令行已经生效，这里只处理它未给出时的来源；语言在配置校验之前确定，使校验失败的文案也使用选定的语言
 	//
 	// 3. Take the effective language: the command line when it gives one, otherwise self.lang, which defaults() has already filled
-	// The language is settled before validation so that a validation failure reports in the selected language too
-	source := "self.lang"
-	if cliSet {
-		source = "--lang"
-	}
-	lang, notice := resolveLang(cfg.Self.Lang, source)
-	i18n.Set(lang)
-	if notice != "" {
-		fmt.Fprintln(os.Stderr, notice)
+	// The command line is already in force, so only the case where it was absent is handled here, and the language is settled before validation so that a validation failure reports in the selected language too
+	if !cliSet {
+		lang, notice := resolveLang(cfg.Self.Lang, "self.lang")
+		i18n.Set(lang)
+		if notice != "" {
+			fmt.Fprintln(os.Stderr, notice)
+		}
 	}
 
 	// 4. 校验配置

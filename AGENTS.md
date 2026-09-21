@@ -217,7 +217,21 @@ next person to read the code will actually look.
 
 Common types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`, `style`
 
-## 7. 针对 Agent 的工作方式建议 / Working style for agents
+### 7. 测试数据与示例值 / Test data and fixtures
+
+**代码与测试数据应该使用规范、清晰易懂的通用名称进行命名**
+
+- 示例值一律用 `example` / `Example` / `EXAMPLE` / `examples` 这类**通用占位**，
+  例如用户名用 `example`，域名用 `example.com`，仓库用 `username/repository`
+- **不得**使用真实域名、仓库名、用户名、设备序列号或使用开发机器上的绝对路径来编写代码/测试用例/注释，也不得使用**由它们截取或变体而来的名字**
+
+**Code and test data should use standard, clear and widely understood generic names**
+
+- Fixtures always use **generic placeholders** such as `example` / `Example` / `EXAMPLE` / `examples`,
+  e.g. `example` for a username, `example.com` for a domain, `username/repository` for a repository
+- **Never** use real domains, repository names, usernames, device serial numbers or absolute paths from a development machine in code, tests or comments, nor names **derived or truncated from them**
+
+## 8. 针对 Agent 的工作方式建议 / Working style for agents
 
 - **先说明再修改** —— 阐明目标与影响范围，涉及高风险变更时优先作出方案规划，之后再执行
 - **存在不确定时先行确认，禁止猜测**

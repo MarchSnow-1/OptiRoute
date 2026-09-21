@@ -1,0 +1,33 @@
+{
+  "self": {
+    "role": "edge",
+    "uuid": "00000000-0000-4000-8000-000000000001",
+    "addr": "203.0.113.10",
+    "group": "example-group",
+    "probe_mode": "mixed",
+    "probe_proto": "udp",
+    "probe_port": 20001,
+    "business_port": 18001,
+    "fake_ips": [
+      { "ip": "203.0.113.20", "proto": "udp", "port": 20002, "weight": 1.0, "rtt_fallback_ms": 5 },
+      { "ip": "203.0.113.21", "proto": "icmp", "weight": 1.1, "rtt_fallback_ms": 20 }
+    ],
+    "fake_ip_max_count": 2,
+    "fake_ip_check_ttl_s": 60,
+    "topo_cache_dir": "./cache",
+    "center_connect_retry_count": 3,
+    "center_connect_retry_interval_s": 5,
+    "monitor_probe_timeout_ms": 2000,
+    "max_bandwidth_mbps": 100,
+    "max_connections": 4096,
+    "log_level": "info"
+  },
+  "remote": {
+    "center_addr": "203.0.113.1",
+    "center_port": 7000,
+    "origin_addr": "203.0.113.30",
+    "origin_port": 18002,
+    "center_secret": "0123456789abcdef0123456789abcdef",
+    "comm_secret": "fedcba9876543210fedcba9876543210"
+  }
+}

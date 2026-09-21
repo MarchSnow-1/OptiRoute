@@ -1,0 +1,16 @@
+{
+  "self": {
+    "role": "server",
+    "uuid": "00000000-0000-4000-8000-000000000002",
+    "listen_addr": "127.0.0.1",
+    "listen_port": 18002,
+    "log_real_ip": true,
+    "forward_real_ip": false,
+    "log_level": "info"
+  },
+  "remote": {
+    "upstream_addr": "127.0.0.1",
+    "upstream_port": 18000,
+    "comm_secret": "fedcba9876543210fedcba9876543210"
+  }
+}

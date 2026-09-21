@@ -1,0 +1,15 @@
+{
+  "self": {
+    "role": "center",
+    "listen_addr": "",
+    "listen_port": 7000,
+    "comm_secret": "0123456789abcdef0123456789abcdef",
+    "secret_rotation_interval_s": 3600,
+    "max_edges": 1024,
+    "edge_register_rate_per_minute": 30,
+    "ping_interval_s": 30,
+    "collect_client_info": true,
+    "web_api_key": "example-api-key",
+    "log_level": "info"
+  }
+}

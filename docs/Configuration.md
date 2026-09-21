@@ -224,6 +224,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 - The queue holds 4096 records and a full one drops the new record and prints a drop-count notice ahead of the next record actually written, so a blocked output cannot hold up a business goroutine
 - At the default level each line reads `[level] date time message`, and with `log_level` set to `debug` the call site, shaped like `file.go:123`, appears after the time
 - Both log lines and start-up messages, including configuration load and validation failures, come from a message catalogue and follow `lang`
+- The boundary of that: only text this project owns comes from the catalogue, while the text of an error wrapped with `%w`, such as the "file not found" wording the runtime or the operating system produces, stays in the language of that runtime or system
 - A configuration load failure happens before `self.lang` is read, so that one failure reports in the language `--lang` selected, or `en-US` when the argument is absent
 - The queue is flushed before exit, while records still queued when the process dies are lost
 

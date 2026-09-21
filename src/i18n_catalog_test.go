@@ -30,13 +30,29 @@ import (
 // keyDeclPattern matches a declaration shaped like const KeyX i18n.Key = "pkg.key_name"
 var keyDeclPattern = regexp.MustCompile(`i18n\.Key\s*=\s*"([^"]+)"`)
 
-// verbPattern 匹配一个格式符并捕获其尾部字母，%% 不会被匹配，因此转义后的百分号不计入
-// verbPattern matches one format verb and captures its trailing letter, while %% is not matched so an escaped percent sign is not counted
-var verbPattern = regexp.MustCompile(`%[-+# 0-9.]*([a-zA-Z])`)
-
+// verbPattern 已不再用于格式符判定，格式符的判定见 verbsOf：正则的字符类无法把 %% 与紧随其后的空格区分开
 // plainLogCallPattern 匹配未走消息目录的日志调用，带 f 后缀的带键方法不在其中
+// 只锚定 logx. 前缀：加宽成任意接收者会把 err.Error() 与 func (l *Logger) Debug( 也算进来
+// 别名导入这条逃逸口由 TestLogxIsImportedWithoutAlias 单独堵住
+//
 // plainLogCallPattern matches a log call that bypasses the message catalogue, while the keyed methods carrying an f suffix are not part of it
+// It stays anchored on the logx. prefix: widening it to any receiver would also count err.Error() and a func (l *Logger) Debug( declaration
+// The alias-import escape hatch is closed separately by TestLogxIsImportedWithoutAlias
 var plainLogCallPattern = regexp.MustCompile(`logx\.(Debug|Info|Warn|Error)\(`)
+
+// literalKeyCallPattern 匹配以一个字符串字面量代替键的带键调用，形如 logx.Infof("edge.foo", 1) 或 errf("config.foo")
+// 未类型化的字符串常量可以直接赋给 i18n.Key，因此这种写法能编译，但它既不是键声明、也不是明文日志调用，两处检查都会漏掉它
+//
+// literalKeyCallPattern matches a keyed call that passes a string literal instead of a key, shaped like logx.Infof("edge.foo", 1) or errf("config.foo")
+// An untyped string constant may be passed where an i18n.Key is wanted, so this form compiles, while it is neither a key declaration nor a plain log call and therefore escapes both checks
+var literalKeyCallPattern = regexp.MustCompile(`\b(?:logx\.(?:Debugf|Infof|Warnf|Errorf)|errf)\(\s*"`)
+
+// aliasedLogxImportPattern 匹配对 logx 的别名导入或点导入，含单行 import 与分组 import 两种写法
+// 两者都会使以 logx. 为锚点的检查失效，因此单独拦下
+//
+// aliasedLogxImportPattern matches an aliased or dot import of logx, covering both the single-line import and the grouped form
+// Both defeat a check anchored on logx. and are therefore rejected on their own
+var aliasedLogxImportPattern = regexp.MustCompile(`(?m)^\s*(?:import\s+)?(?:[A-Za-z_][A-Za-z0-9_]*\s+|\.\s+)"github\.com/MarchSnow-1/OptiRoute/logx"`)
 
 // sourceFile 记录一个被扫描到的源文件
 // sourceFile records one source file that was scanned
@@ -99,15 +115,39 @@ func scanSources(t *testing.T) []sourceFile {
 	return files
 }
 
-// verbsOf 返回文本中的格式符尾部字母序列
-// verbsOf returns the sequence of trailing letters of the format verbs in a text
+// verbsOf 返回文本中的格式符尾部字母序列，判定口径与 fmt 一致
+// 用扫描而不是正则：正则的字符类若把空格算进标志位，%% 之后的空格加字母会被误判成一个格式符，使含转义百分号的文案判反
+// 扫描规则与 fmt 相同：%% 是一个转义、整体跳过；否则 % 之后允许标志位与宽度精度，紧跟一个字母才构成格式符
+//
+// verbsOf returns the sequence of trailing letters of the format verbs in a text, judged the way fmt does
+// It scans rather than matching a regular expression: a character class that counts a space as a flag would read the space and letter after %% as a verb, which judges text carrying an escaped percent sign the wrong way round
+// The scan follows the same rule as fmt: %% is an escape skipped as a whole, while a % admits flags, width and precision and forms a verb only when followed by a letter
 func verbsOf(text string) []string {
-	matches := verbPattern.FindAllStringSubmatch(text, -1)
-	out := make([]string, 0, len(matches))
-	for _, m := range matches {
-		out = append(out, m[1])
+	out := make([]string, 0, 4)
+	for i := 0; i < len(text); i++ {
+		if text[i] != '%' {
+			continue
+		}
+		if i+1 < len(text) && text[i+1] == '%' {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(text) && strings.ContainsRune("+-# 0.123456789", rune(text[j])) {
+			j++
+		}
+		if j < len(text) && isASCIILetter(text[j]) {
+			out = append(out, string(text[j]))
+			i = j
+		}
 	}
 	return out
+}
+
+// isASCIILetter 判断 c 是否为 ASCII 字母
+// isASCIILetter reports whether c is an ASCII letter
+func isASCIILetter(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // TestEveryDeclaredKeyIsRegistered 验证源码里声明的每个键都已进入登记表
@@ -242,17 +282,102 @@ func TestEveryMessageKeepsTheSameVerbSequence(t *testing.T) {
 
 // TestNoLogCallBypassesCatalogue 验证非测试源码里不剩未走消息目录的日志调用
 // 带 f 后缀的方法才从目录取文案，因此任何 logx.Info、logx.Warn、logx.Error、logx.Debug 都说明有一行日志不会随语言切换
+// 整行注释被跳过：注释里可能举出这类调用来说明为什么不该用
 //
 // TestNoLogCallBypassesCatalogue checks that no non-test source keeps a log call bypassing the message catalogue
 // Only the methods carrying an f suffix take their text from the catalogue, so any logx.Info, logx.Warn, logx.Error or logx.Debug marks a log line that cannot follow the language
+// A comments-only line is skipped, because a comment may name such a call while explaining why one is not used
 func TestNoLogCallBypassesCatalogue(t *testing.T) {
 	for _, f := range scanSources(t) {
 		if f.isTest {
 			continue
 		}
 		for i, line := range strings.Split(f.content, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "//") {
+				continue
+			}
 			if plainLogCallPattern.MatchString(line) {
-				t.Errorf("%s 第 %d 行仍在用未走目录的日志调用: %s / the line still logs outside the catalogue: %s", f.path, i+1, strings.TrimSpace(line), strings.TrimSpace(line))
+				t.Errorf("%s 第 %d 行仍在用未走目录的日志调用: %s / the line still logs outside the catalogue: %s", f.path, i+1, trimmed, trimmed)
+			}
+		}
+	}
+}
+
+// TestNoLiteralKeyAtCallSite 验证调用点不直接用字符串字面量充当消息键
+// 未类型化的字符串常量可以赋给 i18n.Key，因此这种写法能编译，却绕过了「键必须声明为常量」这一前提
+// 它既不会进入 TestEveryDeclaredKeyIsRegistered 的声明集合，也不会被 TestRegistryHasNoExtraKey 发现，运行时只会打印 !键! 标记
+//
+// TestNoLiteralKeyAtCallSite checks that no call site passes a bare string literal where a message key is wanted
+// An untyped string constant may be passed where an i18n.Key is wanted, so the form compiles while skipping the premise that a key has to be declared as a constant
+// It enters neither the declaration set of TestEveryDeclaredKeyIsRegistered nor the registry check of TestRegistryHasNoExtraKey, and at run time it only prints the !key! marker
+func TestNoLiteralKeyAtCallSite(t *testing.T) {
+	for _, f := range scanSources(t) {
+		if f.isTest {
+			continue
+		}
+		for i, line := range strings.Split(f.content, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "//") {
+				continue
+			}
+			if literalKeyCallPattern.MatchString(line) {
+				t.Errorf("%s 第 %d 行用字符串字面量充当消息键，应改为声明的常量: %s / the line passes a string literal as a message key instead of a declared constant: %s", f.path, i+1, trimmed, trimmed)
+			}
+		}
+	}
+}
+
+// TestLogxIsImportedWithoutAlias 验证 logx 未被别名导入或点导入
+// 别名导入会让以 logx. 为锚点的检查全部失效，点导入使调用点看起来像普通函数，两者都会让迁移后的回归长期不被发现
+//
+// TestLogxIsImportedWithoutAlias checks that logx is imported without an alias and not dot-imported
+// An aliased import defeats every check anchored on logx. and a dot import makes a call site look like a plain function, so either one would let a regression stay hidden long after the migration
+func TestLogxIsImportedWithoutAlias(t *testing.T) {
+	for _, f := range scanSources(t) {
+		if f.isTest {
+			continue
+		}
+		if m := aliasedLogxImportPattern.FindString(f.content); m != "" {
+			t.Errorf("%s 以别名或点导入方式引用 logx，会使门禁锚点失效: %s / the file imports logx under an alias or as a dot import, which defeats the gate anchor: %s", f.path, strings.TrimSpace(m), strings.TrimSpace(m))
+		}
+	}
+}
+
+// TestVerbsOfHandlesEscapedPercent 验证格式符扫描把 %% 当作转义处理，且能识别带宽度与精度的格式符
+// 回归点：此前的正则把空格算进标志位，使 50%% now 被读出一个并不存在的格式符，含转义百分号的文案会被判反
+//
+// TestVerbsOfHandlesEscapedPercent checks that the verb scan treats %% as an escape and still recognises a verb carrying width and precision
+// The regression it pins: the earlier regular expression counted a space as a flag, so 50%% now produced a verb that does not exist and text carrying an escaped percent sign was judged the wrong way round
+func TestVerbsOfHandlesEscapedPercent(t *testing.T) {
+	cases := map[string][]string{
+		"":                        nil,
+		"no verbs here":           nil,
+		"load 50%% now":           nil,
+		"progress 100%% done":     nil,
+		"已完成 50%% 的负载":            nil,
+		"%d files":                {"d"},
+		"%s and %d":               {"s", "d"},
+		"%d files, 50%% done":     {"d"},
+		"%.2f ms":                 {"f"},
+		"%6.3f ms":                {"f"},
+		"%q":                      {"q"},
+		"%%d should not count":    nil,
+		"%s%%":                    {"s"},
+		"50%% then %s":            {"s"},
+		"%v after %% and a space": {"v"},
+	}
+
+	for text, want := range cases {
+		got := verbsOf(text)
+		if len(got) != len(want) {
+			t.Errorf("verbsOf(%q) = %v，期望 %v / want %v", text, got, want, want)
+			continue
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Errorf("verbsOf(%q)[%d] = %q，期望 %q / want %q", text, i, got[i], want[i], want[i])
+				break
 			}
 		}
 	}

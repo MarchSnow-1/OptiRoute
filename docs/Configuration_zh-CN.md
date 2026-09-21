@@ -15,6 +15,8 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 
 > ⚠️ 安全警告：`--config-base64` 仅用于方便注入配置，base64 不是加密。完整配置（含密钥）会出现在进程命令行中，可能被本机其他用户或监控工具读取。生产环境请优先使用配置文件，并将配置文件权限限制为仅当前用户可读写。
 
+**配置文件怎么读:** JSON 必须含 `self` 段, 缺少该段时进程以「缺少 self 配置段」结束, 而 JSON 本身不合法时给的则是解码错误。**未知字段被静默忽略**, 因此把键名拼错会直接回落到默认值且没有任何提示: 发现某项设置似乎不生效时, 先按下面的表核对拼写。可选项缺失时按表中默认值填充, 取值不合法的项会在进程开始服务之前被报出
+
 如有修改建议欢迎开 [Issues](https://github.com/MarchSnow-1/OptiRoute/issues) 反馈
 
 ## 中心节点 (Center)
@@ -198,8 +200,8 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | center_connect_retry_count | int | 3 | edge 启动时连接中心节点的总尝试次数, 含第一次 |
 | center_connect_retry_interval_s | int | 5 | edge 每次重试间隔 (秒) |
 | connect_timeout_ms | int | 5000 | 连接超时 (毫秒) |
-| probe_timeout_ms | int | 1000 | client 探测超时 (毫秒) |
-| monitor_probe_timeout_ms | int | 2000 | edge Monitor 探测超时 (毫秒) |
+| probe_timeout_ms | int | 1000 | client 探测超时 (毫秒); edge 侧同一个值还决定「客户端回传 RTT 上界」, 该上界取 60 秒与该值两倍中的较大者, 因此默认 1000 时上界仍是 60 秒, 而取值超过 30000 才会把它抬高 |
+| monitor_probe_timeout_ms | int | 2000 | edge Monitor 探测超时 (毫秒); 同一个值也是 FAKE-IP 健康检查的超时, 因此 Monitor 与 FAKE-IP 两条路径都会读它 |
 | idle_timeout_s | int | 120 | edge 透传空闲超时 (秒), 0=不限制; 空闲以连接为单位判定, 两个方向都静默达到该时长才断开, 因此纯下行的长连接不会因上行静默被截断; 同一阈值也作为写方向的超时, 对端长期不接收数据时该方向的写会以超时失败而不是一直阻塞 |
 | max_connections | int | 4096 | edge 已建立转发连接数上限; 显式 0 = 不限制; 达到上限后新业务连接在验签通过后拒绝, 未通过验签的连接仍只占用握手并发闸 |
 | topo_sync_interval_s | int | 10 | edge 拓扑同步间隔 (秒) |

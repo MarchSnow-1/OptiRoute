@@ -15,6 +15,8 @@ How they are recognised: an argument must use the `--name=value` form with an eq
 
 > ⚠️ Security warning: `--config-base64` is only for convenient config injection; base64 is not encryption. The full config (including secrets) will appear in the process command line and may be visible to local users or monitoring tools. In production prefer a config file with restrictive permissions.
 
+**How the file is read:** the JSON has to carry a `self` section, and a file without one ends the process with the message that the section is missing, while a file that is not valid JSON reports the decoding error instead. Unknown fields are **ignored silently**, so a misspelled key falls back to its default without any warning: when a setting appears to have no effect, check the spelling against the table below first. Missing optional fields are filled with the defaults listed there, and the values that fail validation are the ones the process reports before it starts serving.
+
 For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/OptiRoute/issues).
 
 ## Center Node
@@ -195,8 +197,8 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | center_connect_retry_count | int | 3 | Total number of connect attempts towards the center at startup, the first one included |
 | center_connect_retry_interval_s | int | 5 | Edge interval between retries (seconds) |
 | connect_timeout_ms | int | 5000 | Connection timeout (milliseconds) |
-| probe_timeout_ms | int | 1000 | Client probe timeout (milliseconds) |
-| monitor_probe_timeout_ms | int | 2000 | Edge monitor probe timeout (milliseconds) |
+| probe_timeout_ms | int | 1000 | Client probe timeout (milliseconds); on the Edge the same value is also the basis of the upper bound placed on the RTT a client may report, which is the larger of 60 seconds and twice this value, so with the default of 1000 the bound stays at 60 seconds while a value above 30000 raises it |
+| monitor_probe_timeout_ms | int | 2000 | Edge monitor probe timeout (milliseconds); the same value is also the timeout of the FAKE-IP health check, which is why it is read by both the monitor and the FAKE-IP path |
 | idle_timeout_s | int | 120 | Edge relay idle timeout (seconds); 0 = no limit; idleness is judged per connection, so the connections are closed only once both directions have been silent for that long and a downstream-only long-lived connection is not truncated by upstream silence; the same threshold bounds the write direction, so a peer that accepts no data makes that direction fail instead of blocking for good |
 | max_connections | int | 4096 | Edge cap on established forwarding connections; an explicit 0 means no limit; a new business connection is refused once the cap is reached, and the refusal happens after the token check, so an unverified connection still only occupies the handshake gate |
 | topo_sync_interval_s | int | 10 | Edge topology sync interval (seconds) |

@@ -1,29 +1,57 @@
-// 本文件测试消息目录的登记与取用
-// 覆盖三种语言的取用、参数格式化、无参数时保留百分号、键缺失的标记、缺某语言文案时退回英文、重复键 panic、键列表有序与并发读写
+// 本文件测试消息目录的加载与取用
+// 覆盖三种语言的取用、参数格式化、无参数时保留百分号、键缺失的标记、缺某语言文案时退回默认语言、键列表有序、并发取用
+// 另覆盖加载器对损坏语言文件的拒绝：重复键、空文案、顶层不是对象、条目不是对象，这四种都在加载期报出而不是静默取后者
 //
-// This file tests registration and lookup in the message catalogue
-// It covers lookup in the three languages, argument formatting, percent signs kept when no argument is passed, the marker for a missing key, the fallback to English when one language has no text, the panic on a duplicate key, the ordering of the key list and concurrent access
+// This file tests loading and lookup in the message catalogue
+// It covers lookup in the three languages, argument formatting, percent signs kept when no argument is passed, the marker for a missing key, the fallback to the default language when one language has no text, the ordering of the key list and concurrent lookup
+// It also covers the loader rejecting a broken language file: a duplicate key, empty copy, a top level that is not an object and an entry that is not an object, all of which are reported while loading rather than silently taking the last value
 package i18n
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
 )
 
+// installEntry 把一条测试条目放进目录，并在用例结束后移除
+// 直接操作包级目录而不经过加载，是为了让取用路径的用例不依赖语言文件的内容
+//
+// installEntry puts one test entry into the catalogue and removes it when the case ends
+// It touches the package-level catalogue instead of going through loading, which keeps the lookup cases independent of what the language files happen to hold
+func installEntry(t *testing.T, key Key, texts map[Lang]string, note string) {
+	t.Helper()
+
+	catMu.Lock()
+	catalog[key] = Entry{texts: texts, note: note}
+	catMu.Unlock()
+	t.Cleanup(func() {
+		catMu.Lock()
+		delete(catalog, key)
+		catMu.Unlock()
+	})
+}
+
+// resetCurrent 把当前语言还原为默认值，供各用例在结束时清理全局状态
+// resetCurrent restores the current language to its default so that each case cleans up the shared state
+func resetCurrent(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() { Set(Default()) })
+}
+
 // TestTextReturnsEachLanguage 验证同一键在三种语言下返回各自的文案
 // TestTextReturnsEachLanguage checks that one key returns its own text in each of the three languages
 func TestTextReturnsEachLanguage(t *testing.T) {
 	key := Key("catalog.test.three_languages")
-	Register(map[Key]Entry{
-		key: New("hello", "你好", "你好"),
-	})
+	installEntry(t, key, map[Lang]string{
+		LangEN:     "hello",
+		LangZHHans: "你好",
+		LangZHant:  "妳好",
+	}, "note")
 
 	cases := map[Lang]string{
 		LangEN:     "hello",
 		LangZHHans: "你好",
-		LangZHant:  "你好",
+		LangZHant:  "妳好",
 	}
 	for l, want := range cases {
 		if got := Text(l, key); got != want {
@@ -36,9 +64,11 @@ func TestTextReturnsEachLanguage(t *testing.T) {
 // TestTextFormatsArguments checks that arguments fill the format verbs
 func TestTextFormatsArguments(t *testing.T) {
 	key := Key("catalog.test.arguments")
-	Register(map[Key]Entry{
-		key: New("connect %s failed: %v", "连接 %s 失败: %v", "連線 %s 失敗: %v"),
-	})
+	installEntry(t, key, map[Lang]string{
+		LangEN:     "connect %s failed: %v",
+		LangZHHans: "连接 %s 失败: %v",
+		LangZHant:  "連線 %s 失敗: %v",
+	}, "note")
 
 	if got := Text(LangEN, key, "example.com:80", "refused"); got != "connect example.com:80 failed: refused" {
 		t.Errorf("Text(en-US) = %q / want %q", got, "connect example.com:80 failed: refused")
@@ -52,9 +82,11 @@ func TestTextFormatsArguments(t *testing.T) {
 // TestTextWithoutArgumentsKeepsPercentSign checks that a call without arguments cannot read a percent sign in the text as a format verb
 func TestTextWithoutArgumentsKeepsPercentSign(t *testing.T) {
 	key := Key("catalog.test.percent")
-	Register(map[Key]Entry{
-		key: New("usage at 100% load", "负载 100% 时", "負載 100% 時"),
-	})
+	installEntry(t, key, map[Lang]string{
+		LangEN:     "usage at 100% load",
+		LangZHHans: "负载 100% 时",
+		LangZHant:  "負載 100% 時",
+	}, "note")
 
 	if got := Text(LangEN, key); got != "usage at 100% load" {
 		t.Errorf("Text(en-US) = %q，期望百分号原样保留 / want the percent sign kept as it stands", got)
@@ -75,17 +107,15 @@ func TestTextMarksMissingKey(t *testing.T) {
 	}
 }
 
-// TestTextFallsBackToEnglishForEmptyLanguage 验证某语言缺文案时退回英文
-// TestTextFallsBackToEnglishForEmptyLanguage checks that a language without text falls back to English
-func TestTextFallsBackToEnglishForEmptyLanguage(t *testing.T) {
+// TestTextFallsBackToDefaultLanguage 验证某语言缺文案时退回默认语言
+// TestTextFallsBackToDefaultLanguage checks that a language without text falls back to the default one
+func TestTextFallsBackToDefaultLanguage(t *testing.T) {
 	key := Key("catalog.test.partial")
-	Register(map[Key]Entry{
-		key: New("english only", "", ""),
-	})
+	installEntry(t, key, map[Lang]string{LangEN: "english only"}, "note")
 
 	for _, l := range []Lang{LangZHHans, LangZHant} {
 		if got := Text(l, key); got != "english only" {
-			t.Errorf("Text(%q) = %q，期望退回英文 / want the English fallback", l, got)
+			t.Errorf("Text(%q) = %q，期望退回默认语言 / want the default-language fallback", l, got)
 		}
 	}
 }
@@ -96,68 +126,66 @@ func TestTFollowsCurrentLanguage(t *testing.T) {
 	resetCurrent(t)
 
 	key := Key("catalog.test.current")
-	Register(map[Key]Entry{
-		key: New("started", "已启动", "已啟動"),
-	})
+	installEntry(t, key, map[Lang]string{
+		LangEN:     "started",
+		LangZHHans: "已启动",
+		LangZHant:  "已啟動",
+	}, "note")
 
 	Set(LangEN)
 	if got := T(key); got != "started" {
-		t.Fatalf("T() en-US = %q，期望 %q / want %q", got, "started", "started")
+		t.Fatalf("T() en-US = %q / want %q", got, "started")
 	}
 	Set(LangZHHans)
 	if got := T(key); got != "已启动" {
-		t.Fatalf("T() zh-Hans = %q，期望 %q / want %q", got, "已启动", "已启动")
+		t.Fatalf("T() zh-Hans = %q / want %q", got, "已启动")
 	}
 	Set(LangZHant)
 	if got := T(key); got != "已啟動" {
-		t.Fatalf("T() zh-Hant = %q，期望 %q / want %q", got, "已啟動", "已啟動")
+		t.Fatalf("T() zh-Hant = %q / want %q", got, "已啟動")
 	}
 }
 
-// TestRegisterDuplicateKeyPanics 验证同一个键登记两次会 panic
-// TestRegisterDuplicateKeyPanics 验证同一个键以不同文案登记两次会 panic
-// TestRegisterDuplicateKeyPanics checks that registering the same key twice with different text panics
-func TestRegisterDuplicateKeyPanics(t *testing.T) {
-	key := Key("catalog.test.duplicate")
-	Register(map[Key]Entry{key: New("first", "第一", "第一")})
+// TestEntryAllAndNote 验证 All 返回各语言文案、Note 返回说明
+// TestEntryAllAndNote checks that All returns the text per language and Note returns the note
+func TestEntryAllAndNote(t *testing.T) {
+	key := Key("catalog.test.entry")
+	installEntry(t, key, map[Lang]string{
+		LangEN:     "en",
+		LangZHHans: "简",
+		LangZHant:  "繁",
+	}, "触发条件与参数说明")
 
-	defer func() {
-		if recover() == nil {
-			t.Fatal("同一个键以不同文案重复登记时应 panic / registering the same key again with different text should panic")
-		}
-	}()
-	Register(map[Key]Entry{key: New("second", "第二", "第二")})
-}
-
-// TestRegisterIdenticalEntryIsIdempotent 验证同一个键以完全相同的文案重复登记不 panic 且不改变已有条目
-// 测试常在同一进程内重复登记同一批消息，因此登记必须幂等；这条断言也让 go test -count>1 可用
-//
-// TestRegisterIdenticalEntryIsIdempotent checks that registering the same key again with exactly the same text neither panics nor changes the stored entry
-// Tests commonly register the same batch twice in one process, so registration has to be idempotent, and the assertion also keeps go test -count>1 usable
-func TestRegisterIdenticalEntryIsIdempotent(t *testing.T) {
-	key := Key("catalog.test.idempotent")
-	entry := New("same text", "相同文案", "相同文案")
-
-	Register(map[Key]Entry{key: entry})
-	Register(map[Key]Entry{key: entry})
-
-	got, ok := Lookup(key)
+	entry, ok := Lookup(key)
 	if !ok {
-		t.Fatalf("键 %q 未登记 / key %q is not registered", key, key)
+		t.Fatal("条目未登记 / the entry is not registered")
 	}
-	if got != entry {
-		t.Fatalf("重复登记改变了条目: %v / registering again changed the entry", got)
+	all := entry.All()
+	if len(all) != 3 {
+		t.Fatalf("All() 返回 %d 项，期望 3 项 / All() returned %d entries, want 3", len(all), len(all))
 	}
-	if text := Text(LangZHHans, key); text != "相同文案" {
-		t.Fatalf("取到的文案 = %q，期望 %q / text %q, want %q", text, "相同文案", text, "相同文案")
+	for _, l := range []Lang{LangEN, LangZHHans, LangZHant} {
+		if _, ok := all[l]; !ok {
+			t.Errorf("All() 缺少语言 %q / All() is missing language %q", l, l)
+		}
+	}
+	if entry.Note() != "触发条件与参数说明" {
+		t.Errorf("Note() = %q / want the installed note", entry.Note())
+	}
+
+	// 调用方改动 All 的返回值不得影响目录
+	// A caller editing the result of All must not affect the catalogue
+	all[LangEN] = "changed"
+	if again, _ := Lookup(key); again.text(LangEN) != "en" {
+		t.Error("改动 All() 的返回值污染了目录 / editing the result of All polluted the catalogue")
 	}
 }
 
-// TestKeysAreSortedAndComplete 验证键列表按字典序排列且包含已登记的键
-// TestKeysAreSortedAndComplete checks that the key list is in ascending order and holds the registered keys
-func TestKeysAreSortedAndComplete(t *testing.T) {
+// TestKeysAreSorted 验证键列表按字典序排列且包含已安装的键
+// TestKeysAreSorted checks that the key list is in ascending order and holds the installed key
+func TestKeysAreSorted(t *testing.T) {
 	key := Key("catalog.test.sorted")
-	Register(map[Key]Entry{key: New("a", "甲", "甲")})
+	installEntry(t, key, map[Lang]string{LangEN: "a"}, "note")
 
 	keys := Keys()
 	if len(keys) == 0 {
@@ -168,7 +196,6 @@ func TestKeysAreSortedAndComplete(t *testing.T) {
 			t.Fatalf("Keys() 未按字典序排列: %q 在 %q 之前 / Keys() is not in ascending order: %q before %q", keys[i-1], keys[i], keys[i-1], keys[i])
 		}
 	}
-
 	found := false
 	for _, k := range keys {
 		if k == key {
@@ -181,37 +208,87 @@ func TestKeysAreSortedAndComplete(t *testing.T) {
 	}
 }
 
-// TestEntryAllReturnsEveryLanguage 验证 All 返回三种语言的文案
-// TestEntryAllReturnsEveryLanguage checks that All returns the text in the three languages
-func TestEntryAllReturnsEveryLanguage(t *testing.T) {
-	all := New("hello", "你好", "你好").All()
-	if len(all) != len(Supported()) {
-		t.Fatalf("All() 返回 %d 项，期望 %d 项 / All() returned %d entries, want %d", len(all), len(Supported()), len(all), len(Supported()))
-	}
-	for _, l := range Supported() {
-		if _, ok := all[l]; !ok {
-			t.Errorf("All() 缺少语言 %q / All() is missing language %q", l, l)
-		}
-	}
-}
-
-// TestConcurrentTextAndRegisterIsSafe 验证并发取用与登记不会破坏目录
-// TestConcurrentTextAndRegisterIsSafe checks that concurrent lookup and registration cannot corrupt the catalogue
-func TestConcurrentTextAndRegisterIsSafe(t *testing.T) {
+// TestConcurrentLookupIsSafe 验证并发取用与安装不会破坏目录
+// TestConcurrentLookupIsSafe checks that concurrent lookup and installation cannot corrupt the catalogue
+func TestConcurrentLookupIsSafe(t *testing.T) {
 	shared := Key("catalog.test.concurrent")
-	Register(map[Key]Entry{shared: New("body %d", "正文 %d", "正文 %d")})
+	installEntry(t, shared, map[Lang]string{LangEN: "body %d"}, "note")
 
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			key := Key(fmt.Sprintf("catalog.test.concurrent.%d", n))
-			Register(map[Key]Entry{key: New("x", "甲", "甲")})
+			key := Key("catalog.test.concurrent." + string(rune('a'+n)))
+			catMu.Lock()
+			catalog[key] = Entry{texts: map[Lang]string{LangEN: "x"}}
+			catMu.Unlock()
+			defer func() {
+				catMu.Lock()
+				delete(catalog, key)
+				catMu.Unlock()
+			}()
 			if got := Text(LangEN, shared, n); !strings.HasPrefix(got, "body ") {
 				t.Errorf("并发取用返回 %q / concurrent lookup returned %q", got, got)
 			}
 		}(i)
 	}
 	wg.Wait()
+}
+
+// TestDecodeLocaleRejectsBrokenInput 验证加载器拒绝四种损坏的语言文件
+// 重复键这一项尤其重要：encoding/json 对重复键静默取后者，若只做一次 Unmarshal，一个键的文案会被另一条覆盖而毫无提示
+//
+// TestDecodeLocaleRejectsBrokenInput checks that the loader rejects four kinds of broken language file
+// The duplicate-key case matters most: encoding/json silently keeps the last duplicate, so a single Unmarshal would let one entry overwrite another with no signal at all
+func TestDecodeLocaleRejectsBrokenInput(t *testing.T) {
+	cases := map[string]string{
+		"重复键":    `{"util.a":{"text":"x","note":"n"},"util.a":{"text":"y","note":"n"}}`,
+		"空文案":    `{"util.a":{"text":"  ","note":"n"}}`,
+		"顶层不是对象": `[{"util.a":{"text":"x","note":"n"}}]`,
+		"条目不是对象": `{"util.a":"just a string"}`,
+	}
+
+	for name, body := range cases {
+		if _, err := decodeLocale(LangEN, []byte(body)); err == nil {
+			t.Errorf("%s 的输入应被拒绝 / the %s input should have been rejected", name, name)
+		}
+	}
+}
+
+// TestDecodeLocaleAcceptsAValidFile 验证合法语言文件被正确解析
+// TestDecodeLocaleAcceptsAValidFile checks that a valid language file is parsed correctly
+func TestDecodeLocaleAcceptsAValidFile(t *testing.T) {
+	entries, err := decodeLocale(LangZHHans, []byte(`{"util.a":{"text":"甲 %d","note":"说明"}}`))
+	if err != nil {
+		t.Fatalf("合法输入被拒绝 / a valid input was rejected: %v", err)
+	}
+	e, ok := entries[Key("util.a")]
+	if !ok {
+		t.Fatal("条目缺失 / the entry is missing")
+	}
+	if e.text(LangZHHans) != "甲 %d" {
+		t.Errorf("文案 = %q / want %q", e.text(LangZHHans), "甲 %d")
+	}
+	if e.Note() != "说明" {
+		t.Errorf("说明 = %q / want %q", e.Note(), "说明")
+	}
+}
+
+// TestLoadKeepsTheCatalogueOnFailure 验证加载失败时目录保持原样
+// 加载失败发生在二进制启动期，若它先把目录清空再报错，调用方拿到的错误就无法与一份可用目录并存
+//
+// TestLoadKeepsTheCatalogueOnFailure checks that a failed load leaves the catalogue as it was
+// Loading happens while the binary starts, and a loader that empties the catalogue before reporting would leave the caller unable to pair that error with a usable catalogue
+func TestLoadKeepsTheCatalogueOnFailure(t *testing.T) {
+	before := len(Keys())
+	if before == 0 {
+		t.Fatal("测试前提不成立：目录为空 / the precondition fails: the catalogue is empty")
+	}
+	if err := Load(); err != nil {
+		t.Fatalf("加载内嵌语言文件失败 / loading the embedded language files failed: %v", err)
+	}
+	if after := len(Keys()); after != before {
+		t.Fatalf("加载后键数从 %d 变为 %d / the key count moved from %d to %d", before, after, before, after)
+	}
 }

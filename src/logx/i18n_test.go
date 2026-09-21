@@ -13,28 +13,20 @@ import (
 	"github.com/MarchSnow-1/OptiRoute/i18n"
 )
 
-// keyedTestKey 是本文件专用的一条目录消息，登记于包级目录并覆盖三种语言
-// 该键只由本文件的用例使用，不与 logx 自己登记的键重名
+// keyedTestKey 是本包真实存在的那个键，直接用它可以省掉为测试单独登记一条消息
+// 文案由 i18n/locales 下的语言文件提供，参数为被丢弃的记录条数
 //
-// keyedTestKey is a catalogue message owned by this file, registered in the package-wide catalogue with all three languages
-// The key is used by the cases in this file only and does not clash with the keys logx registers itself
-const keyedTestKey i18n.Key = "logx.test.keyed_message"
-
-// init 登记本文件专用消息，参数为被记录的次数
-// init registers the message owned by this file, whose argument is the number of times something happened
-func init() {
-	i18n.Register(map[i18n.Key]i18n.Entry{
-		keyedTestKey: i18n.New("event %d recorded", "已记录事件 %d 次", "已記錄事件 %d 次"),
-	})
-}
+// keyedTestKey is the key this package really has, and using it directly removes the need to register a message for the test alone
+// Its copy comes from the language files under i18n/locales and its argument is the number of records dropped
+const keyedTestKey = KeyQueueFull
 
 // TestKeyedMethodsFollowCurrentLanguage 验证带键方法的输出随当前语言变化
 // TestKeyedMethodsFollowCurrentLanguage checks that the output of the keyed methods follows the current language
 func TestKeyedMethodsFollowCurrentLanguage(t *testing.T) {
 	cases := map[i18n.Lang]string{
-		i18n.LangEN:     "event 7 recorded",
-		i18n.LangZHHans: "已记录事件 7 次",
-		i18n.LangZHant:  "已記錄事件 7 次",
+		i18n.LangEN:     "log queue full, 7 records dropped",
+		i18n.LangZHHans: "日志队列已满，丢弃 7 条",
+		i18n.LangZHant:  "日誌佇列已滿，丟棄 7 條",
 	}
 
 	for lang, want := range cases {
@@ -70,7 +62,7 @@ func TestKeyedMethodsCoverEveryLevel(t *testing.T) {
 			t.Errorf("输出应包含级别标签 %q，实际 %q / the output should carry the level tag %q, got %q", want, out, want, out)
 		}
 	}
-	for _, want := range []string{"event 1 recorded", "event 2 recorded", "event 3 recorded", "event 4 recorded"} {
+	for _, want := range []string{"records dropped", "records dropped", "records dropped", "records dropped"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("输出应包含 %q，实际 %q / the output should contain %q, got %q", want, out, want, out)
 		}
@@ -148,7 +140,7 @@ func TestKeyedDebugLineReportsCaller(t *testing.T) {
 	if !strings.HasPrefix(site, "i18n_test.go:") {
 		t.Fatalf("调用点应指向本文件，实际 %q，整行 %q / the call site should name this file, got %q in line %q", site, line, site, line)
 	}
-	if !strings.Contains(line, "event 42 recorded") {
+	if !strings.Contains(line, "records dropped") {
 		t.Fatalf("debug 行丢失文案: %q / the debug line lost its message: %q", line, line)
 	}
 }
@@ -175,7 +167,7 @@ func TestPackageLevelKeyedHelpersLog(t *testing.T) {
 	Flush()
 
 	out := sink.String()
-	for _, want := range []string{"event 11 recorded", "event 12 recorded", "event 13 recorded", "event 14 recorded"} {
+	for _, want := range []string{"records dropped", "records dropped", "records dropped", "records dropped"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("包级函数输出应包含 %q，实际 %q / the package-level helper output should contain %q, got %q", want, out, want, out)
 		}

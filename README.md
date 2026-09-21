@@ -141,6 +141,19 @@ Runnable example configurations for all four roles live in [examples/](examples/
 
 Log lines and start-up messages default to English. Set `--lang=en-US|zh-Hans|zh-Hant` on the command line, or the `self.lang` field in the configuration, to switch language; the command line wins when both are given. A tag outside those three falls back to `en-US` and prints one notice on standard error instead of stopping start-up, so a mistyped tag cannot block a run. Configuration load and validation failures follow the same language, and a failed load uses the language `--lang` selected because `self.lang` is not readable at that point.
 
+The copy itself lives in `src/i18n/locales/`, one JSON file per language named after its tag, and it is embedded into the binary:
+
+```json
+{
+  "util.frame_too_large": {
+    "text": "frame too large: %d",
+    "note": "the frame to write exceeds MaxFrameSize; the check runs before the header is written, so no byte reaches the connection"
+  }
+}
+```
+
+`text` is the message and `note` states when it is emitted and what its arguments are, in English in every language file so that the explanation has one source rather than one per language; JSON carries no comments, which is why that field exists. Adding a language is one file in that directory plus one entry in the supported list, with no change to the lookup path; adding a message is one JSON entry plus one Go constant. The gate in `src/i18n_catalog_test.go` keeps the three files and the declared keys in step, so a missing translation or a stray key fails the tests rather than showing up as a `!key!` marker in a log line.
+
 ## Protocol and Upgrade
 
 - [Protocol Reference](docs/PROTOCOL.md) — the wire format of the bootstrap and business connections, length frames, control-plane message types and the handshake towards a Server Agent

@@ -7,13 +7,6 @@ package i18n
 
 import "testing"
 
-// resetCurrent 把当前语言还原为默认值，供各用例在结束时清理全局状态
-// resetCurrent restores the current language to its default so that each case cleans up the shared state
-func resetCurrent(t *testing.T) {
-	t.Helper()
-	t.Cleanup(func() { Set(Default()) })
-}
-
 // TestDefaultIsEnglish 验证未指定语言时的取值为 en-US
 // TestDefaultIsEnglish checks that the value used when no language is given is en-US
 func TestDefaultIsEnglish(t *testing.T) {

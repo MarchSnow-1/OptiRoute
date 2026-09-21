@@ -1,10 +1,8 @@
-// 本文件登记 auth 包用到的消息键与其三种语言文案
+// 本文件声明 auth 包用到的消息键，各语言的文案放在 i18n/locales 下的语言文件里
 // 键名按「包名.用途」命名，前缀 [UpdateSecret] 与 [VerifyRouteToken] 保留在文案里，使日志仍能直接指出产生它的函数
-// 在 init 中一次性登记，登记完成后目录只被读取
 //
-// This file registers the message keys auth uses together with their text in three languages
+// This file declares the message keys auth uses, and the copy of each language lives in the language files under i18n/locales
 // A key is named package.purpose, while the prefixes [UpdateSecret] and [VerifyRouteToken] stay inside the text so that a log line still names the function that produced it
-// Registration happens once in init and the catalogue is only read afterwards
 package auth
 
 import (
@@ -105,101 +103,6 @@ const (
 	KeyTokenEnvelopeMarshalFailed i18n.Key = "auth.token_envelope_marshal_failed"
 )
 
-// messages 保存本包的消息，键为 i18n.Key，值为三种语言下的文案
-// messages holds this package's messages, keyed by i18n.Key with the text in three languages
-var messages = map[i18n.Key]i18n.Entry{
-	KeySecretPushIgnored: i18n.New(
-		"[UpdateSecret] ignoring an invalid or older secret push version:%d current:%d",
-		"[UpdateSecret] 忽略非法或旧版本 secret push version:%d current:%d",
-		"[UpdateSecret] 忽略非法或舊版本 secret push version:%d current:%d",
-	),
-	KeySecretUpdated: i18n.New(
-		"AuthManager secret updated fingerprint:%s",
-		"AuthManager secret 已更新 fingerprint:%s",
-		"AuthManager secret 已更新 fingerprint:%s",
-	),
-	KeyTokenFormatUnknown: i18n.New(
-		"[VerifyRouteToken] unknown token format",
-		"[VerifyRouteToken] 未知 token 格式",
-		"[VerifyRouteToken] 未知 token 格式",
-	),
-	KeyTokenBase64Failed: i18n.New(
-		"[VerifyRouteToken] token base64 decoding failed err:%v",
-		"[VerifyRouteToken] token base64 解码失败 err:%v",
-		"[VerifyRouteToken] token base64 解碼失敗 err:%v",
-	),
-	KeyTokenJSONFailed: i18n.New(
-		"[VerifyRouteToken] token JSON decoding failed err:%v",
-		"[VerifyRouteToken] token JSON 解析失败 err:%v",
-		"[VerifyRouteToken] token JSON 解析失敗 err:%v",
-	),
-	KeyTokenVersionUnknown: i18n.New(
-		"[VerifyRouteToken] unknown token version:%d",
-		"[VerifyRouteToken] 未知 token 版本:%d",
-		"[VerifyRouteToken] 未知 token 版本:%d",
-	),
-	KeyTokenTargetMismatch: i18n.New(
-		"[VerifyRouteToken] token target UUID mismatch",
-		"[VerifyRouteToken] token 目标 UUID 不匹配",
-		"[VerifyRouteToken] token 目標 UUID 不匹配",
-	),
-	KeyTokenIPMismatch: i18n.New(
-		"[VerifyRouteToken] token client IP mismatch token_ip:%s conn_ip:%s",
-		"[VerifyRouteToken] token 客户端 IP 不匹配 token_ip:%s conn_ip:%s",
-		"[VerifyRouteToken] token 用戶端 IP 不匹配 token_ip:%s conn_ip:%s",
-	),
-	KeyTokenTSMismatch: i18n.New(
-		"[VerifyRouteToken] token timestamp differs from the first packet",
-		"[VerifyRouteToken] token 时间戳与首包不一致",
-		"[VerifyRouteToken] token 時間戳與首包不一致",
-	),
-	KeyTokenWindowExpired: i18n.New(
-		"[VerifyRouteToken] time window exceeded now:%d ts:%d ttl:%d",
-		"[VerifyRouteToken] 时间窗口超期 now:%d ts:%d ttl:%d",
-		"[VerifyRouteToken] 時間窗口超期 now:%d ts:%d ttl:%d",
-	),
-	KeyTokenClaimsMarshalFailed: i18n.New(
-		"[VerifyRouteToken] marshalling claims failed err:%v",
-		"[VerifyRouteToken] 序列化 claims 失败 err:%v",
-		"[VerifyRouteToken] 序列化 claims 失敗 err:%v",
-	),
-	KeyTokenSignatureFailed: i18n.New(
-		"[VerifyRouteToken] signature verification failed target:%s issuer:%s",
-		"[VerifyRouteToken] 验签失败 target:%s issuer:%s",
-		"[VerifyRouteToken] 驗簽失敗 target:%s issuer:%s",
-	),
-	KeyTokenNonceReplay: i18n.New(
-		"[VerifyRouteToken] nonce replay rejected target:%s nonce:%s",
-		"[VerifyRouteToken] nonce 重放拒绝 target:%s nonce:%s",
-		"[VerifyRouteToken] nonce 重放拒絕 target:%s nonce:%s",
-	),
-	KeyTokenSecretUninitialized: i18n.New(
-		"the secret has not been initialised",
-		"secret 尚未初始化",
-		"secret 尚未初始化",
-	),
-	KeyTokenUUIDsRequired: i18n.New(
-		"targetUUID and issuerUUID may not be empty",
-		"targetUUID、issuerUUID 均不能为空",
-		"targetUUID、issuerUUID 均不能為空",
-	),
-	KeyTokenNonceGenerateFailed: i18n.New(
-		"generating the nonce failed: %w",
-		"生成 nonce 失败: %w",
-		"產生 nonce 失敗: %w",
-	),
-	KeyTokenClaimsEncodeFailed: i18n.New(
-		"marshalling the token claims failed: %w",
-		"序列化 token claims 失败: %w",
-		"序列化 token claims 失敗: %w",
-	),
-	KeyTokenEnvelopeMarshalFailed: i18n.New(
-		"marshalling the token failed: %w",
-		"序列化 token 失败: %w",
-		"序列化 token 失敗: %w",
-	),
-}
-
 // errf 按消息键取当前语言的格式串并交给 fmt.Errorf
 // 取的是未填充的格式串而不是已渲染的文本，使 %w 仍由 fmt.Errorf 处理，错误链得以保留
 //
@@ -207,10 +110,4 @@ var messages = map[i18n.Key]i18n.Entry{
 // The unfilled format string is used rather than rendered text, so a %w verb is still handled by fmt.Errorf and the error chain survives
 func errf(key i18n.Key, args ...any) error {
 	return fmt.Errorf(i18n.T(key), args...)
-}
-
-// init 登记本包的消息，使任何日志调用之前目录已经就绪
-// init registers this package's messages so that the catalogue is ready before any logging call
-func init() {
-	i18n.Register(messages)
 }

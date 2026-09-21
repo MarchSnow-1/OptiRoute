@@ -1,15 +1,19 @@
 // 本文件对整个消息目录做一次跨包收口校验，是 i18n 的兜底门禁
-// 校验四件事：源码里声明的每个键都已登记、登记表里没有多余键、每条消息三种语言齐备且格式符序列一致、非测试源码里不剩未走目录的日志调用
-// 键的前缀还必须与其所在包的目录名一致，使日志里出现一个键就能看出它属于哪个包
-// 放在 package main 下是因为它需要 import 全部角色包，从而触发各包 init 里的登记
+// 文案的唯一来源是 i18n/locales 下的语言文件，键由各包以 Go 常量声明，本文件校验两者严格一一对应
+// 校验项：三语键集合一致、每条三语齐备且格式符序列一致、每条带非空说明、语言文件里无重复键、声明的键都有条目、条目都有声明的键、键前缀等于包目录名
+// 另校验迁移纪律：非测试源码里不剩未走目录的日志调用、没有用字符串字面量充当键、logx 未被别名或点导入
+// 放在 package main 下是因为它需要按模块根目录扫描源码，而测试的工作目录就是该目录
 //
 // This file runs one cross-package check over the whole message catalogue and acts as the fallback gate for i18n
-// It checks four things: every key declared in the source is registered, the registry holds no extra key, every message carries all three languages with the same verb sequence, and no non-test source keeps a log call that bypasses the catalogue
-// A key's prefix also has to match the directory name of its package, so seeing a key in a log line already shows which package owns it
-// It sits in package main because it imports every role package and therefore triggers the registration in each init
+// The single source of the copy is the language files under i18n/locales, while the keys are declared as Go constants by each package, and this file checks that the two correspond one to one
+// It checks that the three language files carry the same key set, that every entry has all three languages with the same verb sequence, that every entry carries a non-empty note, that no key repeats inside one language file, that every declared key has an entry, that every entry has a declared key, and that a key prefix equals its package directory
+// It also checks the migration discipline: no non-test source keeps a log call that bypasses the catalogue, no string literal stands in for a key, and logx is imported under no alias
+// It sits in package main because it has to walk the sources from the module root, which is the working directory of the test
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -26,16 +30,17 @@ import (
 	_ "github.com/MarchSnow-1/OptiRoute/logx"
 )
 
+// localeDir 是语言文件相对模块根目录的路径
+// localeDir is the path of the language files relative to the module root
+const localeDir = "i18n/locales"
+
 // keyDeclPattern 匹配形如 const KeyX i18n.Key = "pkg.key_name" 的声明
-// 类型部分的 (?:i18n\.)? 覆盖 i18n 包自身的声明：该包不能写 i18n.Key，否则等于自我引用，因此那里的类型只能写成裸 Key
-// 前缀里的点号是字面量，KeyX 这类常量名不会匹配，捕获组始终只有一个，调用点的 m[1] 因此在两种写法下都取到键名
+// 类型部分的 (?:i18n\.)? 覆盖 i18n 包自身可能出现的裸 Key，前导 const 覆盖单行声明
 //
 // keyDeclPattern matches a declaration shaped like const KeyX i18n.Key = "pkg.key_name"
-// The (?:i18n\.)? in the type part covers the declaration inside the i18n package itself: that package cannot spell i18n.Key without referencing itself, so the type there is written as a bare Key
-// The dot in the prefix is a literal and a constant name such as KeyX matches neither form, so there is exactly one capture group and m[1] at the call sites reads the key name either way
-var keyDeclPattern = regexp.MustCompile(`(?:i18n\.)?Key\s*=\s*"([^"]+)"`)
+// The optional i18n. qualifier covers a bare Key inside the i18n package itself, and the leading const covers a single-line declaration
+var keyDeclPattern = regexp.MustCompile(`(?m)^\s*(?:const\s+)?[A-Za-z_][A-Za-z0-9_]*\s+(?:i18n\.)?Key\s*=\s*"([^"]+)"`)
 
-// verbPattern 已不再用于格式符判定，格式符的判定见 verbsOf：正则的字符类无法把 %% 与紧随其后的空格区分开
 // plainLogCallPattern 匹配未走消息目录的日志调用，带 f 后缀的带键方法不在其中
 // 只锚定 logx. 前缀：加宽成任意接收者会把 err.Error() 与 func (l *Logger) Debug( 也算进来
 // 别名导入这条逃逸口由 TestLogxIsImportedWithoutAlias 单独堵住
@@ -46,17 +51,15 @@ var keyDeclPattern = regexp.MustCompile(`(?:i18n\.)?Key\s*=\s*"([^"]+)"`)
 var plainLogCallPattern = regexp.MustCompile(`logx\.(Debug|Info|Warn|Error)\(`)
 
 // literalKeyCallPattern 匹配以一个字符串字面量代替键的带键调用，形如 logx.Infof("edge.foo", 1) 或 errf("config.foo")
-// 未类型化的字符串常量可以直接赋给 i18n.Key，因此这种写法能编译，但它既不是键声明、也不是明文日志调用，两处检查都会漏掉它
+// 未类型化的字符串常量可以赋给 i18n.Key 并直接作为 Key 参数传入，因此这种写法能编译，却绕过了「键必须是声明过的常量」这一前提
 //
 // literalKeyCallPattern matches a keyed call that passes a string literal instead of a key, shaped like logx.Infof("edge.foo", 1) or errf("config.foo")
-// An untyped string constant may be passed where an i18n.Key is wanted, so this form compiles, while it is neither a key declaration nor a plain log call and therefore escapes both checks
+// An untyped string constant may be passed where an i18n.Key is wanted, so this form compiles while skipping the premise that a key has to be a declared constant
 var literalKeyCallPattern = regexp.MustCompile(`\b(?:logx\.(?:Debugf|Infof|Warnf|Errorf)|errf)\(\s*"`)
 
 // aliasedLogxImportPattern 匹配对 logx 的别名导入或点导入，含单行 import 与分组 import 两种写法
-// 两者都会使以 logx. 为锚点的检查失效，因此单独拦下
 //
 // aliasedLogxImportPattern matches an aliased or dot import of logx, covering both the single-line import and the grouped form
-// Both defeat a check anchored on logx. and are therefore rejected on their own
 var aliasedLogxImportPattern = regexp.MustCompile(`(?m)^\s*(?:import\s+)?(?:[A-Za-z_][A-Za-z0-9_]*\s+|\.\s+)"github\.com/MarchSnow-1/OptiRoute/logx"`)
 
 // sourceFile 记录一个被扫描到的源文件
@@ -120,13 +123,103 @@ func scanSources(t *testing.T) []sourceFile {
 	return files
 }
 
+// localeEntry 是一个语言文件里的一条记录
+// localeEntry is one record inside a language file
+type localeEntry struct {
+	Text string `json:"text"`
+	Note string `json:"note"`
+}
+
+// readLocale 读取一个语言文件，并显式检测重复键
+// 用词法扫描而不是一次 Unmarshal，因为 encoding/json 对重复键静默取后者，那会让一个键的文案被另一条覆盖而不报错
+//
+// readLocale reads one language file and detects a duplicate key explicitly
+// It scans tokens instead of a single Unmarshal, because encoding/json silently keeps the last duplicate and that would let one entry overwrite another without an error
+func readLocale(t *testing.T, lang string) map[string]localeEntry {
+	t.Helper()
+
+	path := filepath.Join(localeDir, lang+".json")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取语言文件失败 / reading the language file failed: %v", err)
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if _, err := dec.Token(); err != nil {
+		t.Fatalf("%s 顶层不是对象 / the top level is not an object: %v", path, err)
+	}
+	out := make(map[string]localeEntry)
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			t.Fatalf("%s 解析键失败 / decoding a key failed: %v", path, err)
+		}
+		key, ok := tok.(string)
+		if !ok {
+			t.Fatalf("%s 出现非字符串的键 / a key is not a string", path)
+		}
+		if _, dup := out[key]; dup {
+			t.Errorf("%s 里键 %q 出现多次，后一条会静默覆盖前一条 / the key %q appears more than once and would silently overwrite the earlier one", path, key, key)
+		}
+		var e localeEntry
+		if err := dec.Decode(&e); err != nil {
+			t.Fatalf("%s 的条目 %q 解析失败 / decoding the entry %q failed: %v", path, key, key, err)
+		}
+		out[key] = e
+	}
+	if len(out) == 0 {
+		t.Fatalf("%s 没有任何条目 / the file carries no entry", path)
+	}
+	return out
+}
+
+// localeLangs 返回受支持语言，并核对每个语言文件都存在
+// localeLangs returns the supported languages and confirms that each language file exists
+func localeLangs(t *testing.T) []i18n.Lang {
+	t.Helper()
+
+	langs := i18n.Supported()
+	if len(langs) == 0 {
+		t.Fatal("i18n.Supported() 为空 / i18n.Supported() is empty")
+	}
+	for _, l := range langs {
+		path := filepath.Join(localeDir, l.String()+".json")
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("语言 %s 的条目文件缺失 / the file for language %s is missing: %v", l, l, err)
+		}
+	}
+	return langs
+}
+
+// declaredKeys 返回源码里声明的全部键及其所在文件
+// declaredKeys returns every key declared in the source together with the file that declares it
+func declaredKeys(t *testing.T) map[string]string {
+	t.Helper()
+
+	declared := make(map[string]string)
+	for _, f := range scanSources(t) {
+		if f.isTest {
+			continue
+		}
+		for _, m := range keyDeclPattern.FindAllStringSubmatch(f.content, -1) {
+			key := m[1]
+			if prev, dup := declared[key]; dup {
+				t.Errorf("键 %q 在 %s 与 %s 中各声明了一次 / the key %q is declared in both %s and %s", key, prev, f.path, key, prev, f.path)
+			}
+			declared[key] = f.path
+		}
+	}
+	if len(declared) == 0 {
+		t.Fatal("没有扫描到任何键声明，正则或源码布局可能已变 / no key declaration was found, so the pattern or the layout has changed")
+	}
+	return declared
+}
+
 // verbsOf 返回文本中的格式符尾部字母序列，判定口径与 fmt 一致
 // 用扫描而不是正则：正则的字符类若把空格算进标志位，%% 之后的空格加字母会被误判成一个格式符，使含转义百分号的文案判反
-// 扫描规则与 fmt 相同：%% 是一个转义、整体跳过；否则 % 之后允许标志位与宽度精度，紧跟一个字母才构成格式符
 //
 // verbsOf returns the sequence of trailing letters of the format verbs in a text, judged the way fmt does
 // It scans rather than matching a regular expression: a character class that counts a space as a flag would read the space and letter after %% as a verb, which judges text carrying an escaped percent sign the wrong way round
-// The scan follows the same rule as fmt: %% is an escape skipped as a whole, while a % admits flags, width and precision and forms a verb only when followed by a letter
 func verbsOf(text string) []string {
 	out := make([]string, 0, 4)
 	for i := 0; i < len(text); i++ {
@@ -155,60 +248,106 @@ func isASCIILetter(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
-// TestEveryDeclaredKeyIsRegistered 验证源码里声明的每个键都已进入登记表
-// TestEveryDeclaredKeyIsRegistered checks that every key declared in the source has reached the registry
-func TestEveryDeclaredKeyIsRegistered(t *testing.T) {
-	declared := make(map[string]string)
-	for _, f := range scanSources(t) {
-		if f.isTest {
+// TestLocaleKeySetsMatch 验证各语言文件的键集合完全一致
+// TestLocaleKeySetsMatch checks that the language files carry exactly the same key set
+func TestLocaleKeySetsMatch(t *testing.T) {
+	langs := localeLangs(t)
+	reference := readLocale(t, langs[0].String())
+	referenceName := langs[0].String()
+
+	for _, l := range langs[1:] {
+		got := readLocale(t, l.String())
+		for key := range reference {
+			if _, ok := got[key]; !ok {
+				t.Errorf("键 %q 在 %s 里有而 %s 里没有 / the key %q is in %s but not in %s", key, referenceName, l, key, referenceName, l)
+			}
+		}
+		for key := range got {
+			if _, ok := reference[key]; !ok {
+				t.Errorf("键 %q 在 %s 里有而 %s 里没有 / the key %q is in %s but not in %s", key, l, referenceName, key, l, referenceName)
+			}
+		}
+	}
+	t.Logf("三语一致的键共 %d 个 / %d keys agree across the languages", len(reference), len(reference))
+}
+
+// TestEveryEntryCarriesThreeLanguagesAndANote 验证每条消息三语齐备、文案非空，且带非空说明
+// 说明字段是 JSON 无法承载注释的补偿，缺了它下一位维护者就看不到触发条件与参数含义
+//
+// TestEveryEntryCarriesThreeLanguagesAndANote checks that every entry carries all three languages with non-empty copy and a non-empty note
+// The note compensates for JSON carrying no comments, and without it the next maintainer cannot see the trigger condition or what the arguments mean
+func TestEveryEntryCarriesThreeLanguagesAndANote(t *testing.T) {
+	langs := localeLangs(t)
+	for _, l := range langs {
+		entries := readLocale(t, l.String())
+		for key, e := range entries {
+			if strings.TrimSpace(e.Text) == "" {
+				t.Errorf("[%s] %s 的文案为空 / the copy is empty", l, key)
+			}
+			if strings.TrimSpace(e.Note) == "" {
+				t.Errorf("[%s] %s 缺少说明 / the entry has no note", l, key)
+			}
+		}
+	}
+}
+
+// TestEveryEntryKeepsTheSameVerbSequence 验证一条消息在三种语言下使用相同的格式符序列
+// 格式符数量或类型不一致时，占位会错位或渲染出格式符残留，因此这条断言是目录可用性的底线
+//
+// TestEveryEntryKeepsTheSameVerbSequence checks that one message uses the same verb sequence in all three languages
+// A differing count or kind of verb misplaces the arguments or renders a leftover verb, so this assertion is the baseline of a usable catalogue
+func TestEveryEntryKeepsTheSameVerbSequence(t *testing.T) {
+	for _, key := range i18n.Keys() {
+		entry, ok := i18n.Lookup(key)
+		if !ok {
 			continue
 		}
-		for _, m := range keyDeclPattern.FindAllStringSubmatch(f.content, -1) {
-			key := m[1]
-			if prev, dup := declared[key]; dup {
-				t.Errorf("键 %q 在 %s 与 %s 中各声明了一次 / key %q is declared in both %s and %s", key, prev, f.path, key, prev, f.path)
+		var reference []string
+		var referenceLang string
+		first := true
+		for _, lang := range i18n.Supported() {
+			verbs := verbsOf(entry.All()[lang])
+			if first {
+				reference, referenceLang, first = verbs, string(lang), false
+				continue
 			}
-			declared[key] = f.path
+			if len(verbs) != len(reference) {
+				t.Errorf("键 %q 的 %q 有 %d 个格式符，%q 有 %d 个: %v 对 %v / the %q text of key %q carries %d verbs while %q carries %d", key, lang, len(verbs), referenceLang, len(reference), verbs, reference, lang, key, len(verbs), referenceLang, len(reference))
+				continue
+			}
+			for i := range verbs {
+				if verbs[i] != reference[i] {
+					t.Errorf("键 %q 第 %d 个格式符在 %q 是 %%%s，在 %q 是 %%%s / the %d-th verb of key %q is %%%s in %q and %%%s in %q", key, i+1, lang, verbs[i], referenceLang, reference[i], i+1, key, verbs[i], lang, reference[i], referenceLang)
+					break
+				}
+			}
 		}
 	}
-	if len(declared) == 0 {
-		t.Fatal("没有扫描到任何键声明，正则或源码布局可能已变 / no key declaration was found, so the pattern or the layout has changed")
-	}
+}
 
+// TestDeclaredKeysAndEntriesMatchOneToOne 验证声明的键与语言文件的条目严格一一对应
+// 这是「JSON 承载文案、Go 常量承载键」这一设计的守门条件：少一边就会在运行时输出 !键! 标记，多一边则是无人引用的死条目
+//
+// TestDeclaredKeysAndEntriesMatchOneToOne checks that the declared keys and the catalogue entries correspond one to one
+// It guards the design of copy in JSON and keys in Go constants: missing either side leads to a !key! marker at run time or leaves an entry nothing refers to
+func TestDeclaredKeysAndEntriesMatchOneToOne(t *testing.T) {
 	registered := make(map[string]bool)
 	for _, key := range i18n.Keys() {
 		registered[string(key)] = true
 	}
 
+	declared := declaredKeys(t)
 	for key, path := range declared {
 		if !registered[key] {
-			t.Errorf("%s 声明的键 %q 未登记到目录，日志会输出 !%s! 标记 / the key %q declared in %s is not registered, so a log line would print the marker !%s!", path, key, key, key, path, key)
+			t.Errorf("%s 声明的键 %q 没有条目，日志会输出 !%s! 标记 / the key %q declared in %s has no entry, so a log line would print the marker !%s!", path, key, key, key, path, key)
 		}
 	}
-	t.Logf("已声明并登记的键共 %d 个 / %d declared keys are registered", len(declared), len(declared))
-}
-
-// TestRegistryHasNoExtraKey 验证登记表里没有源码中查不到的键
-// 多余的键通常来自改名或复制后忘记删除的常量，会让目录与实际输出不一致
-//
-// TestRegistryHasNoExtraKey checks that the registry holds no key the source does not declare
-// An extra key usually comes from a constant left behind after a rename or a copy, and it would put the catalogue out of step with the output
-func TestRegistryHasNoExtraKey(t *testing.T) {
-	declared := make(map[string]bool)
-	for _, f := range scanSources(t) {
-		if f.isTest {
-			continue
-		}
-		for _, m := range keyDeclPattern.FindAllStringSubmatch(f.content, -1) {
-			declared[m[1]] = true
-		}
-	}
-
 	for _, key := range i18n.Keys() {
-		if !declared[string(key)] {
-			t.Errorf("登记表里的键 %q 在源码中找不到声明 / the key %q in the registry has no declaration in the source", key, key)
+		if _, ok := declared[string(key)]; !ok {
+			t.Errorf("条目 %q 在源码中找不到键声明 / the entry %q has no key declaration in the source", key, key)
 		}
 	}
+	t.Logf("已声明且有条目的键共 %d 个 / %d declared keys carry an entry", len(declared), len(declared))
 }
 
 // TestKeyPrefixMatchesPackage 验证键的前缀与其所在包的目录名一致
@@ -232,54 +371,24 @@ func TestKeyPrefixMatchesPackage(t *testing.T) {
 	}
 }
 
-// TestEveryMessageCarriesThreeLanguages 验证每条消息三种语言都有非空文案
-// TestEveryMessageCarriesThreeLanguages checks that every message carries non-empty text in all three languages
-func TestEveryMessageCarriesThreeLanguages(t *testing.T) {
-	for _, key := range i18n.Keys() {
-		entry, ok := i18n.Lookup(key)
-		if !ok {
-			t.Errorf("键 %q 查不到条目 / the key %q has no entry", key, key)
-			continue
-		}
-		for lang, text := range entry.All() {
-			if text == "" {
-				t.Errorf("键 %q 缺少 %q 文案 / the key %q has no text for %q", key, lang, key, lang)
-			}
-		}
-	}
-}
-
-// TestEveryMessageKeepsTheSameVerbSequence 验证一条消息在三种语言下使用相同的格式符序列
-// 格式符数量或类型不一致时，占位会错位或渲染出格式符残留，因此这条断言是目录可用性的底线
+// TestLocaleDirectoryIsTheOnlyCopySource 验证非测试源码里不再出现内联的三语文案
+// 改造之后文案只应存在于语言文件里，源码中若仍出现 i18n.New 形式的三元组，说明有包没有切过来
 //
-// TestEveryMessageKeepsTheSameVerbSequence checks that one message uses the same verb sequence in all three languages
-// A differing count or kind of verb misplaces the arguments or renders a leftover verb, so this assertion is the baseline of a usable catalogue
-func TestEveryMessageKeepsTheSameVerbSequence(t *testing.T) {
-	for _, key := range i18n.Keys() {
-		entry, ok := i18n.Lookup(key)
-		if !ok {
+// TestLocaleDirectoryIsTheOnlyCopySource checks that no non-test source still carries inline copy in three languages
+// After the change the copy belongs to the language files alone, so an i18n.New triple in the source means a package did not switch over
+func TestLocaleDirectoryIsTheOnlyCopySource(t *testing.T) {
+	pattern := regexp.MustCompile(`i18n\.New\(|i18n\.Register\(`)
+	for _, f := range scanSources(t) {
+		if f.isTest {
 			continue
 		}
-
-		var reference []string
-		var referenceLang string
-		first := true
-		for _, lang := range i18n.Supported() {
-			text := entry.All()[lang]
-			verbs := verbsOf(text)
-			if first {
-				reference, referenceLang, first = verbs, string(lang), false
+		for i, line := range strings.Split(f.content, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "//") {
 				continue
 			}
-			if len(verbs) != len(reference) {
-				t.Errorf("键 %q 的 %q 有 %d 个格式符，%q 有 %d 个: %v 对 %v / the %q text of key %q carries %d verbs while %q carries %d", key, lang, len(verbs), referenceLang, len(reference), verbs, reference, lang, key, len(verbs), referenceLang, len(reference))
-				continue
-			}
-			for i := range verbs {
-				if verbs[i] != reference[i] {
-					t.Errorf("键 %q 第 %d 个格式符在 %q 是 %%%s，在 %q 是 %%%s / the %d-th verb of key %q is %%%s in %q and %%%s in %q", key, i+1, lang, verbs[i], referenceLang, reference[i], i+1, key, verbs[i], lang, reference[i], referenceLang)
-					break
-				}
+			if pattern.MatchString(line) {
+				t.Errorf("%s 第 %d 行仍在源码里内联文案: %s / the line still carries inline copy in the source: %s", f.path, i+1, trimmed, trimmed)
 			}
 		}
 	}
@@ -311,11 +420,11 @@ func TestNoLogCallBypassesCatalogue(t *testing.T) {
 
 // TestNoLiteralKeyAtCallSite 验证调用点不直接用字符串字面量充当消息键
 // 未类型化的字符串常量可以赋给 i18n.Key，因此这种写法能编译，却绕过了「键必须声明为常量」这一前提
-// 它既不会进入 TestEveryDeclaredKeyIsRegistered 的声明集合，也不会被 TestRegistryHasNoExtraKey 发现，运行时只会打印 !键! 标记
+// 它既不会进入声明集合，也不会被条目校验发现，运行时只会打印 !键! 标记
 //
 // TestNoLiteralKeyAtCallSite checks that no call site passes a bare string literal where a message key is wanted
 // An untyped string constant may be passed where an i18n.Key is wanted, so the form compiles while skipping the premise that a key has to be declared as a constant
-// It enters neither the declaration set of TestEveryDeclaredKeyIsRegistered nor the registry check of TestRegistryHasNoExtraKey, and at run time it only prints the !key! marker
+// It enters neither the declaration set nor the entry check, and at run time it only prints the !key! marker
 func TestNoLiteralKeyAtCallSite(t *testing.T) {
 	for _, f := range scanSources(t) {
 		if f.isTest {
@@ -350,7 +459,7 @@ func TestLogxIsImportedWithoutAlias(t *testing.T) {
 }
 
 // TestVerbsOfHandlesEscapedPercent 验证格式符扫描把 %% 当作转义处理，且能识别带宽度与精度的格式符
-// 回归点：此前的正则把空格算进标志位，使 50%% now 被读出一个并不存在的格式符，含转义百分号的文案会被判反
+// 回归点：早先的正则把空格算进标志位，使 50%% now 被读出一个并不存在的格式符，含转义百分号的文案会被判反
 //
 // TestVerbsOfHandlesEscapedPercent checks that the verb scan treats %% as an escape and still recognises a verb carrying width and precision
 // The regression it pins: the earlier regular expression counted a space as a flag, so 50%% now produced a verb that does not exist and text carrying an escaped percent sign was judged the wrong way round
@@ -386,4 +495,19 @@ func TestVerbsOfHandlesEscapedPercent(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestLocaleFilesLoadCleanly 验证内嵌语言文件能被加载器完整读取
+// 三语键集、格式符序列与说明齐备由本文件其余用例校验，这里只确认加载本身没有报错且目录非空
+//
+// TestLocaleFilesLoadCleanly checks that the embedded language files load completely
+// The key sets, the verb sequences and the notes are checked by the other cases in this file, so this one only confirms that loading itself reports no error and leaves a non-empty catalogue
+func TestLocaleFilesLoadCleanly(t *testing.T) {
+	if err := i18n.Load(); err != nil {
+		t.Fatalf("加载内嵌语言文件失败 / loading the embedded language files failed: %v", err)
+	}
+	if len(i18n.Keys()) == 0 {
+		t.Fatal("加载之后目录为空 / the catalogue is empty after loading")
+	}
+	t.Logf("目录共 %d 个键 / the catalogue holds %d keys", len(i18n.Keys()), len(i18n.Keys()))
 }

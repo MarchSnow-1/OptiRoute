@@ -1,12 +1,10 @@
-// 本文件登记 util 包用到的消息键与其三种语言文案
+// 本文件声明 util 包用到的消息键，各语言的文案放在 i18n/locales 下的语言文件里
 // 覆盖帧读写两个方向对长度上限的报错与被调方未写入任何字节的报错，使这些错误经 %w 嵌入调用方日志后仍随语言切换
 // 文案是未填充的格式串，由 util.errf 交给 fmt.Errorf，使 %w 仍能保留错误链
-// 在 init 中一次性登记，登记完成后目录只被读取
 //
-// This file registers the message keys util uses together with their text in three languages
+// This file declares the message keys util uses, and the copy of each language lives in the language files under i18n/locales
 // It covers the length-limit errors of the frame reader and writer together with a callee that wrote no byte, so those errors still follow the language once a caller embeds them in a log line through %w
 // A message is an unfilled format string handed to fmt.Errorf by util.errf, which lets a %w verb keep the error chain intact
-// Registration happens once in init and the catalogue is only read afterwards
 package util
 
 import (
@@ -38,26 +36,6 @@ const (
 	KeyFrameLengthExceeded i18n.Key = "util.frame_length_exceeded"
 )
 
-// messages 保存本包的消息，键为 i18n.Key，值为三种语言下的文案
-// messages holds this package's messages, keyed by i18n.Key with the text in three languages
-var messages = map[i18n.Key]i18n.Entry{
-	KeyFrameTooLarge: i18n.New(
-		"frame too large: %d",
-		"帧过大: %d",
-		"幀過大: %d",
-	),
-	KeyWriteZeroBytes: i18n.New(
-		"the connection accepted 0 bytes",
-		"连接写入 0 字节",
-		"連線寫入 0 位元組",
-	),
-	KeyFrameLengthExceeded: i18n.New(
-		"frame length over the limit: %d",
-		"帧长度超限: %d",
-		"幀長度超限: %d",
-	),
-}
-
 // errf 按消息键取当前语言的格式串并交给 fmt.Errorf
 // 取的是未填充的格式串而不是已渲染的文本，使 %w 仍由 fmt.Errorf 处理，错误链得以保留
 //
@@ -65,10 +43,4 @@ var messages = map[i18n.Key]i18n.Entry{
 // The unfilled format string is used rather than rendered text, so a %w verb is still handled by fmt.Errorf and the error chain survives
 func errf(key i18n.Key, args ...any) error {
 	return fmt.Errorf(i18n.T(key), args...)
-}
-
-// init 登记本包的消息，使任何调用之前目录已经就绪
-// init registers this package's messages so that the catalogue is ready before any call
-func init() {
-	i18n.Register(messages)
 }

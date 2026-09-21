@@ -50,7 +50,7 @@ Dependency direction remains one-way: `protocol`, `i18n` and `util` are the lowe
 
 `logx` is the shared logging exit for every package: a caller only queues a record in a bounded in-memory queue that a dedicated writer goroutine flushes, so a blocked standard output cannot stall the caller. Rendering is done by `logx` itself, and the format is compared field by field against the real output of go-logger under the configuration of `main.initLogger` as a golden reference (see `src/logx/format_test.go`).
 
-`i18n` holds the language tag parser and the message catalogue. Every package that produces user-visible text declares its own keys as exported constants in its own `messages.go` and registers them from `init`, so a key cannot be used before it is registered and the catalogue is read-only afterwards. Application code logs through `logx.Debugf`, `logx.Infof`, `logx.Warnf` and `logx.Errorf`, which take a key instead of a message, and `config` builds its errors through `config.errf`; both look the text up after the level or validation check, so a message below the current level costs no lookup and no formatting.
+`i18n` holds the language tag parser and the message catalogue. The copy lives in one JSON file per language under `i18n/locales` and is embedded into the binary, while every package that produces user-visible text declares its own keys as exported constants in its own `keys.go`, so a key at a call site is checked at compile time. Application code logs through `logx.Debugf`, `logx.Infof`, `logx.Warnf` and `logx.Errorf`, which take a key instead of a message, and `config` builds its errors through `config.errf`; both look the text up after the level or validation check, so a message below the current level costs no lookup and no formatting.
 
 ## 3. Core Flows
 
@@ -327,20 +327,39 @@ The `*f` methods collect the call site in their own frame rather than in a helpe
 
 Responsibility: language tag parsing and the message catalogue
 
-Files: `i18n.go` (tag parsing and the current language), `catalog.go` (registration, lookup and formatting), `i18n_test.go`, `catalog_test.go`
+Files: `i18n.go` (tag parsing and the current language), `catalog.go` (loading, lookup and formatting), `locales/*.json` (the copy, one file per language), `i18n_test.go`, `catalog_test.go`
 
 | Function / Type | Description |
 | --------------- | ----------- |
 | `Parse` | Resolve a BCP 47 tag of the `language[-Script][-REGION]` form into a supported language, reporting false for a malformed tag and for a well-formed tag outside what this version supports |
 | `Set` / `Current` | Read and write the current language, with `Set` falling back to the default when handed an unsupported value |
 | `Supported` / `Default` | List the supported languages and give the default used when none is set |
-| `Register` | Add a batch of entries, panicking on a duplicate key because that would silently replace the text registered first |
+| `Load` | Read every embedded language file and assemble the catalogue, reporting a duplicate key, an empty text and a malformed structure rather than silently keeping the last value |
 | `Text` / `T` | Render one key in a given language or in the current language, returning a `!key!` marker for an unregistered key so missing text is visible in the output |
-| `Keys` / `Lookup` / `Entry.All` | Read the catalogue, used by the cross-package gate |
+| `Keys` / `Lookup` / `Entry.All` / `Entry.Note` | Read the catalogue, used by the cross-package gate |
+
+**Where the copy lives.** The translation of a message is a JSON entry under `locales`, one file per language, and the file name is the language tag:
+
+```json
+{
+  "util.frame_too_large": {
+    "text": "frame too large: %d",
+    "note": "待写入帧超过 MaxFrameSize；检查在写头部之前完成，因此连接上不留下任何字节"
+  }
+}
+```
+
+`text` is the message, an unfilled format string so that `%w` still reaches `fmt.Errorf`. `note` states the condition under which the message is emitted and what its arguments are, and it is written in English in every language file, taking the English comment above the key constant as its single source: JSON carries comments of no kind, so that field is where the explanation lives, and keeping it in one language means one place to update instead of three that can drift apart. The gate requires it to be non-empty.
+
+**Where the keys live.** Keys stay Go constants declared by each package in its own `keys.go`, so a key at a call site is checked at compile time. The JSON holds no key that a package does not declare, and a package declares no key that the JSON lacks; the gate enforces both directions, because either gap would surface only at run time as a `!key!` marker.
+
+**Adding a language** takes one file under `locales` plus one entry in the supported list, and no change to the lookup path, which reads a table keyed by `Lang` rather than positional fields. Adding a message takes one JSON entry plus one constant.
+
+**Loading** uses `go:embed`, so the binary carries its own copy, start-up reads no external file and no platform-specific path handling is involved. Loading runs once in `init`; the catalogue is only read afterwards. A load failure panics, because it means a language file carried by the binary is broken and running on with a partly empty catalogue would only write `!key!` markers into the log. That one notice is a plain English literal rather than a catalogue entry: it reports a build defect, and rendering it would need the very catalogue that failed to load.
 
 Tag resolution: `en` and any English region or script resolve to `en-US`; `zh` with an explicit script uses that script; otherwise the region decides, so `zh-CN`, `zh-SG`, `zh-MY` and a bare `zh` resolve to `zh-Hans` while `zh-TW`, `zh-HK` and `zh-MO` resolve to `zh-Hant`. A single-character subtag starts an extension whose subtags are discarded, and a variant subtag is outside the recognised form and takes the fallback path.
 
-The cross-package gate `src/i18n_catalog_test.go` lives in `package main` because it imports every role package to trigger their registration, and it checks that every declared key is registered, that no extra key sits in the registry, that a key's prefix matches its package directory, that all three languages carry text, that the verb sequence agrees across the three languages, and that no non-test source keeps a log call that bypasses the catalogue.
+The cross-package gate `src/i18n_catalog_test.go` lives in `package main` because it has to walk the sources from the module root, and it checks that the three language files carry the same key set, that every entry has all three languages with non-empty copy and a non-empty note, that the verb sequence agrees across the languages, that no key repeats inside one file, that the declared keys and the entries correspond one to one, that a key's prefix matches its package directory, that no non-test source keeps inline copy, that no log call bypasses the catalogue, that no string literal stands in for a key, and that `logx` is imported under no alias.
 
 ### 4.10 main
 

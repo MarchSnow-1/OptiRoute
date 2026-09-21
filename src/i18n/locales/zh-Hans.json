@@ -1,0 +1,1006 @@
+{
+  "agent.client_listening": {
+    "text": "Client Agent 监听中 addr:%s",
+    "note": "KeyClientListening is the key used once the local listener of the Client Agent is ready, whose argument is the listen address"
+  },
+  "agent.accept_failed": {
+    "text": "Accept 错误 err:%v",
+    "note": "KeyAcceptFailed is the key used when Accept returns an error, whose argument is that error. The key is shared by the Accept loops of the Client Agent and the Server Agent, which handle the error the same way"
+  },
+  "agent.local_access_rate_limited": {
+    "text": "本地接入超过每 IP 限速，拒绝连接 remote:%s",
+    "note": "KeyLocalAccessRateLimited is the key used when the local access of one source IP exceeds the rate limit, whose argument is that source host"
+  },
+  "agent.local_access_concurrency_full": {
+    "text": "本地接入并发已满，拒绝连接",
+    "note": "KeyLocalAccessConcurrencyFull is the key used when the local access slots run out, and it takes no argument"
+  },
+  "agent.access_flow_failed": {
+    "text": "[%s] 接入流程失败 err:%v",
+    "note": "KeyAccessFlowFailed is the key used when the access flow of a local connection fails, with the source address and the failure reason as arguments"
+  },
+  "agent.relay_established": {
+    "text": "[%s] 透传通道已建立",
+    "note": "KeyRelayEstablished is the key used once the passthrough channel between a local connection and the target Edge is established, whose argument is the source address"
+  },
+  "agent.probe_item_list_received": {
+    "text": "[%s] 收到探测项列表 count:%d",
+    "note": "KeyProbeItemListReceived is the key used when the probe item list delivered by the bootstrap node arrives, with the source address and the item count as arguments"
+  },
+  "agent.client_listen_failed": {
+    "text": "本地端口监听失败 %s: %w",
+    "note": "KeyClientListenFailed is the key used when the local listener of the Client Agent fails, with the listen address and the listen error as arguments"
+  },
+  "agent.edge_dial_failed": {
+    "text": "连接目标边缘节点失败: %w",
+    "note": "KeyEdgeDialFailed is the key used when the Client Agent fails to dial the business port of the target Edge, whose argument is the dial error"
+  },
+  "agent.first_packet_write_failed": {
+    "text": "发送 Token 首包失败: %w",
+    "note": "KeyFirstPacketWriteFailed is the key used when sending the Token first packet fails, whose argument is the write error"
+  },
+  "agent.ack_wait_timeout": {
+    "text": "等待验签超时: %w",
+    "note": "KeyAckWaitTimeout is the key used when waiting for the verification ack byte times out, whose argument is the read timeout error. The branch is taken only while the underlying error satisfies net.Error with Timeout reporting true"
+  },
+  "agent.ack_wait_failed": {
+    "text": "等待验签失败（连接中断）: %w",
+    "note": "KeyAckWaitFailed is the key used when the connection drops while waiting for the verification ack byte, whose argument is the read error"
+  },
+  "agent.ack_byte_count_abnormal": {
+    "text": "验签未通过（服务端未返回确认字节，收到 %d 字节）",
+    "note": "KeyAckByteCountAbnormal is the key used when the ack byte count read is not 1, whose argument is the count actually read"
+  },
+  "agent.ack_byte_unexpected": {
+    "text": "验签未通过（服务端返回的确认字节为 0x%02X）",
+    "note": "KeyAckByteUnexpected is the key used when the ack byte holds a value other than 0x01, whose argument is that byte"
+  },
+  "agent.bootstrap_dial_failed": {
+    "text": "连接引导节点失败: %w",
+    "note": "KeyBootstrapDialFailed is the key used when dialling the bootstrap node fails, whose argument is the dial error"
+  },
+  "agent.magic_write_failed": {
+    "text": "发送 Magic 失败: %w",
+    "note": "KeyMagicWriteFailed is the key used when sending the bootstrap Magic fails, whose argument is the write error"
+  },
+  "agent.node_list_read_failed": {
+    "text": "接收节点列表失败: %w",
+    "note": "KeyNodeListReadFailed is the key used when receiving the node list delivered by the bootstrap node fails, whose argument is the read error"
+  },
+  "agent.probe_item_list_parse_failed": {
+    "text": "解析探测项列表失败: %w",
+    "note": "KeyProbeItemListParseFailed is the key used when the probe item list fails to parse, whose argument is the parse error"
+  },
+  "agent.probe_all_failed": {
+    "text": "所有探测项均失败",
+    "note": "KeyProbeAllFailed is the key used when every probe item failed, and it takes no argument. The branch fails the whole access flow without reporting any result"
+  },
+  "agent.probe_result_write_failed": {
+    "text": "上报探测结果失败: %w",
+    "note": "KeyProbeResultWriteFailed is the key used when reporting the probe results fails, whose argument is the write error"
+  },
+  "agent.redirect_read_failed": {
+    "text": "接收 Redirect 命令失败: %w",
+    "note": "KeyRedirectReadFailed is the key used when receiving the Redirect command fails, whose argument is the read error"
+  },
+  "agent.redirect_parse_failed": {
+    "text": "解析 Redirect 命令失败: %w",
+    "note": "KeyRedirectParseFailed is the key used when the Redirect command fails to parse, whose argument is the parse error"
+  },
+  "agent.server_secret_length_invalid": {
+    "text": "数据面密钥长度必须是 %d 字节，当前 %d 字节",
+    "note": "KeyServerSecretLengthInvalid is the key used when the data-plane secret is not requiredCommSecretLen bytes long, with the required length and the actual length as arguments. The check runs before listening, which keeps a zero-length secret out of the service, where comparing two empty slices reports equality"
+  },
+  "agent.server_listen_failed": {
+    "text": "Server Agent 监听失败 %s: %w",
+    "note": "KeyServerListenFailed is the key used when the listener of the Server Agent fails, with the listen address and the listen error as arguments"
+  },
+  "agent.redirect_received": {
+    "text": "[%s] 收到 Redirect target:%s port:%d",
+    "note": "KeyRedirectReceived is the key used when the Redirect command arrives, with the source address, the target IP and the service port as arguments"
+  },
+  "agent.server_listening": {
+    "text": "Server Agent 监听中 addr:%s",
+    "note": "KeyServerListening is the key used once the listener of the Server Agent is ready, whose argument is the listen address"
+  },
+  "agent.server_auth_concurrency_full": {
+    "text": "Server Agent 认证前握手并发已满，拒绝新连接",
+    "note": "KeyServerAuthConcurrencyFull is the key used when the pre-authentication handshake slots on the origin side run out, and it takes no argument"
+  },
+  "agent.server_auth_rate_limited": {
+    "text": "[%s] 认证前连接超过限速，拒绝",
+    "note": "KeyServerAuthRateLimited is the key used when a pre-authentication connection on the origin side exceeds the per-IP rate limit, whose argument is the source address"
+  },
+  "agent.comm_secret_read_failed": {
+    "text": "[%s] 读取通信密钥失败 err:%v",
+    "note": "KeyCommSecretReadFailed is the key used when reading the comm secret fails with an error other than io.EOF, with the source address and the read error as arguments"
+  },
+  "agent.comm_secret_auth_failed": {
+    "text": "[%s] 通信密钥认证失败",
+    "note": "KeyCommSecretAuthFailed is the key used when the comm secret differs from the configured one, whose argument is the source address"
+  },
+  "agent.ack_write_failed": {
+    "text": "[%s] 回确认帧失败 err:%v",
+    "note": "KeyAckWriteFailed is the key used when writing the Server ack frame back fails, with the source address and the write error as arguments"
+  },
+  "agent.ppv2_header_read_failed": {
+    "text": "[%s] 读取 PPv2 包头失败 err:%v",
+    "note": "KeyPPv2HeaderReadFailed is the key used when reading the fixed PPv2 header fails with an error other than io.EOF, with the source address and the read error as arguments"
+  },
+  "agent.ppv2_addr_read_failed": {
+    "text": "[%s] 读取 PPv2 地址数据失败 err:%v",
+    "note": "KeyPPv2AddrReadFailed is the key used when reading the PPv2 address data according to the extra address length fails, with the source address and the read error as arguments"
+  },
+  "agent.ppv2_header_invalid": {
+    "text": "[%s] PPv2 包头校验失败 err:%v",
+    "note": "KeyPPv2HeaderInvalid is the key used when the PPv2 header fails its parse check, with the source address and the parse error as arguments"
+  },
+  "agent.client_real_addr_resolved": {
+    "text": "[%s] 客户端真实地址 ip:%s port:%d",
+    "note": "KeyClientRealAddrResolved is the key used once the PPv2 header yields the client real address, with the source address, the client IP and the client port as arguments. The key is logged only while Self.LogRealIP is true"
+  },
+  "agent.upstream_connect_failed": {
+    "text": "[%s] 连接游戏服务器失败 err:%v",
+    "note": "KeyUpstreamConnectFailed is the key used when dialling the upstream fails, with the source address and the dial error as arguments"
+  },
+  "agent.ppv2_upstream_write_failed": {
+    "text": "[%s] 写入 PPv2 包头至上游失败 err:%v",
+    "note": "KeyPPv2UpstreamWriteFailed is the key used when writing the PPv2 header to the upstream fails, with the source address and the write error as arguments"
+  },
+  "agent.ppv2_injected": {
+    "text": "[%s] 已注入 PPv2 包头 client_ip:%s",
+    "note": "KeyPPv2Injected is the key used once the PPv2 header has been injected towards the upstream, with the source address and the client IP as arguments"
+  },
+  "agent.relay_upstream_established": {
+    "text": "[%s] 转发通道已建立 client_ip:%s upstream:%s",
+    "note": "KeyRelayUpstreamEstablished is the key used once the forwarding channel on the origin side is established, with the source address, the client IP and the upstream address as arguments"
+  },
+  "auth.secret_push_ignored": {
+    "text": "[UpdateSecret] 忽略非法或旧版本 secret push version:%d current:%d",
+    "note": "KeySecretPushIgnored is the key used when a secret push is ignored because its version is 0 or not greater than the current one. The arguments are the pushed version and the current version"
+  },
+  "auth.secret_updated": {
+    "text": "AuthManager secret 已更新 fingerprint:%s",
+    "note": "KeySecretUpdated is the key used after a secret rotation, whose argument is the fingerprint of the new secret"
+  },
+  "auth.token_format_unknown": {
+    "text": "[VerifyRouteToken] 未知 token 格式",
+    "note": "KeyTokenFormatUnknown is the key used when a Token carries no v2: prefix"
+  },
+  "auth.token_base64_failed": {
+    "text": "[VerifyRouteToken] token base64 解码失败 err:%v",
+    "note": "KeyTokenBase64Failed is the key used when the Token body fails base64 decoding, whose argument is the decoding error"
+  },
+  "auth.token_json_failed": {
+    "text": "[VerifyRouteToken] token JSON 解析失败 err:%v",
+    "note": "KeyTokenJSONFailed is the key used when the Token envelope fails JSON decoding, whose argument is the decoding error"
+  },
+  "auth.token_version_unknown": {
+    "text": "[VerifyRouteToken] 未知 token 版本:%d",
+    "note": "KeyTokenVersionUnknown is the key used when the Token version is not v2, whose argument is the version read from the envelope"
+  },
+  "auth.token_target_mismatch": {
+    "text": "[VerifyRouteToken] token 目标 UUID 不匹配",
+    "note": "KeyTokenTargetMismatch is the key used when the target UUID of a Token differs from this node's UUID"
+  },
+  "auth.token_ip_mismatch": {
+    "text": "[VerifyRouteToken] token 客户端 IP 不匹配 token_ip:%s conn_ip:%s",
+    "note": "KeyTokenIPMismatch is the key used when the client IP inside a Token differs from the source IP of the current connection. The arguments are the IP inside the Token and the source IP of the connection"
+  },
+  "auth.token_ts_mismatch": {
+    "text": "[VerifyRouteToken] token 时间戳与首包不一致",
+    "note": "KeyTokenTSMismatch is the key used when the Token timestamp differs from the one seen on the first packet"
+  },
+  "auth.token_window_expired": {
+    "text": "[VerifyRouteToken] 时间窗口超期 now:%d ts:%d ttl:%d",
+    "note": "KeyTokenWindowExpired is the key used when a Token falls outside its time window, with the current instant, the Token timestamp and the TTL in seconds as arguments"
+  },
+  "auth.token_claims_marshal_failed": {
+    "text": "[VerifyRouteToken] 序列化 claims 失败 err:%v",
+    "note": "KeyTokenClaimsMarshalFailed is the key used when re-serialising the claims fails, whose argument is the marshalling error"
+  },
+  "auth.token_signature_failed": {
+    "text": "[VerifyRouteToken] 验签失败 target:%s issuer:%s",
+    "note": "KeyTokenSignatureFailed is the key used when signature verification fails, with the target UUID and the issuer UUID as arguments. The issuer is not checked against the known Edges, so it is logged here for troubleshooting only"
+  },
+  "auth.token_nonce_replay": {
+    "text": "[VerifyRouteToken] nonce 重放拒绝 target:%s nonce:%s",
+    "note": "KeyTokenNonceReplay is the key used when a nonce appears again inside its validity window, with the target UUID and the nonce as arguments"
+  },
+  "auth.token_secret_uninitialized": {
+    "text": "secret 尚未初始化",
+    "note": "KeyTokenSecretUninitialized is the key used when the current secret is empty at issuing time, and it takes no argument. The branch is reached while Center has pushed no secret yet, which leaves nothing to sign with"
+  },
+  "auth.token_uuids_required": {
+    "text": "targetUUID、issuerUUID 均不能为空",
+    "note": "KeyTokenUUIDsRequired is the key used when the target UUID or the issuer UUID is empty at issuing time, and it takes no argument. Both UUIDs have to be non-empty, while letting the Token through stays the decision of the verifying side"
+  },
+  "auth.token_nonce_generate_failed": {
+    "text": "生成 nonce 失败: %w",
+    "note": "KeyTokenNonceGenerateFailed is the key used when generating the nonce fails, whose argument is the underlying error"
+  },
+  "auth.token_claims_encode_failed": {
+    "text": "序列化 token claims 失败: %w",
+    "note": "KeyTokenClaimsEncodeFailed is the key used when marshalling the claims fails at issuing time, whose argument is the marshalling error. The key stays apart from the one used for re-serialising the claims on the verifying path, whose text and context differ"
+  },
+  "auth.token_envelope_marshal_failed": {
+    "text": "序列化 token 失败: %w",
+    "note": "KeyTokenEnvelopeMarshalFailed is the key used when marshalling the Token envelope fails, whose argument is the marshalling error"
+  },
+  "center.write_edge_failed": {
+    "text": "写入边缘节点失败 uuid:%s err:%v",
+    "note": "KeyWriteEdgeFailed is the key used when writing a message to one edge connection fails, with the node UUID and the write error as arguments. The write runs in EdgeRecord.writeLoop, which returns once it fails"
+  },
+  "center.ws_upgrade_failed": {
+    "text": "WebSocket 升级失败 err:%v",
+    "note": "KeyWSUpgradeFailed is the key used when the WebSocket upgrade fails, whose argument is the upgrade error"
+  },
+  "center.open_api_enabled": {
+    "text": "开放 API 已开启（Bearer 鉴权）",
+    "note": "KeyOpenAPIEnabled is the key used when web_api_key is not empty and the open API routes are registered, and it takes no argument"
+  },
+  "center.shutting_down": {
+    "text": "中心节点正在关闭...",
+    "note": "KeyShuttingDown is the key used when the exit signal arrives and the listener is closed, and it takes no argument"
+  },
+  "center.started": {
+    "text": "中心节点启动 addr:%s",
+    "note": "KeyStarted is the key used once the HTTP service starts listening, whose argument is the listen address"
+  },
+  "center.secret_generate_failed": {
+    "text": "生成 secret 失败: %w",
+    "note": "KeySecretGenerateFailed is the key used when generating a new shared_secret fails, whose argument is the random-source error"
+  },
+  "center.register_uuid_invalid": {
+    "text": "uuid 为空或超长",
+    "note": "KeyRegisterUUIDInvalid is the key used when the UUID of a registration is empty or longer than 128 bytes, and it takes no argument"
+  },
+  "center.register_ip_invalid": {
+    "text": "ip 非法: %w",
+    "note": "KeyRegisterIPInvalid is the key used when the node IP of a registration fails the address check, whose argument is the address validation error. The address check reads the catalogue as well, so the argument is already localised text and both layers of the returned error chain follow the current language"
+  },
+  "center.register_group_too_long": {
+    "text": "group 超长",
+    "note": "KeyRegisterGroupTooLong is the key used when the group of a registration is longer than 128 bytes, and it takes no argument"
+  },
+  "center.register_probe_mode_unknown": {
+    "text": "未知探测模式: %s",
+    "note": "KeyRegisterProbeModeUnknown is the key used when the probe_mode of a registration falls outside the enumeration, whose argument is the value read"
+  },
+  "center.register_probe_proto_unknown": {
+    "text": "未知探测协议: %s",
+    "note": "KeyRegisterProbeProtoUnknown is the key used when the probe_proto of a registration falls outside the enumeration, whose argument is the value read"
+  },
+  "center.register_business_port_out_of_range": {
+    "text": "business_port 超出范围: %d",
+    "note": "KeyRegisterBusinessPortOutOfRange is the key used when the business_port of a registration falls outside 1-65535, whose argument is that port"
+  },
+  "center.register_probe_port_out_of_range": {
+    "text": "probe_port 超出范围: %d",
+    "note": "KeyRegisterProbePortOutOfRange is the key used when the probe_port of a registration falls outside 0-65535, whose argument is that port"
+  },
+  "center.register_probe_port_required": {
+    "text": "direct/mixed 模式且非 ICMP 探测必须提供 probe_port",
+    "note": "KeyRegisterProbePortRequired is the key used when a direct or mixed mode registration carries no probe_port for a non-ICMP probe, and it takes no argument"
+  },
+  "center.register_version_too_long": {
+    "text": "version 超长",
+    "note": "KeyRegisterVersionTooLong is the key used when the version of a registration is longer than 64 bytes, and it takes no argument"
+  },
+  "center.fake_items_count_exceeded": {
+    "text": "fake_items 数量超限: %d > %d",
+    "note": "KeyFakeItemsCountExceeded is the key used when the reported FAKE-IP count exceeds the per-node cap, with the count and the cap as arguments"
+  },
+  "center.fake_item_ip_invalid": {
+    "text": "fake_items[%d].ip 非法: %s",
+    "note": "KeyFakeItemIPInvalid is the key used when one FAKE-IP report carries an invalid IP, with the index and that IP as arguments"
+  },
+  "center.fake_item_proto_invalid": {
+    "text": "fake_items[%d].proto 非法: %s",
+    "note": "KeyFakeItemProtoInvalid is the key used when one FAKE-IP report carries an invalid proto, with the index and that proto as arguments"
+  },
+  "center.fake_item_port_out_of_range": {
+    "text": "fake_items[%d].port 超出范围: %d",
+    "note": "KeyFakeItemPortOutOfRange is the key used when the port of one FAKE-IP report falls outside its range, with the index and that port as arguments"
+  },
+  "center.fake_item_port_required": {
+    "text": "fake_items[%d]（%s）必须提供 port",
+    "note": "KeyFakeItemPortRequired is the key used when a tcp or udp FAKE-IP report carries no port, with the index and that proto as arguments"
+  },
+  "center.fake_item_weight_negative": {
+    "text": "fake_items[%d].weight 必须 ≥ 0",
+    "note": "KeyFakeItemWeightNegative is the key used when the weight of one FAKE-IP report is negative, whose argument is the index"
+  },
+  "center.fake_item_rtt_fallback_negative": {
+    "text": "fake_items[%d].rtt_fallback_ms 必须 ≥ 0",
+    "note": "KeyFakeItemRTTFallbackNegative is the key used when the rtt_fallback_ms of one FAKE-IP report is negative, whose argument is the index"
+  },
+  "center.node_addr_empty": {
+    "text": "地址为空",
+    "note": "KeyNodeAddrEmpty is the key used when a node address is empty, and it takes no argument"
+  },
+  "center.node_addr_bracket_unclosed": {
+    "text": "IPv6 方括号未闭合: %s",
+    "note": "KeyNodeAddrBracketUnclosed is the key used when the brackets of an IPv6 address do not close, whose argument is that address"
+  },
+  "center.node_addr_unspecified_or_multicast": {
+    "text": "不允许使用未指定/组播地址: %s",
+    "note": "KeyNodeAddrUnspecifiedOrMulticast is the key used for a rejected unspecified or multicast address, whose argument is that address"
+  },
+  "center.node_addr_not_ip_or_hostname": {
+    "text": "不是合法 IP 或域名: %s",
+    "note": "KeyNodeAddrNotIPOrHostname is the key used when a value is neither a valid IP nor a valid host name, whose argument is that value"
+  },
+  "center.secret_rotated": {
+    "text": "shared_secret 已轮转 version:%d",
+    "note": "KeySecretRotated is the key used after one shared_secret rotation, whose argument is the new version"
+  },
+  "center.message_decode_failed": {
+    "text": "消息解析失败 err:%v",
+    "note": "KeyMessageDecodeFailed is the key used when a frame on a control connection is not a valid envelope JSON, whose argument is the decoding error"
+  },
+  "center.unknown_message_type": {
+    "text": "未知消息类型 type:%s",
+    "note": "KeyUnknownMessageType is the key used when the envelope type is outside the handled set, whose argument is the type name received"
+  },
+  "center.register_reject_failed": {
+    "text": "下发注册拒绝失败 err:%v",
+    "note": "KeyRegisterRejectFailed is the key used when sending a registration rejection directly to an unregistered connection fails, whose argument is the write error"
+  },
+  "center.register_payload_decode_failed": {
+    "text": "边缘节点注册失败：注册消息解析失败 err:%v",
+    "note": "KeyRegisterPayloadDecodeFailed is the key used when the register payload is not valid JSON, whose argument is the decoding error"
+  },
+  "center.register_validate_failed": {
+    "text": "边缘节点注册校验失败 uuid:%s err:%v",
+    "note": "KeyRegisterValidateFailed is the key used when the field range check of a registration fails, with the node UUID and the validation error as arguments"
+  },
+  "center.register_rate_limited": {
+    "text": "边缘节点注册失败：注册频率超限 uuid:%s",
+    "note": "KeyRegisterRateLimited is the key used when one UUID exceeds the registration rate limit, whose argument is the node UUID"
+  },
+  "center.register_reused_connection": {
+    "text": "边缘节点在同一连接上重复注册，已原地复用该连接 uuid:%s",
+    "note": "KeyRegisterReusedConnection is the key used when one connection registers the same UUID again and that connection is reused in place, whose argument is the node UUID"
+  },
+  "center.register_edge_limit_reached": {
+    "text": "边缘节点注册失败：在线 Edge 数量已达上限 uuid:%s count:%d",
+    "note": "KeyRegisterEdgeLimitReached is the key used when the number of online edges has reached the limit, with the node UUID and the current online count as arguments"
+  },
+  "center.register_succeeded": {
+    "text": "边缘节点注册成功 uuid:%s ip:%s group:%s",
+    "note": "KeyRegisterSucceeded is the key used once a registration succeeds and the secret has been pushed, with the node UUID, the node IP and the group as arguments"
+  },
+  "center.rtt_report_decode_failed": {
+    "text": "RTTReport 解析失败 err:%v",
+    "note": "KeyRTTReportDecodeFailed is the key used when the rtt_report payload is not valid JSON, whose argument is the decoding error"
+  },
+  "center.rtt_report_origin_rtt_ms_out_of_range": {
+    "text": "RTTReport 的源站 RTT 超出范围，整条丢弃 rtt_ms:%d",
+    "note": "KeyRTTReportOriginRTTMsOutOfRange is the key used when the reported origin RTT falls outside its range, whose argument is the reported RTT in milliseconds"
+  },
+  "center.rtt_report_fake_count_exceeded": {
+    "text": "RTTReport 的 f2n 条数超限，整条丢弃 count:%d limit:%d",
+    "note": "KeyRTTReportFakeCountExceeded is the key used when the reported f2n entry count exceeds the cap, with the count and the cap as arguments"
+  },
+  "center.rtt_report_fake_keys_capped": {
+    "text": "该节点累计的 f2n 键数已达上限，只更新已有键 uuid:%s limit:%d dropped:%d",
+    "note": "KeyRTTReportFakeKeysCapped is the key used when the FAKE-IP latency keys accumulated in one record have reached the cap, with the node UUID, the cap and the number of keys this message dropped as arguments. It is emitted only when new keys were actually dropped, at most once per message, so it cannot flood the log with the number of drops"
+  },
+  "center.rtt_report_fake_ip_invalid": {
+    "text": "RTTReport 含非法 f2n IP，整条丢弃 ip:%s",
+    "note": "KeyRTTReportFakeIPInvalid is the key used when a reported f2n entry carries an invalid IP, whose argument is that IP"
+  },
+  "center.rtt_report_fake_rtt_ms_out_of_range": {
+    "text": "RTTReport 含超出范围的 f2n 延迟，整条丢弃 ip:%s rtt_ms:%d",
+    "note": "KeyRTTReportFakeRTTMsOutOfRange is the key used when a reported f2n latency falls outside its range, with the entry IP and the latency in milliseconds as arguments"
+  },
+  "center.rtt_report_unknown_link_status": {
+    "text": "RTTReport 含未知链路状态，忽略该字段 link_status:%s",
+    "note": "KeyRTTReportUnknownLinkStatus is the key used when the reported link status is outside the values defined by protocol, whose argument is the reported value"
+  },
+  "center.fake_update_decode_failed": {
+    "text": "FakeUpdate 解析失败 err:%v",
+    "note": "KeyFakeUpdateDecodeFailed is the key used when the fake_update payload is not valid JSON, whose argument is the decoding error"
+  },
+  "center.fake_update_validate_failed": {
+    "text": "FakeUpdate 校验失败，整条丢弃 err:%v",
+    "note": "KeyFakeUpdateValidateFailed is the key used when the fake_update list fails validation, whose argument is the validation error"
+  },
+  "center.fake_list_updated": {
+    "text": "FAKE-IP 列表更新 uuid:%s count:%d",
+    "note": "KeyFakeListUpdated is the key used after a FAKE-IP list is stored in the record, with the node UUID and the entry count as arguments"
+  },
+  "center.version_report_decode_failed": {
+    "text": "VersionReport 解析失败 err:%v",
+    "note": "KeyVersionReportDecodeFailed is the key used when the version_report payload is not valid JSON, whose argument is the decoding error"
+  },
+  "center.version_report_applied": {
+    "text": "版本上报 uuid:%s clients:%d server_uuid:%v",
+    "note": "KeyVersionReportApplied is the key used after a version report is stored in the record, with the node UUID, the client record count and the Server Agent record of that report as arguments"
+  },
+  "center.edge_offline": {
+    "text": "边缘节点下线 uuid:%s",
+    "note": "KeyEdgeOffline is the key used when a connection drops and its registration is cleaned up, whose argument is the node UUID"
+  },
+  "center.write_queue_full": {
+    "text": "边缘节点写队列已满，关闭连接以触发重连 uuid:%s type:%s",
+    "note": "KeyWriteQueueFull is the key used when the write queue of a connection is full and the connection is closed for that reason, with the node UUID and the message type as arguments"
+  },
+  "config.read_failed": {
+    "text": "读取配置文件失败 %s: %w",
+    "note": "KeyConfigReadFailed is the key used when the configuration file cannot be read, with the path and the underlying error as arguments"
+  },
+  "config.base64_failed": {
+    "text": "base64 解码失败: %w",
+    "note": "KeyConfigBase64Failed is the key used when the base64 configuration string fails to decode, whose argument is the underlying error"
+  },
+  "config.json_parse_failed": {
+    "text": "JSON 解析失败: %w",
+    "note": "KeyJSONParseFailed is the key used when the configuration JSON fails to decode, whose argument is the underlying error"
+  },
+  "config.json_missing_self": {
+    "text": "配置缺少 self 配置段",
+    "note": "KeyJSONMissingSelf is the key used when the configuration carries no self section"
+  },
+  "config.role_required": {
+    "text": "必填字段缺失: role",
+    "note": "KeyRoleRequired is the key used when self.role is empty"
+  },
+  "config.role_unknown": {
+    "text": "未知角色: %s",
+    "note": "KeyRoleUnknown is the key used when self.role names none of the four roles, whose argument is the value read"
+  },
+  "config.log_level_unknown": {
+    "text": "未知日志级别: %s（%s）",
+    "note": "KeyLogLevelUnknown is the key used when log_level falls outside the enumeration, with the value read and the accepted values as arguments"
+  },
+  "config.port_out_of_range": {
+    "text": "%s 必须在 1-65535 之间，当前 %d",
+    "note": "KeyPortOutOfRange is the key used when a port falls outside its range, with the field name and the port as arguments"
+  },
+  "config.secret_required": {
+    "text": "%s 角色必须配置 %s",
+    "note": "KeySecretRequired is the key used when a secret is empty, with the role and the field name as arguments"
+  },
+  "config.secret_length": {
+    "text": "%s 长度必须为 32 字节，当前 %d 字节",
+    "note": "KeySecretLength is the key used when a secret is not 32 bytes long, with the field name and the byte count as arguments"
+  },
+  "config.addr_bracket_unclosed": {
+    "text": "%s 方括号未闭合: %s",
+    "note": "KeyAddrBracketUnclosed is the key used when an address opens a bracket without closing it, with the field name and the value as arguments"
+  },
+  "config.addr_bracket_not_ipv6": {
+    "text": "%s 方括号内必须是合法 IPv6 地址: %s",
+    "note": "KeyAddrBracketNotIPv6 is the key used when the brackets hold no valid IPv6 address, with the field name and the value as arguments"
+  },
+  "config.addr_ipv6_needs_brackets": {
+    "text": "%s IPv6 地址必须加方括号: [%s]",
+    "note": "KeyAddrIPv6NeedsBrackets is the key used when an IPv6 address carries no brackets, with the field name and the value as arguments"
+  },
+  "config.field_must_be_positive": {
+    "text": "%s 必须 > 0，当前 %d",
+    "note": "KeyFieldMustBePositive is the shared key for a numeric field that has to be greater than 0, with the field name and the value as arguments"
+  },
+  "config.field_must_be_non_negative": {
+    "text": "%s 必须 ≥ 0，当前 %d",
+    "note": "KeyFieldMustBeNonNegative is the shared key for an integer field that may not go below 0, with the field name and the value as arguments"
+  },
+  "config.field_must_be_non_negative_float": {
+    "text": "%s 必须 ≥ 0，当前 %f",
+    "note": "KeyFieldMustBeNonNegativeFloat is the shared key for a floating-point field that may not go below 0, with the field name and the value as arguments"
+  },
+  "config.field_between_zero_and_one": {
+    "text": "%s 必须在 0-1 之间，当前 %f",
+    "note": "KeyFieldBetweenZeroAndOne is the shared key for a ratio field that has to fall between 0 and 1, with the field name and the value as arguments"
+  },
+  "config.bw_ratios_inverted": {
+    "text": "self.bw_warning_ratio 不能大于 self.bw_overload_ratio",
+    "note": "KeyBWRatiosInverted is the key used when the warning ratio exceeds the overload ratio"
+  },
+  "config.center_listen_port_required": {
+    "text": "center 角色必须配置 self.listen_port",
+    "note": "KeyCenterListenPortRequired is the key used when the center role carries no self.listen_port"
+  },
+  "config.edge_uuid_required": {
+    "text": "edge 角色必须配置 self.uuid",
+    "note": "KeyEdgeUUIDRequired is the key used when the edge role carries no self.uuid"
+  },
+  "config.edge_addr_required": {
+    "text": "edge 角色必须配置 self.addr",
+    "note": "KeyEdgeAddrRequired is the key used when the edge role carries no self.addr"
+  },
+  "config.edge_center_required": {
+    "text": "edge 角色必须配置 remote.center_addr 和 remote.center_port",
+    "note": "KeyEdgeCenterRequired is the key used when the edge role carries no center address or port"
+  },
+  "config.edge_origin_required": {
+    "text": "edge 角色必须配置 remote.origin_addr 和 remote.origin_port",
+    "note": "KeyEdgeOriginRequired is the key used when the edge role carries no origin address or port"
+  },
+  "config.edge_probe_port_required": {
+    "text": "edge 角色在 probe_mode=%s 且 probe_proto=%s 时必须配置 self.probe_port",
+    "note": "KeyEdgeProbePortRequired is the key used when the edge role carries no self.probe_port outside icmp-only mode, with the probe mode and the probe protocol as arguments"
+  },
+  "config.edge_secrets_must_differ": {
+    "text": "remote.center_secret 与 remote.comm_secret 必须使用不同的独立密钥",
+    "note": "KeyEdgeSecretsMustDiffer is the key used when center_secret and comm_secret hold the same value"
+  },
+  "config.probe_mode_unknown": {
+    "text": "未知探测模式: %s（direct/fakeip/mixed）",
+    "note": "KeyProbeModeUnknown is the key used when probe_mode falls outside the enumeration, whose argument is the value read"
+  },
+  "config.probe_proto_unknown": {
+    "text": "未知探测协议: %s（tcp/udp/icmp）",
+    "note": "KeyProbeProtoUnknown is the key used when probe_proto falls outside the enumeration, whose argument is the value read"
+  },
+  "config.fake_ip_max_count_too_small": {
+    "text": "fake_ip_max_count 必须 ≥ 1，当前 %d",
+    "note": "KeyFakeIPMaxCountTooSmall is the key used when fake_ip_max_count is below 1, whose argument is the value read"
+  },
+  "config.fake_ip_max_count_too_large": {
+    "text": "fake_ip_max_count 超出上限: %d > %d",
+    "note": "KeyFakeIPMaxCountTooLarge is the key used when fake_ip_max_count exceeds its cap, with the value read and the cap as arguments"
+  },
+  "config.fake_ip_invalid": {
+    "text": "fake_ips[%d].ip 非法: %s",
+    "note": "KeyFakeIPInvalid is the key used when one fake_ips entry carries an invalid IP, with the index and the value as arguments"
+  },
+  "config.fake_ip_proto_invalid": {
+    "text": "fake_ips[%d].proto 非法: %s（tcp/udp/icmp）",
+    "note": "KeyFakeIPProtoInvalid is the key used when one fake_ips entry carries an invalid proto, with the index and the value as arguments"
+  },
+  "config.fake_ip_weight_negative": {
+    "text": "fake_ips[%d].weight 必须 ≥ 0，当前 %f",
+    "note": "KeyFakeIPWeightNegative is the key used when one fake_ips entry carries a negative weight, with the index and the value as arguments"
+  },
+  "config.fake_ip_port_required": {
+    "text": "fake_ips[%d]（%s）必须配置 port",
+    "note": "KeyFakeIPPortRequired is the key used when one fake_ips entry carries no port, with the index and that entry's proto as arguments"
+  },
+  "config.fake_ip_port_range": {
+    "text": "fake_ips[%d].port 超出范围: %d（1-65535）",
+    "note": "KeyFakeIPPortRange is the key used when one fake_ips entry carries an out-of-range port, with the index and the value as arguments"
+  },
+  "config.fake_ip_rtt_fallback_negative": {
+    "text": "fake_ips[%d].rtt_fallback_ms 必须 ≥ 0",
+    "note": "KeyFakeIPRTTFallbackNegative is the key used when one fake_ips entry carries a negative rtt_fallback_ms, whose argument is the index"
+  },
+  "config.client_listen_port_required": {
+    "text": "client 角色必须配置 self.listen_port",
+    "note": "KeyClientListenPortRequired is the key used when the client role carries no self.listen_port"
+  },
+  "config.client_bootstrap_required": {
+    "text": "client 角色必须配置 remote.bootstrap_addr 和 remote.bootstrap_port",
+    "note": "KeyClientBootstrapRequired is the key used when the client role carries no bootstrap address or port"
+  },
+  "config.server_uuid_required": {
+    "text": "server 角色必须配置 self.uuid（供中心按 UUID 去重上报）",
+    "note": "KeyServerUUIDRequired is the key used when the server role carries no self.uuid"
+  },
+  "config.server_ports_required": {
+    "text": "server 角色必须配置 self.listen_port 和 remote.upstream_port",
+    "note": "KeyServerPortsRequired is the key used when the server role carries no listen port or upstream port"
+  },
+  "edge.topo_cache_write_failed": {
+    "text": "拓扑缓存异步写入失败 err:%v",
+    "note": "KeyTopoCacheWriteFailed is the key used when an asynchronous disk write fails, whose argument is the write error"
+  },
+  "edge.topo_cache_flush_failed": {
+    "text": "拓扑缓存关闭前冲刷失败 err:%v",
+    "note": "KeyTopoCacheFlushFailed is the key used when the flush before close fails, whose argument is the write error"
+  },
+  "edge.topo_cache_loaded": {
+    "text": "已从本地缓存加载拓扑 nodes:%d updated_at:%d",
+    "note": "KeyTopoCacheLoaded is the key used after the topology was loaded from the cache file, with the node count and the cache write instant in Unix seconds as arguments"
+  },
+  "edge.probe_port_unset": {
+    "text": "probe_port 未配置，跳过探测服务（fakeip-only 或 icmp 模式）",
+    "note": "KeyProbePortUnset is the key used when the probe service is skipped because probe_port is 0, and it carries no argument"
+  },
+  "edge.probe_icmp_no_listener": {
+    "text": "probe_proto 为 icmp，不启动探测监听（客户端直接 ping 本机 IP）",
+    "note": "KeyProbeICMPNoListener is the key used when no listener is started because probe_proto is icmp, and it carries no argument"
+  },
+  "edge.probe_tcp_listen_failed": {
+    "text": "TCP 探测端口监听失败 err:%v",
+    "note": "KeyProbeTCPListenFailed is the key used when the TCP probe port fails to listen, whose argument is the listen error"
+  },
+  "edge.probe_tcp_listening": {
+    "text": "TCP 探测端口监听中 addr:%s",
+    "note": "KeyProbeTCPListening is the key used once the TCP probe port listens, whose argument is the listen address"
+  },
+  "edge.probe_tcp_rate_limited": {
+    "text": "TCP 探测请求超过每 IP 限速，拒绝 remote:%s",
+    "note": "KeyProbeTCPRateLimited is the key used when a TCP probe request exceeds the per-source-IP rate limit, whose argument is the source host"
+  },
+  "edge.probe_tcp_gate_full": {
+    "text": "TCP 探测并发已满，拒绝 remote:%s",
+    "note": "KeyProbeTCPGateFull is the key used when the TCP probe concurrency gate is full, whose argument is the source host"
+  },
+  "edge.probe_udp_listen_failed": {
+    "text": "UDP 探测端口监听失败 err:%v",
+    "note": "KeyProbeUDPListenFailed is the key used when the UDP probe port fails to listen, whose argument is the listen error"
+  },
+  "edge.probe_udp_listening": {
+    "text": "UDP 探测端口监听中 addr:%s",
+    "note": "KeyProbeUDPListening is the key used once the UDP probe port listens, whose argument is the listen address"
+  },
+  "edge.center_connect_attempt": {
+    "text": "连接中心节点 第%d/%d次",
+    "note": "KeyCenterConnectAttempt is the key printed before every Center connection attempt, with the current attempt number and the total as arguments"
+  },
+  "edge.center_connect_failed": {
+    "text": "连接中心节点失败 err:%v",
+    "note": "KeyCenterConnectFailed is the key used when connecting to Center fails, whose argument is the connection error"
+  },
+  "edge.center_wait_registration_failed": {
+    "text": "等待中心注册结果失败 err:%v",
+    "note": "KeyCenterWaitRegistrationFailed is the key used when waiting for the registration result fails during start-up, whose argument is the wait error"
+  },
+  "edge.center_rejected_stop_startup_retry": {
+    "text": "Center 已拒绝注册且 stop_reconnect_on_reject 为真，停止启动重试",
+    "note": "KeyCenterRejectedStopStartupRetry is the key used when the start-up retries stop because registration was rejected and the switch asks for it, and it carries no argument"
+  },
+  "edge.secret_loaded_from_cache": {
+    "text": "已从缓存加载 shared_secret，降级模式可签发 Token",
+    "note": "KeySecretLoadedFromCache is the key used when degraded mode obtained a shared_secret from the cache, and it carries no argument"
+  },
+  "edge.secret_missing_in_cache": {
+    "text": "缓存中无 shared_secret，降级模式无法签发 Token（需先以正常模式连接过中心）",
+    "note": "KeySecretMissingInCache is the key used when the cache holds no shared_secret, and it carries no argument"
+  },
+  "edge.enter_degraded_mode": {
+    "text": "中心节点不可达或已拒绝注册，已加载本地缓存，进入降级模式",
+    "note": "KeyEnterDegradedMode is the key used when the retries are exhausted and the node enters degraded mode after loading the local cache, and it carries no argument"
+  },
+  "edge.started_degraded": {
+    "text": "边缘节点以降级模式启动，等待中心节点重连...",
+    "note": "KeyStartedDegraded is the key used once the services are up while the node is in degraded mode, and it carries no argument"
+  },
+  "edge.started_normal": {
+    "text": "边缘节点以正常模式启动",
+    "note": "KeyStartedNormal is the key used once the services are up with a Center connection in place, and it carries no argument"
+  },
+  "edge.shutting_down": {
+    "text": "边缘节点正在关闭...",
+    "note": "KeyShuttingDown is the key used when ctx ends and the node starts shutting down, and it carries no argument"
+  },
+  "edge.background_reconnect_attempt": {
+    "text": "后台尝试重连中心节点...",
+    "note": "KeyBackgroundReconnectAttempt is the key printed before every background reconnect in degraded mode, and it carries no argument"
+  },
+  "edge.background_reconnect_failed": {
+    "text": "后台重连失败 err:%v",
+    "note": "KeyBackgroundReconnectFailed is the key used when the background reconnect fails to dial, whose argument is the connection error"
+  },
+  "edge.background_reconnect_wait_failed": {
+    "text": "后台重连等待注册结果失败 err:%v",
+    "note": "KeyBackgroundReconnectWaitFailed is the key used when the background reconnect fails while waiting for the registration result, whose argument is the wait error"
+  },
+  "edge.center_rejected_stop_background_reconnect": {
+    "text": "Center 已拒绝注册且 stop_reconnect_on_reject 为真，停止后台重连",
+    "note": "KeyCenterRejectedStopBackgroundReconnect is the key used when the background reconnect stops because registration was rejected and the switch asks for it, and it carries no argument"
+  },
+  "edge.left_degraded_mode": {
+    "text": "已重新连接中心节点，退出降级模式",
+    "note": "KeyLeftDegradedMode is the key used when the background reconnect succeeded and the node left degraded mode, and it carries no argument"
+  },
+  "edge.link_status_changed": {
+    "text": "链路状态变化 from:%s to:%s loss_rate:%v threshold:%v",
+    "note": "KeyLinkStatusChanged is the key used when the link status transitions, with the previous status, the new status, the windowed loss rate and the configured threshold as arguments"
+  },
+  "edge.fake_ip_self_address_skipped": {
+    "text": "FAKE-IP 与本机地址相同，已跳过 ip:%s",
+    "note": "KeyFakeIPSelfAddressSkipped is the key used when a FAKE-IP is skipped for being this node's own address, whose argument is that FAKE-IP"
+  },
+  "edge.write_to_center_failed": {
+    "text": "写入中心节点失败 err:%v",
+    "note": "KeyWriteToCenterFailed is the key used when writing a message on the control-plane connection fails, whose argument is the write error"
+  },
+  "edge.write_queue_full": {
+    "text": "写队列已满，主动断开中心连接以触发重连 type:%s",
+    "note": "KeyWriteQueueFull is the key used when the write queue is full and the current connection is dropped for it, whose argument is the message type that triggered the drop"
+  },
+  "edge.center_connection_lost": {
+    "text": "中心节点连接读取失败 err:%v",
+    "note": "KeyCenterConnectionLost is the key used when reading the control-plane connection fails, whose argument is the read error. The message goes out before the reconnect decision, so its text states nothing about whether a reconnect follows; the outcome is reported by the KeyRejectedStopAutoReconnect or KeyTryingReconnect line that comes next"
+  },
+  "edge.rejected_stop_auto_reconnect": {
+    "text": "注册已被 Center 拒绝且 stop_reconnect_on_reject 为真，不启动自动重连",
+    "note": "KeyRejectedStopAutoReconnect is the key used when no automatic reconnect starts because registration was rejected and the switch is true, and it carries no argument"
+  },
+  "edge.registered_payload_parse_failed": {
+    "text": "RegisteredPayload 解析失败 err:%v",
+    "note": "KeyRegisteredPayloadParseFailed is the key used when the registration result payload fails to parse, whose argument is the parse error"
+  },
+  "edge.registration_rejected": {
+    "text": "中心节点拒绝注册 uuid:%s reason:%s",
+    "note": "KeyRegistrationRejected is the key used when Center rejects the registration, with this node's UUID and the reason as arguments"
+  },
+  "edge.reject_reason_payload_invalid": {
+    "text": "注册载荷不是合法 JSON",
+    "note": "KeyRejectReasonPayloadInvalid is the text of the payload_invalid reason code"
+  },
+  "edge.reject_reason_fields_invalid": {
+    "text": "注册字段未通过边界校验",
+    "note": "KeyRejectReasonFieldsInvalid is the text of the fields_invalid reason code"
+  },
+  "edge.reject_reason_rate_limited": {
+    "text": "该 UUID 的注册频率超限",
+    "note": "KeyRejectReasonRateLimited is the text of the rate_limited reason code"
+  },
+  "edge.reject_reason_capacity_reached": {
+    "text": "在线 Edge 数量已达上限",
+    "note": "KeyRejectReasonCapacityReached is the text of the capacity_reached reason code"
+  },
+  "edge.reject_reason_unknown": {
+    "text": "中心节点以本机不认识的原因码拒绝注册 code:%s",
+    "note": "KeyRejectReasonUnknown is the key used for a reason code this build does not know, whose argument is that code"
+  },
+  "edge.registration_succeeded": {
+    "text": "注册成功 uuid:%s",
+    "note": "KeyRegistrationSucceeded is the key used after a successful registration, whose argument is this node's UUID"
+  },
+  "edge.topo_response_parse_failed": {
+    "text": "TopoResponse 解析失败，保留旧拓扑 err:%v",
+    "note": "KeyTopoResponseParseFailed is the key used when the topology response fails to parse, whose argument is the parse error. The previous topology stays in place on such a failure, so only this error is recorded here"
+  },
+  "edge.topology_updated": {
+    "text": "拓扑已更新 nodes:%d collect_client_info:%v",
+    "note": "KeyTopologyUpdated is the key used after the topology was replaced, with the node count and the client-info collection switch of Center as arguments"
+  },
+  "edge.secret_push_parse_failed": {
+    "text": "SecretPushPayload 解析失败，保留旧 secret err:%v",
+    "note": "KeySecretPushParseFailed is the key used when the secret push payload fails to parse, whose argument is the parse error. The previous secret stays in place on such a failure, so only this error is recorded here"
+  },
+  "edge.secret_push_invalid": {
+    "text": "SecretPushPayload secret 非法，忽略推送 err:%v len:%d",
+    "note": "KeySecretPushInvalid is the key used when the pushed secret is invalid, with the hex decoding error and the decoded byte count as arguments. A push that decodes without error but is not 32 bytes long carries a nil error, and the byte count alone then tells the reason"
+  },
+  "edge.shared_secret_updated": {
+    "text": "shared_secret 已更新 version:%d",
+    "note": "KeySharedSecretUpdated is the key used after a secret push was received and accepted, whose argument is the pushed version"
+  },
+  "edge.unknown_message_type": {
+    "text": "未知消息类型 type:%s",
+    "note": "KeyUnknownMessageType is the key used when a downstream message type is not recognised, whose argument is that message type"
+  },
+  "edge.center_rejected_stop_reconnect": {
+    "text": "Center 已拒绝注册且 stop_reconnect_on_reject 为真，停止重连",
+    "note": "KeyCenterRejectedStopReconnect is the key used when the reconnect stops because registration was rejected and the switch asks for it, and it carries no argument"
+  },
+  "edge.trying_reconnect": {
+    "text": "尝试重连中心节点",
+    "note": "KeyTryingReconnect is the key printed before every reconnect attempt dials, and it carries no argument"
+  },
+  "edge.business_port_listening": {
+    "text": "业务端口监听中 addr:%s",
+    "note": "KeyBusinessPortListening is the key used once the business port listens, whose argument is the listen address"
+  },
+  "edge.business_accept_failed": {
+    "text": "Accept 错误 err:%v",
+    "note": "KeyBusinessAcceptFailed is the key used when the business port Accept fails, whose argument is the accept error"
+  },
+  "edge.business_listen_failed": {
+    "text": "业务端口监听失败 %s: %w",
+    "note": "KeyBusinessListenFailed is the key used when the business port fails to listen, with the listen address and the listen error as arguments. The caller treats it as a normal exit, so the text names the listening step as the one that failed"
+  },
+  "edge.first_packet_short_prefix": {
+    "text": "已读数据不足 4 字节，无法解析帧长度",
+    "note": "KeyFirstPacketShortPrefix is the key used when the prefix handed over by the classification stage is shorter than 4 bytes, and it takes no argument. The branch needs a prefix shorter than the frame length field, which the caller is expected not to hand over"
+  },
+  "edge.first_packet_over_limit": {
+    "text": "帧长度超限: %d",
+    "note": "KeyFirstPacketOverLimit is the key used when the frame length declared by the business first frame exceeds util.MaxFrameSize, whose argument is that length. The check runs before the payload is read, so the buffer allocated for the frame body stays within 1 MB"
+  },
+  "edge.first_packet_prefix_overflow": {
+    "text": "alreadyRead 包含的数据超过帧长度: got=%d, frameLen=%d",
+    "note": "KeyFirstPacketPrefixOverflow is the key used when the data carried by the read prefix exceeds the frame length, with the frame body byte count inside the prefix and the frame length as arguments. The branch is pure defensive code, because neither the 4-byte nor the 16-byte handoff of classifyConnection reaches it"
+  },
+  "edge.registration_flow_not_started": {
+    "text": "注册流程尚未启动",
+    "note": "KeyRegistrationFlowNotStarted is the key used when the registration result cannot be awaited because Connect has not run, and it takes no argument. regCh is nil while Connect has not run, which leaves nothing to wait on"
+  },
+  "edge.registration_conn_closed": {
+    "text": "连接已关闭，未收到注册结果",
+    "note": "KeyRegistrationConnClosed is the key used when the connection closes before the registration result arrives, and it takes no argument"
+  },
+  "edge.registration_wait_timeout": {
+    "text": "等待注册结果超时",
+    "note": "KeyRegistrationWaitTimeout is the key used when waiting for the registration result times out, and it takes no argument"
+  },
+  "edge.degraded_no_cache_dir": {
+    "text": "连接中心节点失败且未配置拓扑缓存目录 (topo_cache_dir)",
+    "note": "KeyDegradedNoCacheDir is the key used when the retries are exhausted and no topology cache directory is configured, and it takes no argument. The branch fails before degraded mode, since without a cache directory there is no local topology to load"
+  },
+  "edge.degraded_no_usable_cache": {
+    "text": "连接中心节点失败且无可用本地缓存: %w",
+    "note": "KeyDegradedNoUsableCache is the key used when the retries are exhausted and the local cache is unusable, whose argument is the cache loading error"
+  },
+  "edge.handshake_concurrency_full": {
+    "text": "未认证/引导握手并发已满，拒绝新连接",
+    "note": "KeyHandshakeConcurrencyFull is the key used when the concurrency gate of unauthenticated and bootstrap handshakes is full, and it carries no argument"
+  },
+  "edge.bootstrap_rate_limited": {
+    "text": "[%s] 引导请求超过限速，拒绝",
+    "note": "KeyBootstrapRateLimited is the key used when a bootstrap request exceeds the per-source-IP rate limit, whose first argument is the remote address"
+  },
+  "edge.bootstrap_degraded_mode": {
+    "text": "[%s] 降级模式下引导客户端，使用缓存拓扑",
+    "note": "KeyBootstrapDegradedMode is the key used when a client is bootstrapped while the node is degraded, whose first argument is the remote address"
+  },
+  "edge.bootstrap_no_probe_items": {
+    "text": "[%s] 无可用探测项",
+    "note": "KeyBootstrapNoProbeItems is the key used when the topology yields no probe item at all, whose first argument is the remote address"
+  },
+  "edge.bootstrap_send_list_failed": {
+    "text": "[%s] 下发探测项列表失败 err:%v",
+    "note": "KeyBootstrapSendListFailed is the key used when sending the probe item list fails, with the remote address and the write error as arguments"
+  },
+  "edge.bootstrap_read_results_failed": {
+    "text": "[%s] 读取探测结果失败 err:%v",
+    "note": "KeyBootstrapReadResultsFailed is the key used when reading the client probe results fails, with the remote address and the read error as arguments"
+  },
+  "edge.bootstrap_parse_results_failed": {
+    "text": "[%s] 探测结果解析失败 err:%v",
+    "note": "KeyBootstrapParseResultsFailed is the key used when the probe results fail to parse, with the remote address and the parse error as arguments"
+  },
+  "edge.bootstrap_result_count_abnormal": {
+    "text": "[%s] 探测结果数量异常 results:%d items:%d",
+    "note": "KeyBootstrapResultCountAbnormal is the key used when the probe result count exceeds the number of items sent, with the remote address, the result count and the item count as arguments"
+  },
+  "edge.bootstrap_rtt_rejected": {
+    "text": "[%s] 忽略异常 RTT code:%s rtt_ms:%d",
+    "note": "KeyBootstrapRTTRejected is the key used when an RTT in the probe results is negative or above the trusted bound and is dropped, with the remote address, the code and the RTT in milliseconds as arguments"
+  },
+  "edge.bootstrap_all_overloaded": {
+    "text": "[%s] 无任何非 overloaded 状态的候选节点，回退使用 overloaded 节点",
+    "note": "KeyBootstrapAllOverloaded is the key used when the filtering leaves no candidate and the overloaded nodes are used as a fallback, whose first argument is the remote address"
+  },
+  "edge.bootstrap_no_candidate": {
+    "text": "[%s] 无可用候选节点",
+    "note": "KeyBootstrapNoCandidate is the key used when even the overloaded nodes yield nothing, whose first argument is the remote address"
+  },
+  "edge.bootstrap_token_failed": {
+    "text": "[%s] Token 生成失败 err:%v",
+    "note": "KeyBootstrapTokenFailed is the key used when issuing the route Token fails, with the remote address and the issuing error as arguments"
+  },
+  "edge.bootstrap_send_redirect_failed": {
+    "text": "[%s] 下发 Redirect 命令失败 err:%v",
+    "note": "KeyBootstrapSendRedirectFailed is the key used when sending the Redirect command fails, with the remote address and the write error as arguments"
+  },
+  "edge.bootstrap_completed": {
+    "text": "[%s] 引导完成 target:%s total_rtt_ms:%d",
+    "note": "KeyBootstrapCompleted is the key used once one bootstrap interaction is done, with the remote address, the target node UUID and the total path RTT in milliseconds as arguments"
+  },
+  "edge.business_read_first_packet_failed": {
+    "text": "[%s] 读取首包失败 err:%v",
+    "note": "KeyBusinessReadFirstPacketFailed is the key used when reading the business first frame fails, with the remote address and the read error as arguments"
+  },
+  "edge.business_first_packet_json_failed": {
+    "text": "[%s] 首包 JSON 解析失败",
+    "note": "KeyBusinessFirstPacketJSONFailed is the key used when the business first frame fails to parse as JSON, whose first argument is the remote address"
+  },
+  "edge.business_client_addr_failed": {
+    "text": "[%s] 无法解析客户端地址",
+    "note": "KeyBusinessClientAddrFailed is the key used when the remote address of the connection cannot be asserted as a TCP address, whose first argument is the remote address"
+  },
+  "edge.business_token_rejected": {
+    "text": "[%s] Token 校验失败，丢弃连接",
+    "note": "KeyBusinessTokenRejected is the key used when the route Token fails verification, whose first argument is the remote address"
+  },
+  "edge.business_forward_cap_reached": {
+    "text": "[%s] 已建立转发连接数已达上限，拒绝连接",
+    "note": "KeyBusinessForwardCapReached is the key used when the established forwarding connections reach the cap, whose first argument is the remote address"
+  },
+  "edge.business_write_ack_failed": {
+    "text": "[%s] 写入验签确认失败 err:%v",
+    "note": "KeyBusinessWriteAckFailed is the key used when writing the verification acknowledgement to the client fails, with the remote address and the write error as arguments"
+  },
+  "edge.business_dial_origin_failed": {
+    "text": "[%s] 连接源站失败 err:%v",
+    "note": "KeyBusinessDialOriginFailed is the key used when dialling the origin fails, with the remote address and the dial error as arguments"
+  },
+  "edge.business_local_addr_failed": {
+    "text": "[%s] 无法解析本端地址",
+    "note": "KeyBusinessLocalAddrFailed is the key used when the local address cannot be asserted as a TCP address, whose first argument is the remote address"
+  },
+  "edge.business_write_comm_secret_failed": {
+    "text": "[%s] 写入通信密钥失败 err:%v",
+    "note": "KeyBusinessWriteCommSecretFailed is the key used when writing the communication secret to the origin fails, with the remote address and the write error as arguments"
+  },
+  "edge.business_write_ppv2_failed": {
+    "text": "[%s] 写入 PPv2 包头失败 err:%v",
+    "note": "KeyBusinessWritePPv2Failed is the key used when writing the PPv2 header to the origin fails, with the remote address and the write error as arguments"
+  },
+  "edge.business_read_server_ack_failed": {
+    "text": "[%s] 读取 Server 确认帧失败 err:%v（Server Agent 版本过旧？）",
+    "note": "KeyBusinessReadServerAckFailed is the key used when reading the Server Agent ack frame fails, with the remote address and the read error as arguments"
+  },
+  "edge.business_server_ack_parse_failed": {
+    "text": "[%s] Server 确认帧解析失败 err:%v",
+    "note": "KeyBusinessServerAckParseFailed is the key used when the Server Agent ack frame fails to parse, with the remote address and the parse error as arguments"
+  },
+  "edge.business_relay_established": {
+    "text": "[%s] L4 转发通道已建立 origin:%s client_v:%s server_v:%s",
+    "note": "KeyBusinessRelayEstablished is the key used once the bidirectional L4 relay is up, with the remote address, the origin address, the client version and the Server Agent version as arguments"
+  },
+  "logx.queue_full": {
+    "text": "日志队列已满，丢弃 %d 条",
+    "note": "KeyQueueFull is the key of the notice printed when the log queue is full and drops records. The notice goes out once before the first record of that batch and carries the number of records dropped"
+  },
+  "protocol.ppv2_header_too_short": {
+    "text": "包头长度不足: %d < %d",
+    "note": "KeyPPv2HeaderTooShort is the key used when the argument is shorter than PPv2MinHeaderLen, with the argument length and that lower bound as arguments. The check runs first, which lets every later branch that indexes into the header read the complete minimum header"
+  },
+  "protocol.ppv2_signature_mismatch": {
+    "text": "PPv2 签名校验失败，位置 %d",
+    "note": "KeyPPv2SignatureMismatch is the key used when the 12-byte signature comparison fails, whose argument is the first index that differs"
+  },
+  "protocol.ppv2_command_unsupported": {
+    "text": "不支持的命令字节: 0x%02X",
+    "note": "KeyPPv2CommandUnsupported is the key used when the command byte is not 0x21, whose argument is that byte"
+  },
+  "protocol.ppv2_ipv4_length_mismatch": {
+    "text": "IPv4 包头长度字段不匹配: %d != 12",
+    "note": "KeyPPv2IPv4LengthMismatch is the key used when the address length field of an IPv4 header is not 12, whose argument is the value of that field"
+  },
+  "protocol.ppv2_ipv4_header_too_short": {
+    "text": "IPv4 包头长度不足: %d < %d",
+    "note": "KeyPPv2IPv4HeaderTooShort is the key used when the argument is shorter than PPv2HeaderLenIPv4, with the argument length and that complete header length as arguments"
+  },
+  "protocol.ppv2_ipv6_length_mismatch": {
+    "text": "IPv6 包头长度字段不匹配: %d != 36",
+    "note": "KeyPPv2IPv6LengthMismatch is the key used when the address length field of an IPv6 header is not 36, whose argument is the value of that field"
+  },
+  "protocol.ppv2_ipv6_header_too_short": {
+    "text": "IPv6 包头长度不足: %d < %d",
+    "note": "KeyPPv2IPv6HeaderTooShort is the key used when the argument is shorter than PPv2HeaderLenIPv6, with the argument length and that complete header length as arguments"
+  },
+  "protocol.ppv2_family_unsupported": {
+    "text": "不支持的协议族/类型: 0x%02X",
+    "note": "KeyPPv2FamilyUnsupported is the key used when the address family and transport byte is neither 0x11 nor 0x21, whose argument is that byte"
+  },
+  "main.config_load_failed": {
+    "text": "配置加载失败: %v",
+    "note": "KeyConfigLoadFailed is the key used when the configuration cannot be loaded, whose argument is the underlying error"
+  },
+  "main.config_validate_failed": {
+    "text": "配置校验失败: %v",
+    "note": "KeyConfigValidateFailed is the key used when the configuration fails validation, whose argument is the underlying error"
+  },
+  "main.role_unknown": {
+    "text": "未知角色: %s",
+    "note": "KeyRoleUnknown is the key used when self.role names none of the four roles, whose argument is the value read"
+  },
+  "main.started": {
+    "text": "OptiRoute v%s 启动 role:%s",
+    "note": "KeyStarted is the key of the start-up banner, with the build-time version and the running role as arguments"
+  },
+  "main.shutdown_signal": {
+    "text": "收到退出信号，正在关闭...",
+    "note": "KeyShutdownSignal is the key used when an exit signal arrives"
+  },
+  "main.service_exited": {
+    "text": "服务异常退出 err:%v",
+    "note": "KeyServiceExited is the key used when the role service exits with an error, whose argument is that error"
+  },
+  "main.lang_unsupported": {
+    "text": "%s=%s 不是受支持的语言标签，回退到 en-US",
+    "note": "KeyLangUnsupported is the key used when a language tag is not supported, with the source of the tag and its value as arguments. The source is either --lang or self.lang, so the notice states which one to change"
+  },
+  "util.frame_too_large": {
+    "text": "帧过大: %d",
+    "note": "KeyFrameTooLarge is the key used when the frame to write exceeds MaxFrameSize, whose argument is the byte count of the argument. The check runs before the header is written, so no byte reaches the connection"
+  },
+  "util.write_zero_bytes": {
+    "text": "连接写入 0 字节",
+    "note": "KeyWriteZeroBytes is the key used when a single write reports 0 bytes, and it takes no argument. Treating it as an error keeps the write loop from spinning"
+  },
+  "util.frame_length_exceeded": {
+    "text": "帧长度超限: %d",
+    "note": "KeyFrameLengthExceeded is the key used when the frame length read from the connection exceeds MaxFrameSize, whose argument is the value of that length field. The check runs before the payload is read, so the buffer allocated for one frame stays within 1 MB"
+  }
+}

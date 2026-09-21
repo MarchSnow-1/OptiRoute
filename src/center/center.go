@@ -319,7 +319,7 @@ func (s *CenterServer) allowRegister(uuid string) bool {
 // sendRegisterReject sends the rejection result directly to the connection before the new record is stored in the edges map
 // This path serves only the moment when the registration has not succeeded and the connection therefore has no writeLoop yet, so writing in this goroutine cannot race with another writer
 // Everything sent after a successful registration goes through writeCh and writeLoop instead, which keeps one connection from having two writers
-func (s *CenterServer) sendRegisterReject(conn *websocket.Conn, reason string) {
+func (s *CenterServer) sendRegisterReject(conn *websocket.Conn, reason protocol.RegisterRejectReason) {
 	raw, _ := json.Marshal(protocol.RegisteredPayload{OK: false, Reason: reason})
 	env := protocol.Envelope{Type: protocol.MsgTypeRegistered, Payload: raw}
 	data, _ := json.Marshal(env)
@@ -339,14 +339,16 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 	var req protocol.RegisterPayload
 	if err := json.Unmarshal(raw, &req); err != nil {
 		logx.Warnf(KeyRegisterPayloadDecodeFailed, err)
-		s.sendRegisterReject(conn, "register payload is not valid json")
+		s.sendRegisterReject(conn, protocol.RejectReasonPayloadInvalid)
 		conn.Close()
 		return
 	}
 
 	if err := normalizeAndValidateRegister(&req); err != nil {
 		logx.Warnf(KeyRegisterValidateFailed, req.UUID, err)
-		s.sendRegisterReject(conn, err.Error())
+		// 具体是哪个字段不合法只记在本地日志里，对端只收到原因码，因此该拒绝在两台机器上各按自己的语言输出
+		// Which field failed is recorded in the local log only while the peer receives the reason code, so the rejection is reported on each machine in its own language
+		s.sendRegisterReject(conn, protocol.RejectReasonFieldsInvalid)
 		conn.Close()
 		return
 	}
@@ -358,7 +360,7 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 	}
 	if !s.allowRegister(uuid) {
 		logx.Warnf(KeyRegisterRateLimited, uuid)
-		s.sendRegisterReject(conn, "register rate limit exceeded")
+		s.sendRegisterReject(conn, protocol.RejectReasonRateLimited)
 		conn.Close()
 		return
 	}
@@ -421,7 +423,7 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 	} else if edgeCount := len(s.edges); edgeCount >= maxEdges {
 		s.mu.Unlock()
 		logx.Warnf(KeyRegisterEdgeLimitReached, uuid, edgeCount)
-		s.sendRegisterReject(conn, "online edge limit reached")
+		s.sendRegisterReject(conn, protocol.RejectReasonCapacityReached)
 		conn.Close()
 		return
 	}

@@ -149,6 +149,32 @@ const (
 	// KeyRegistrationRejected is the key used when Center rejects the registration, with this node's UUID and the reason as arguments
 	KeyRegistrationRejected i18n.Key = "edge.registration_rejected"
 
+	// 下面五个键把 Center 下发的原因码渲染成本机语言的文本，不带参数
+	// 跨进程只传码，语言因此各按各的 lang 决定；未知码由 KeyRejectReasonUnknown 原样回显，使新增码不需要本机同时升级
+	//
+	// The five keys below render the reason code delivered by the Center into text in the local language and carry no argument
+	// Only the code crosses the process boundary, so each side follows its own lang, and an unknown code is echoed as it stands by KeyRejectReasonUnknown, which keeps a new code from requiring a simultaneous local upgrade
+
+	// KeyRejectReasonPayloadInvalid 是原因码 payload_invalid 的文本
+	// KeyRejectReasonPayloadInvalid is the text of the payload_invalid reason code
+	KeyRejectReasonPayloadInvalid i18n.Key = "edge.reject_reason_payload_invalid"
+
+	// KeyRejectReasonFieldsInvalid 是原因码 fields_invalid 的文本
+	// KeyRejectReasonFieldsInvalid is the text of the fields_invalid reason code
+	KeyRejectReasonFieldsInvalid i18n.Key = "edge.reject_reason_fields_invalid"
+
+	// KeyRejectReasonRateLimited 是原因码 rate_limited 的文本
+	// KeyRejectReasonRateLimited is the text of the rate_limited reason code
+	KeyRejectReasonRateLimited i18n.Key = "edge.reject_reason_rate_limited"
+
+	// KeyRejectReasonCapacityReached 是原因码 capacity_reached 的文本
+	// KeyRejectReasonCapacityReached is the text of the capacity_reached reason code
+	KeyRejectReasonCapacityReached i18n.Key = "edge.reject_reason_capacity_reached"
+
+	// KeyRejectReasonUnknown 是收到本机不认识的原因码时的键，参数为该码
+	// KeyRejectReasonUnknown is the key used for a reason code this build does not know, whose argument is that code
+	KeyRejectReasonUnknown i18n.Key = "edge.reject_reason_unknown"
+
 	// KeyRegistrationSucceeded 是注册成功时的键，参数为本节点 UUID
 	// KeyRegistrationSucceeded is the key used after a successful registration, whose argument is this node's UUID
 	KeyRegistrationSucceeded i18n.Key = "edge.registration_succeeded"
@@ -483,6 +509,31 @@ var messages = map[i18n.Key]i18n.Entry{
 		"Center rejected the registration uuid:%s reason:%s",
 		"中心节点拒绝注册 uuid:%s reason:%s",
 		"中心節點拒絕註冊 uuid:%s reason:%s",
+	),
+	KeyRejectReasonPayloadInvalid: i18n.New(
+		"the registration payload is not valid JSON",
+		"注册载荷不是合法 JSON",
+		"註冊承載不是合法 JSON",
+	),
+	KeyRejectReasonFieldsInvalid: i18n.New(
+		"a registration field failed its range check",
+		"注册字段未通过边界校验",
+		"註冊欄位未通過邊界校驗",
+	),
+	KeyRejectReasonRateLimited: i18n.New(
+		"the registration rate of this UUID is over its limit",
+		"该 UUID 的注册频率超限",
+		"該 UUID 的註冊頻率超限",
+	),
+	KeyRejectReasonCapacityReached: i18n.New(
+		"the number of online Edges has reached its cap",
+		"在线 Edge 数量已达上限",
+		"線上 Edge 數量已達上限",
+	),
+	KeyRejectReasonUnknown: i18n.New(
+		"Center rejected the registration with an unknown reason code:%s",
+		"中心节点以本机不认识的原因码拒绝注册 code:%s",
+		"中心節點以本機不認識的原因碼拒絕註冊 code:%s",
 	),
 	KeyRegistrationSucceeded: i18n.New(
 		"registration succeeded uuid:%s",

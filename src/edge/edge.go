@@ -20,6 +20,7 @@ import (
 
 	"github.com/MarchSnow-1/OptiRoute/auth"
 	"github.com/MarchSnow-1/OptiRoute/config"
+	"github.com/MarchSnow-1/OptiRoute/i18n"
 	"github.com/MarchSnow-1/OptiRoute/logx"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
@@ -304,11 +305,15 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 			return
 		}
 		if !p.OK {
-			// 先唤醒等待方再置位拒绝标记，使 WaitRegistration 能拿到拒绝原因
-			// Wake the waiter before setting the rejected flag so WaitRegistration can observe the rejection reason
-			c.finishRegistration(fmt.Errorf("中心节点拒绝注册: %s", p.Reason))
+			// 对端只下发原因码，这里按本机语言渲染成文本，再同时用于唤醒等待方的错误与本机日志
+			// 这样一次拒绝在 Center 与本机各自的语言里各出现一次，不会出现中英嵌套
+			//
+			// The peer delivers a reason code only, which is rendered here in the local language and then used both for the error that wakes the waiter and for the local log
+			// A rejection therefore appears once in the language of the Center and once in the local one, with no Chinese and English nested in a single line
+			reason := rejectReasonText(p.Reason)
+			c.finishRegistration(fmt.Errorf("%s", reason))
 			c.rejected.Store(true)
-			logx.Warnf(KeyRegistrationRejected, c.selfUUID, p.Reason)
+			logx.Warnf(KeyRegistrationRejected, c.selfUUID, reason)
 			c.conn.Close()
 			return
 		}
@@ -357,6 +362,26 @@ func (c *CenterClient) dispatch(env protocol.Envelope) {
 
 	default:
 		logx.Warnf(KeyUnknownMessageType, env.Type)
+	}
+}
+
+// rejectReasonText 把 Center 下发的原因码渲染成本机语言的文本
+// 未知码回显原文，使 Center 新增原因码时本机不必同时升级也能给出可用的诊断
+//
+// rejectReasonText renders the reason code delivered by the Center into text in the local language
+// An unknown code is echoed as it stands, so the Center may add a code without a simultaneous upgrade here and still produce a usable diagnosis
+func rejectReasonText(reason protocol.RegisterRejectReason) string {
+	switch reason {
+	case protocol.RejectReasonPayloadInvalid:
+		return i18n.T(KeyRejectReasonPayloadInvalid)
+	case protocol.RejectReasonFieldsInvalid:
+		return i18n.T(KeyRejectReasonFieldsInvalid)
+	case protocol.RejectReasonRateLimited:
+		return i18n.T(KeyRejectReasonRateLimited)
+	case protocol.RejectReasonCapacityReached:
+		return i18n.T(KeyRejectReasonCapacityReached)
+	default:
+		return i18n.T(KeyRejectReasonUnknown, reason)
 	}
 }
 

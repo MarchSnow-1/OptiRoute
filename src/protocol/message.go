@@ -66,11 +66,43 @@ type FakeItemReport struct {
 	RTTFallbackMs int64   `json:"rtt_fallback_ms,omitempty"` // f2n 静态兜底 / static f2n fallback
 }
 
+// RegisterRejectReason 是 Center 拒绝注册时下发的原因码
+// 跨进程字段只放机器可读的码而不放散文：Center 与 Edge 各自按自己的 lang 输出，避免同一条拒绝在两侧出现两种语言，也避免对端把 Center 的语言当作自己的
+// 收到未知码时由接收方原样打印该码，因此新增码不需要两侧同时升级
+//
+// RegisterRejectReason is the reason code the Center delivers when it rejects a registration
+// A cross-process field carries a machine-readable code rather than prose: the Center and the Edge each report in their own lang, which keeps one rejection from appearing in two languages on the two sides and keeps a peer from adopting the language of the Center
+// An unknown code is printed as it stands by the receiver, so adding a code needs no simultaneous upgrade of both sides
+type RegisterRejectReason string
+
+const (
+	// RejectReasonPayloadInvalid 表示注册载荷不是合法 JSON
+	// RejectReasonPayloadInvalid means the registration payload is not valid JSON
+	RejectReasonPayloadInvalid RegisterRejectReason = "payload_invalid"
+
+	// RejectReasonFieldsInvalid 表示注册字段未通过边界校验，具体字段由 Center 记在本地日志里
+	// RejectReasonFieldsInvalid means a registration field failed its range check, with the specific field recorded in the local log of the Center
+	RejectReasonFieldsInvalid RegisterRejectReason = "fields_invalid"
+
+	// RejectReasonRateLimited 表示该 UUID 的注册频率超限
+	// RejectReasonRateLimited means the registration rate of that UUID is over its limit
+	RejectReasonRateLimited RegisterRejectReason = "rate_limited"
+
+	// RejectReasonCapacityReached 表示在线 Edge 数量已达上限
+	// RejectReasonCapacityReached means the number of online Edges has reached its cap
+	RejectReasonCapacityReached RegisterRejectReason = "capacity_reached"
+)
+
 // RegisteredPayload 中心节点注册成功响应
 // RegisteredPayload is the Center response to a successful registration
 type RegisteredPayload struct {
-	OK     bool   `json:"ok"`               // 注册是否成功 / whether the registration succeeded
-	Reason string `json:"reason,omitempty"` // 拒绝原因，仅 ok=false 时由中心下发，Edge 打印日志用 / the rejection reason, sent by the Center only when ok is false and used by the Edge for logging
+	OK bool `json:"ok"` // 注册是否成功 / whether the registration succeeded
+	// Reason 是 RegisterRejectReason 中的原因码，仅 ok=false 时由中心下发
+	// 该字段是机器可读的码而不是给用户看的句子，Edge 按自己的语言渲染后再输出
+	//
+	// Reason carries one of the RegisterRejectReason codes and is delivered by the Center only when ok is false
+	// The field is a machine-readable code rather than a sentence for a reader, and the Edge renders it in its own language before printing it
+	Reason RegisterRejectReason `json:"reason,omitempty"`
 }
 
 // ── RTT 上报 / RTT report ────────────────────────────

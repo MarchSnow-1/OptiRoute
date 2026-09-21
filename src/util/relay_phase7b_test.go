@@ -1,6 +1,6 @@
 // 本文件覆盖 Phase 7b 对透传的核心改动：空闲以连接为单位判定，以及写方向带 deadline
 // 覆盖点一：一个方向持续有数据、另一个方向静默超过空闲阈值时，连接不被关闭，因此纯下行的长连接不会被截断
-// 覆盖点二：写目标长期不接受数据时该方向的写最终失败，而不是永久阻塞
+// 覆盖点二：写目标长期不接受数据时该方向的写最终失败并结束该方向，而不是一直阻塞在那里
 // 写方向的用例用一个遵守 deadline 语义的假连接，因此验证的是本包「写前设置 deadline 并在超时后结束该方向」这一契约，而不依赖某个操作系统的 TCP 缓冲行为
 //
 // This file covers the core Phase 7b change to passthrough: idleness judged per connection, and a write direction carrying a deadline
@@ -119,7 +119,7 @@ func newDeadlineFakeConn(readChunk []byte, sink bool) *deadlineFakeConn {
 // 连接已关闭时即使有预设数据也返回错误，这样转发循环能像对待真实连接那样结束，而不是一直读到数据
 //
 // Read returns the preset data, and without any it waits for the read deadline or for the connection to close
-// A closed connection reports an error even while preset data exists, so the forwarding loop ends the way it would on a real connection instead of reading data forever
+// A closed connection reports an error even while preset data exists, so the forwarding loop ends the way it would on a real connection instead of keeping on reading data
 func (c *deadlineFakeConn) Read(p []byte) (int, error) {
 	select {
 	case <-c.closed:
@@ -225,12 +225,12 @@ func (timeoutError) Error() string   { return "fake i/o timeout" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
-// TestRelayWriteDeadlineEndsBlockedDirection 覆盖写方向带 deadline：写目标长期不接受数据时该方向结束，连接不会永久挂着
+// TestRelayWriteDeadlineEndsBlockedDirection 覆盖写方向带 deadline：写目标长期不接受数据时该方向结束，连接不会一直挂在那里
 // 用例让两个方向都有数据可读，因此另一个方向的转发循环持续有进度、空闲检查不会触发，被覆盖的是写 deadline 本身而不是连接级空闲
 // b 的 Write 阻塞到写 deadline 到期，用例断言它确实以写超时结束，而不是因为其它原因
 //
-// TestRelayWriteDeadlineEndsBlockedDirection covers the write direction carrying a deadline: a target that accepts no data ends that direction instead of hanging the connection forever
-// Both directions have data to read, so the forwarding loop of the other direction keeps making progress and the idle check never fires, which leaves the write deadline itself as the mechanism under test
+// TestRelayWriteDeadlineEndsBlockedDirection covers the write direction carrying a deadline: a target that accepts no data ends that direction instead of leaving the connection hanging
+// Both directions have data to read, so the forwarding loop of the other direction keeps making progress and the idle check stays quiet, which leaves the write deadline itself as the mechanism under test
 // The Write of b blocks until its write deadline expires, and the case asserts that it really ended through a write timeout rather than for another reason
 func TestRelayWriteDeadlineEndsBlockedDirection(t *testing.T) {
 	const idleTimeout = 80 * time.Millisecond

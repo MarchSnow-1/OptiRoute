@@ -34,7 +34,7 @@ const minIdleCheckInterval = 10 * time.Millisecond
 // RelayWithIdle 在 Relay 基础上支持空闲超时，空闲的判定以连接为单位而非以方向为单位
 // 两个方向的任何一次读写都会续期空闲计时，因此只有两个方向都静默达到 idleTimeout 时才关闭连接：这样纯下行的长连接不会因为上行静默而被截断
 // 另一个方向仍有数据时本方向的读可以一直阻塞，由空闲检查在超时后关闭两侧连接把它解除
-// idleTimeout > 0 时每次写之前设置写 deadline（取同一阈值），使对端零窗口且长期不接收时该方向的写最终报错而不是永久阻塞
+// idleTimeout > 0 时每次写之前设置写 deadline（取同一阈值），使对端零窗口且长期不接收时该方向的写最终报错并结束该方向，而不是一直阻塞在那里
 // 某方向结束时，仅当 dst 能断言为 *net.TCPConn 才调 CloseWrite 传播半关闭，让对端仍可把剩余响应写回来；dst 不能断言为 *net.TCPConn（例如 net.Pipe）时退化为 dst.Close()，该连接的两个方向一起关闭
 // 两个方向都结束之后，函数才关闭 a 与 b
 //

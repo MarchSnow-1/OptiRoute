@@ -118,8 +118,7 @@ func (n *Node) runBusinessServer(ctx context.Context) error {
 // Note that the multi-round bootstrap interaction in handleBootstrap is outside this window and keeps its own timeouts
 const handshakeTimeout = 5 * time.Second
 
-// maxConcurrentHandshakes 限制同时处于“未认证/引导”阶段的 TCP 连接数，
-// 防止攻击者通过大量半开握手耗尽 goroutine/fd
+// maxConcurrentHandshakes 限制同时处于「未认证/引导」阶段的 TCP 连接数，防止攻击者用大量半开握手耗尽 goroutine 与 fd
 //
 // maxConcurrentHandshakes caps how many TCP connections sit in the unauthenticated or bootstrap phase at the same time
 // It keeps an attacker from exhausting goroutines and file descriptors with a flood of half-open handshakes
@@ -155,15 +154,14 @@ func (n *Node) releaseHandshake() {
 }
 
 // dispatchConnectionHeld 对已占用握手额度的连接做分层判定：
-//   - 先读 4 字节初筛（IsMagicPrefix），绝大多数业务连接在此时即可分流；
+//   - 先读 4 字节初筛（IsMagicPrefix），绝大多数业务连接在此时即可分流
 //   - 仅命中 Magic 前缀才读满 16 字节做完整 IsMagic 兜底比对
 //
-// 判定全程共享同一绝对 deadline，业务分支将该 deadline 原样移交 handleBusiness，
-// 使「判定 + 业务首帧」共用同一个超时窗口；引导分支在移交前清除判定期 deadline，
-// 由 handleBootstrap 内部的多轮交互各自设置独立超时
+// 判定全程共享同一绝对 deadline，业务分支将该 deadline 原样移交 handleBusiness，使「判定 + 业务首帧」共用同一个超时窗口
+// 引导分支在移交前清除判定期 deadline，由 handleBootstrap 内部的多轮交互各自设置独立超时
 //
 // dispatchConnectionHeld classifies a connection that already holds a handshake slot:
-//   - it reads 4 bytes first (IsMagicPrefix), which is enough to route the vast majority of business connections;
+//   - it reads 4 bytes first (IsMagicPrefix), which is enough to route the vast majority of business connections
 //   - only a matching Magic prefix makes it read the full 16 bytes for the complete IsMagic fallback check
 //
 // The whole classification shares one absolute deadline, and the business branch hands that deadline to handleBusiness unchanged so classification and first frame share one timeout window
@@ -254,11 +252,9 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	usedCodes := make(map[string]struct{})
 	codeByItem := make(map[string][]codedItem)
 	probeItems := make([]protocol.ProbeItem, 0, len(fullTopo))
-	// 相同 {IP,Proto,Port} 的探测项去重合并：客户端只测一次，
-	// 但 code 对应多个候选节点（多节点共享同一 FAKE-IP 场景）
+	// 相同 {IP,Proto,Port} 的探测项去重合并：客户端只测一次，但一个 code 可以对应多个候选节点（多节点共享同一 FAKE-IP 的场景）
 	//
-	// Items with the same {IP,Proto,Port} are merged: the client probes once,
-	// while one code maps to several candidate nodes when nodes share a FAKE-IP
+	// Items with the same {IP,Proto,Port} are merged, so the client probes once while one code can map to several candidate nodes when nodes share a FAKE-IP
 	codeByKey := make(map[string]string)
 	for _, node := range fullTopo {
 		for _, item := range node.EffectiveItems() {

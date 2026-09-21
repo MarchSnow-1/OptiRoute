@@ -169,11 +169,9 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 		return
 	}
 
-	// 读取 Server 确认帧（含 UUID + 版本）。Server Agent 在密钥校验后、读 PPv2 前回此帧；
-	// 读不到/解析失败则断连（老版本 Server Agent 不兼容，强制同步升级）
+	// 读取 Server 确认帧（含 UUID + 版本）。Server Agent 在密钥校验后、读 PPv2 前回此帧，读不到或解析失败则断连，因为旧版本 Server Agent 不回此帧，需要同步升级
 	//
-	// Read the Server ack frame carrying the UUID and the version. The Server Agent replies after checking the secret and before reading PPv2,
-	// and a missing or unparsable frame drops the connection because an older Server Agent is not compatible and has to be upgraded together
+	// Read the Server ack frame carrying the UUID and the version, which the Server Agent replies after checking the secret and before reading PPv2; a missing or unparsable frame drops the connection because an older Server Agent sends no such frame and has to be upgraded together
 	var serverVersion, serverUUID string
 	if ackData, err := util.ReadFrame(originConn, 3*time.Second); err != nil {
 		logx.Warn("[", remote, "] 读取 Server 确认帧失败 err:", err, "（Server Agent 版本过旧？）")

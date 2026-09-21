@@ -177,12 +177,12 @@ func (m *FakeIPManager) checkItem(it *FakeIPStatus) {
 	it.mu.Unlock()
 
 	// 状态变迁才触发列表变化上报：
-	//   - Unknown/Invalid → Valid：新 FAKE-IP 可用或失效后恢复；
+	//   - Unknown/Invalid → Valid：新 FAKE-IP 可用，或失效项恢复可用
 	//   - Valid → Invalid：有效项失效，必须让中心立即移除，避免继续下发坏项
 	// 必须在释放 it.mu 之后调用（Selected 会再次对同一 item 加锁）
 	//
 	// Only a state change triggers the list-change report:
-	//   - Unknown/Invalid → Valid: a new FAKE-IP became usable or an invalid one recovered;
+	//   - Unknown/Invalid → Valid: a new FAKE-IP became usable, or an invalid one recovered
 	//   - Valid → Invalid: a valid entry failed and Center has to drop it right away so it is not handed out any longer
 	// The call must happen after it.mu is released, because Selected locks the same item again
 	if (ok && prev != StateValid) || (!ok && prev == StateValid) {

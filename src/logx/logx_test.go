@@ -226,8 +226,8 @@ func TestConcurrentLoggingIsSafe(t *testing.T) {
 // 该用例用一个永不返回的写目标复现那一场景，断言 Info 与 Warn 的调用方不被卡住
 //
 // TestCallerDoesNotBlockWhenOutputBlocks checks that a caller still returns right away while the output target blocks indefinitely
-// This is the very reason the package exists: with standard output wired to a full pipe or a collector that stopped reading, the previous synchronous write blocked the calling goroutine forever
-// The case reproduces that situation with a write target that never returns and asserts that the callers of Info and Warn are not stalled
+// This is the very reason the package exists: with standard output wired to a full pipe or a collector that stopped reading, the previous synchronous write blocked the calling goroutine for as long as the target stayed blocked
+// The case reproduces that situation with a write target that does not return until released and asserts that the callers of Info and Warn are not stalled
 func TestCallerDoesNotBlockWhenOutputBlocks(t *testing.T) {
 	release := make(chan struct{})
 	entered := make(chan struct{}, 1)

@@ -49,10 +49,10 @@ func NewServerAgent(cfg *config.Config, version string) *ServerAgent {
 const requiredCommSecretLen = 32
 
 // Start 监听 Edge 接入并逐个处理连接
-// 启动前先确认数据面密钥可用，避免带着一个会让认证恒通过或恒失败的密钥进入服务
+// 启动前先确认数据面密钥可用，避免带着一个会让认证在长度为零时直接放行的密钥进入服务
 //
 // Start listens for Edge connections and handles them one by one
-// It confirms the data-plane secret is usable before listening, which keeps a secret that would make authentication always succeed or always fail out of the service
+// It confirms the data-plane secret is usable before listening, which keeps a secret that would let a zero-length comparison admit every peer out of the service
 func (a *ServerAgent) Start(ctx context.Context) error {
 	if len(a.cfg.Remote.CommSecret) != requiredCommSecretLen {
 		return fmt.Errorf("数据面密钥长度必须是 %d 字节，当前 %d 字节", requiredCommSecretLen, len(a.cfg.Remote.CommSecret))

@@ -9,8 +9,9 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | `--config-path=<路径>` | 指定配置文件路径 |
 | `--config-base64=<base64>` | 直接以 base64 注入配置, 不是加密 |
 | `--disable-log` | 关闭日志输出, 默认不开即保留日志 |
+| `--lang=<标签>` | 日志与启动文案的语言, 取 IETF BCP 47 标签, 如 `en-US`、`zh-Hans`、`zh-Hant`; 优先于 `self.lang`, 取值不受支持时回退到 `en-US` 并向标准错误输出一条提示 |
 
-识别规则: 参数必须带等号形式 `--name=value`; 程序从头扫描命令行, 第一个出现的 `--config-path=` 或 `--config-base64=` 生效且后续同名参数不再覆盖; 两个前缀都不存在时读取工作目录下的 `config.json`, 该文件缺失会以读文件错误退出。未识别的参数被忽略, 不会因此报错退出
+识别规则: 参数必须带等号形式 `--name=value`; 程序从头扫描命令行, 第一个出现的 `--config-path=` 或 `--config-base64=` 生效且后续同名参数不再覆盖; 两个前缀都不存在时读取工作目录下的 `config.json`, 该文件缺失会以读文件错误退出。未识别的参数被忽略, 不会因此报错退出。`--lang=` 同样保留首个取值, 且显式给出空串也算给出, 因此空标签会覆盖 `self.lang` 再回退到 `en-US`
 
 > ⚠️ 安全警告：`--config-base64` 仅用于方便注入配置，base64 不是加密。完整配置（含密钥）会出现在进程命令行中，可能被本机其他用户或监控工具读取。生产环境请优先使用配置文件，并将配置文件权限限制为仅当前用户可读写。
 
@@ -219,11 +220,14 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | forward_real_ip | bool | false | server 是否向上游注入 PPv2 包头 |
 | log_level | string | info | 日志级别: 取值必须是 debug / info / warn / error 之一, 其它值在配置校验阶段报错 |
 | disable_log | bool | false | 是否关闭日志输出; 默认 false 即保留日志, 需静默运行时显式开启; 也可用命令行 `--disable-log` 覆盖为 true |
+| lang | string | en-US | 日志与启动文案的语言, 取 IETF BCP 47 标签; 支持 `en-US`、`zh-Hans` 与 `zh-Hant`, 大小写不敏感, 裸 `zh` 或 `zh-CN`、`zh-SG` 这类区域归为 `zh-Hans`, `zh-TW`、`zh-HK`、`zh-MO` 归为 `zh-Hant`; 带脚本子标签时以脚本为准, 如 `zh-Hant-CN` 取 `zh-Hant`; 未支持或格式非法的取值不会导致校验失败, 进程以 `en-US` 输出并在标准错误打印一条提示, 因此标签写错不阻止启动; `--lang=` 优先于本字段 |
 
 **日志写出方式:** 日志经有界队列异步写出, 由单独的写 goroutine 落到标准输出
 
 - 队列容量 4096 条, 满时丢弃新日志并在下一条成功写出的日志前输出一条丢弃条数提示, 因此输出端阻塞不会拖住业务 goroutine
 - 默认级别下每行格式为 `[级别] 日期 时间 消息`; `log_level` 为 `debug` 时在时间之后额外输出调用点, 形如 `file.go:123`
+- 日志行与启动文案(含配置加载失败、配置校验失败)都取自消息目录, 随 `lang` 切换
+- 配置加载失败发生在 `self.lang` 读到之前, 因此该条只用命令行 `--lang` 选定的语言输出, 未给出该参数时用 `en-US`
 - 退出前会冲刷队列; 进程异常终止时队列中尚未写出的日志会丢失
 
 

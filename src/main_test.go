@@ -2,7 +2,7 @@
 // 覆盖受支持标签的规范取值、不受支持标签回退到 en-US 并给出指名来源的提示，以及提示固定用英文渲染这一约定
 //
 // This file checks the language resolution and fallback of the entry point
-// It covers the canonical value of a supported tag, the fallback to en-US with a notice naming the source for an unsupported one, and the rule that the notice is always rendered in English
+// It covers the canonical value of a supported tag, the fallback to en-US with a notice naming the source for an unsupported one, and the rule that the notice is rendered in English regardless of the current language
 package main
 
 import (

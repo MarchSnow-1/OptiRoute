@@ -27,11 +27,13 @@ Start the four files in the order `center`, `edge`, `server`, `client`, with a c
 - **地址落在文档用地址段**：示例中的地址取自 RFC 5737 的 `192.0.2.0/24`、`198.51.100.0/24` 与 `203.0.113.0/24`，需要替换为实际地址
 - **uuid 是占位值**：`edge.json` 与 `server.json` 中的 UUID 需要各自替换为全局唯一值
 - **端口需按实际调整**：示例假设四个角色运行在同一台机器上，因此端口互不冲突
+- **语言字段**：四个示例都显式写了 `"lang": "en-US"`，与不配置时的默认值相同；改用 `zh-Hans` 或 `zh-Hant` 可让日志与启动文案输出中文，也可用命令行 `--lang=` 覆盖，命令行优先
 
 - **The secrets are placeholders and have to be replaced**: `0123456789abcdef0123456789abcdef` and `fedcba9876543210fedcba9876543210` are 32-byte placeholders, and using them in production is the same as publishing the keys; `center_secret` and `comm_secret` also have to stay two different keys
 - **The addresses come from the documentation ranges**: the example addresses are taken from the RFC 5737 blocks `192.0.2.0/24`, `198.51.100.0/24` and `203.0.113.0/24` and need replacing with real ones
 - **The UUIDs are placeholders**: the ones in `edge.json` and `server.json` each need replacing with a globally unique value
 - **The ports need adjusting**: the examples assume all four roles run on one machine, which is why their ports do not clash
+- **The language field**: all four examples state `"lang": "en-US"` explicitly, which matches the default in force when the field is absent; switching it to `zh-Hans` or `zh-Hant` makes logs and start-up messages Chinese, and the command line `--lang=` overrides it because the command line wins
 
 ## 校验 / Validation
 

@@ -20,7 +20,8 @@
     "monitor_probe_timeout_ms": 2000,
     "max_bandwidth_mbps": 100,
     "max_connections": 4096,
-    "log_level": "info"
+    "log_level": "info",
+    "lang": "en-US"
   },
   "remote": {
     "center_addr": "203.0.113.1",

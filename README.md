@@ -137,6 +137,10 @@ Config examples and the full configuration reference for all four roles: see [Co
 
 Runnable example configurations for all four roles live in [examples/](examples/), and each one carries every required field
 
+### Logs and language
+
+Log lines and start-up messages default to English. Set `--lang=en-US|zh-Hans|zh-Hant` on the command line, or the `self.lang` field in the configuration, to switch language; the command line wins when both are given. A tag outside those three falls back to `en-US` and prints one notice on standard error instead of stopping start-up, so a mistyped tag cannot block a run. Configuration load and validation failures follow the same language, and a failed load uses the language `--lang` selected because `self.lang` is not readable at that point.
+
 ## Protocol and Upgrade
 
 - [Protocol Reference](docs/PROTOCOL.md) — the wire format of the bootstrap and business connections, length frames, control-plane message types and the handshake towards a Server Agent

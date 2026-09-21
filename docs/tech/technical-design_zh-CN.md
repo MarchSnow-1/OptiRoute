@@ -25,26 +25,32 @@ Client -> Client Agent -> Bootstrap Edge -> Target Edge -> Server Agent -> Upstr
 
 ```text
 main
-  -> config
+  -> config, i18n
   -> center | edge | agent
   -> logx
 edge
-  -> auth, protocol, util, config, logx
+  -> auth, protocol, util, config, logx, i18n
 center
-  -> auth, protocol, util, config, logx
+  -> auth, protocol, util, config, logx, i18n
 agent
-  -> protocol, util, config, logx
+  -> protocol, util, config, logx, i18n
 auth
-  -> logx（无其它内部依赖）
+  -> logx, i18n
+config
+  -> i18n
 protocol
   -> (无内部依赖，纯消息定义)
+i18n
+  -> (无内部依赖，纯消息目录与标签解析)
 logx
-  -> (无内部依赖，仅依赖标准库；测试中引用 go-logger 作参考实现)
+  -> i18n（测试中另外引用 go-logger 作参考实现）
 ```
 
-依赖方向保持单向：`protocol`、`util`、`logx` 与 `auth` 是最底层，`config` 独立，业务层引用它们
+依赖方向保持单向：`protocol`、`i18n` 与 `util` 是最底层，`logx` 与 `auth` 位于 `i18n` 之上，业务层再引用它们
 
 `logx` 是各包共用的日志出口：调用方只把日志投进有界内存队列，由单独的写 goroutine 落盘，因此标准输出阻塞时调用方不被卡住；渲染由 `logx` 自己完成，格式以 go-logger 在 `main.initLogger` 配置下的真实输出为金标逐字段比对（见 `src/logx/format_test.go`）
+
+`i18n` 持有语言标签解析与消息目录。每个产生用户可见文本的包都在自己的 `messages.go` 里把键声明为导出常量，并在 `init` 中登记，因此键不可能在登记之前被使用，登记完成后目录只被读取。应用代码通过 `logx.Debugf`、`logx.Infof`、`logx.Warnf`、`logx.Errorf` 输出，它们接收消息键而不是成品文案，`config` 则通过 `config.errf` 构造报错；两者的取文案都发生在级别判定或校验判定之后，因此不会被输出的消息既不做查找也不做格式化
 
 ## 3. 核心流程
 
@@ -303,21 +309,45 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 
 职责：有界异步日志出口
 
-文件：`logx.go`（日志器与渲染）、`logx_test.go`（异步行为契约）、`format_test.go`（与 go-logger 的金标格式比对）
+文件：`logx.go`（日志器与渲染）、`messages.go`（队列满提示的键）、`logx_test.go`（异步行为契约）、`format_test.go`（与 go-logger 的金标格式比对）、`i18n_test.go`（带键方法）
 
 | 函数 | 说明 |
 |---|---|
 | `Init` | 按 log_level 与 disable_log 初始化包级日志器 |
-| `Debug` / `Info` / `Warn` / `Error` | 投递一条日志，队列满时丢弃并计数而不阻塞调用方 |
+| `Debugf` / `Infof` / `Warnf` / `Errorf` | 级别判定通过后取目录文案并投递，被过滤的调用不查目录 |
+| `Debug` / `Info` / `Warn` / `Error` | 投递一条成品文案，队列满时丢弃并计数而不阻塞调用方 |
 | `Flush` | 等待队列中已排队的日志写出，最长等待 2 秒 |
 | `ParseLevel` | 级别名转 Level，无法识别时返回 false 供 Init 回落到 info |
 | `render` | 生成完整一行，格式与 go-logger 在 main.initLogger 配置下的输出一致 |
 | `Dropped` / `QueueLen` | 观测丢弃条数与队列长度 |
 
-### 4.9 main
+带 `f` 的方法在自己的栈帧里采集调用点而不另插一层辅助函数，使异步化之后 debug 行的调用点仍指向调用方
 
-- `main`：加载配置、初始化日志、启动角色，退出前冲刷日志队列
+### 4.9 i18n
+
+职责：语言标签解析与消息目录
+
+文件：`i18n.go`（标签解析与当前语言）、`catalog.go`（登记、查找与格式化）、`i18n_test.go`、`catalog_test.go`
+
+| 函数 / 类型 | 说明 |
+|---|---|
+| `Parse` | 把 `language[-Script][-REGION]` 形式的 BCP 47 标签解析为受支持语言，格式非法或合法但本版本不支持时返回 false |
+| `Set` / `Current` | 读写当前语言，`Set` 收到不受支持的取值时回落到默认语言 |
+| `Supported` / `Default` | 列出受支持语言并给出未指定时使用的默认语言 |
+| `Register` | 登记一批条目，键重复时 panic，因为静默覆盖先登记的文案属编程错误 |
+| `Text` / `T` | 按指定语言或当前语言渲染一个键，未登记的键返回 `!键!` 标记使缺失文案在输出中可见 |
+| `Keys` / `Lookup` / `Entry.All` | 供跨包门禁读取目录 |
+
+标签归一规则：`en` 及任意英文区域或脚本都归为 `en-US`；`zh` 带显式脚本时以脚本为准；否则由区域决定，`zh-CN`、`zh-SG`、`zh-MY` 与裸 `zh` 归为 `zh-Hans`，`zh-TW`、`zh-HK`、`zh-MO` 归为 `zh-Hant`。单字符子标签标志扩展开始，其自身与之后的子标签都被丢弃；变体子标签不属于识别范围，同样走回退路径
+
+跨包门禁 `src/i18n_catalog_test.go` 位于 `package main`，因为它需要 import 全部角色包以触发各包登记。它校验：每个声明的键都已登记、登记表没有多余键、键前缀与所在包目录一致、三种语言都有文案、三种语言的格式符序列一致、非测试源码里没有绕过目录的日志调用
+
+### 4.10 main
+
+- `main`：确定语言、加载配置、校验配置、初始化日志、启动角色，退出前冲刷日志队列
 - 日志初始化改为调用 `logx.Init`，格式渲染由 logx 承担，因此 main 不再配置日志库
+- `resolveLang`：把生效标签解析为受支持语言，对不受支持的标签返回一条提示；提示固定用默认语言渲染，使其取值不随调用顺序变化
+- 语言在配置校验之前确定，因此校验失败使用选定语言；而配置加载失败只能用 `--lang`，因为此时读不到 `self.lang`
 
 ## 5. 关键数据结构
 

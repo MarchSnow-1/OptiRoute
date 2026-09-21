@@ -37,11 +37,11 @@ var version = "dev"
 
 // resolveLang 把生效语言标签解析为受支持的语言，并返回需要打印的提示
 // 标签受支持时提示为空串；不受支持时返回 Default 与一条提示，使语言写错只影响输出语言而不影响启动
-// 提示固定按 Default 渲染，因此取值与调用顺序无关：标签不受支持时生效语言本来就是 Default
+// 提示按 Default 渲染而不随当前语言变化，因此取值与调用顺序无关：标签不受支持时生效语言本来就是 Default
 //
 // resolveLang resolves the effective language tag into a supported language and returns a notice to print
-// The notice is an empty string for a supported tag, while an unsupported one yields Default plus a notice, so a mistyped language only changes the output language and never blocks start-up
-// The notice is always rendered in Default, which makes its value independent of call order: an unsupported tag makes Default the effective language anyway
+// The notice is an empty string for a supported tag, while an unsupported one yields Default plus a notice, so a mistyped language only changes the output language without blocking start-up
+// The notice is rendered in Default rather than in the current language, which makes its value independent of call order: an unsupported tag makes Default the effective language anyway
 func resolveLang(tag, source string) (i18n.Lang, string) {
 	if lang, ok := i18n.Parse(tag); ok {
 		return lang, ""

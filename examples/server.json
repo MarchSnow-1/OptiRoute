@@ -6,7 +6,8 @@
     "listen_port": 18002,
     "log_real_ip": true,
     "forward_real_ip": false,
-    "log_level": "info"
+    "log_level": "info",
+    "lang": "en-US"
   },
   "remote": {
     "upstream_addr": "127.0.0.1",

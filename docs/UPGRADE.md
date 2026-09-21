@@ -43,6 +43,15 @@ With `self.topo_cache_dir` configured an Edge writes its topology and shared_sec
 - When the probe item field (`items`) is missing from the cached file the Edge treats it as a legacy cache and synthesises one real probe item for that node, while an explicit empty list in the new format does not fall back to synthesis, and both cases are described in the [FAKE-IP documentation](FAKE-IP.md)
 - When the probe item structure changes in a new version, deleting the cache file and letting the Edge pull the topology fresh is preferable to relying on that fallback
 
+### Log and message language
+
+Logs and start-up messages default to `en-US`, so a deployment whose logs used to read Chinese sees them in English after the upgrade until `self.lang` or `--lang` names another language:
+
+- No configuration change is required, and the previous Chinese text is still available through `--lang=zh-Hans` or `--lang=zh-Hant`
+- Both the log lines and the configuration load and validation failures follow the language, while a configuration load failure can only use `--lang` because `self.lang` is not readable at that point
+- An unsupported or malformed tag does not stop start-up: the process reports in `en-US` and prints one notice on standard error, so a mistyped tag shows up in the output rather than hiding
+- A tool that matches log lines by their Chinese text needs updating, since the wording now comes from a message catalogue
+
 ## 4. Degraded mode
 
 ### When it is entered

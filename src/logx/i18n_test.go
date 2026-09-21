@@ -1,5 +1,5 @@
 // 本文件覆盖 logx 带消息键的四个方法：文案随当前语言取、被级别过滤时不查目录、禁用时零输出、debug 级别下调用点仍指向调用方
-// 这四个性质共同保证 i18n 接入后热路径的开销与异步化之前一致，同时行格式不变
+// 这四个性质共同使 i18n 接入后热路径的开销与异步化之前一致，同时行格式不变
 //
 // This file covers the four message-key methods of logx: the text follows the current language, a filtered call touches no catalogue entry, a disabled logger emits nothing and the call site still names the caller at the debug level
 // Together these properties keep the cost on a hot path the same as it was before the asynchronous rewrite, while the line format stays unchanged

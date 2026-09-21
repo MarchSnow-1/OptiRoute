@@ -53,7 +53,7 @@ const (
 	KeySecretLength i18n.Key = "config.secret_length"
 
 	// KeyAddrBracketUnclosed 是地址以左方括号开头却没有右方括号时的键，参数依次为字段名与实际取值
-	// KeyAddrBracketUnclosed is the key used when an address opens a bracket and never closes it, with the field name and the value as arguments
+	// KeyAddrBracketUnclosed is the key used when an address opens a bracket without closing it, with the field name and the value as arguments
 	KeyAddrBracketUnclosed i18n.Key = "config.addr_bracket_unclosed"
 
 	// KeyAddrBracketNotIPv6 是方括号内不是合法 IPv6 时的键，参数依次为字段名与实际取值

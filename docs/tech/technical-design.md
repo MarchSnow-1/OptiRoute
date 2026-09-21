@@ -25,26 +25,32 @@ Client -> Client Agent -> Bootstrap Edge -> Target Edge -> Server Agent -> Upstr
 
 ```text
 main
-  -> config
+  -> config, i18n
   -> center | edge | agent
   -> logx
 edge
-  -> auth, protocol, util, config, logx
+  -> auth, protocol, util, config, logx, i18n
 center
-  -> auth, protocol, util, config, logx
+  -> auth, protocol, util, config, logx, i18n
 agent
-  -> protocol, util, config, logx
+  -> protocol, util, config, logx, i18n
 auth
-  -> logx (no other internal dependencies)
+  -> logx, i18n
+config
+  -> i18n
 protocol
   -> (no internal dependencies, pure message definitions)
+i18n
+  -> (no internal dependencies, pure catalogue and tag parsing)
 logx
-  -> (no internal dependencies beyond the standard library; its tests reference go-logger as a reference implementation)
+  -> i18n (its tests additionally reference go-logger as a reference implementation)
 ```
 
-Dependency direction remains one-way: `protocol`, `util`, `logx` and `auth` are the lowest-level packages, while `config` is independent and business-layer packages depend on them.
+Dependency direction remains one-way: `protocol`, `i18n` and `util` are the lowest-level packages, `logx` and `auth` sit above `i18n`, while business-layer packages depend on them.
 
 `logx` is the shared logging exit for every package: a caller only queues a record in a bounded in-memory queue that a dedicated writer goroutine flushes, so a blocked standard output cannot stall the caller. Rendering is done by `logx` itself, and the format is compared field by field against the real output of go-logger under the configuration of `main.initLogger` as a golden reference (see `src/logx/format_test.go`).
+
+`i18n` holds the language tag parser and the message catalogue. Every package that produces user-visible text declares its own keys as exported constants in its own `messages.go` and registers them from `init`, so a key cannot be used before it is registered and the catalogue is read-only afterwards. Application code logs through `logx.Debugf`, `logx.Infof`, `logx.Warnf` and `logx.Errorf`, which take a key instead of a message, and `config` builds its errors through `config.errf`; both look the text up after the level or validation check, so a message that is never emitted costs no lookup and no formatting.
 
 ## 3. Core Flows
 
@@ -303,21 +309,45 @@ The package contains multiple files, organized by responsibility:
 
 Responsibility: the bounded asynchronous logging exit
 
-Files: `logx.go` (logger and rendering), `logx_test.go` (the asynchronous behaviour contract), `format_test.go` (the golden format comparison against go-logger)
+Files: `logx.go` (logger and rendering), `messages.go` (the queue-full notice key), `logx_test.go` (the asynchronous behaviour contract), `format_test.go` (the golden format comparison against go-logger), `i18n_test.go` (the keyed methods)
 
 | Function                       | Description                                                                                |
 | ------------------------------ | ------------------------------------------------------------------------------------------ |
 | `Init`                         | Initialise the package-level logger from log_level and disable_log                          |
-| `Debug` / `Info` / `Warn` / `Error` | Queue one record, dropping and counting it instead of blocking the caller when the queue is full |
+| `Debugf` / `Infof` / `Warnf` / `Errorf` | Queue one catalogue message after the level check, so a filtered call touches no catalogue entry |
+| `Debug` / `Info` / `Warn` / `Error` | Queue one record of ready-made text, dropping and counting it instead of blocking the caller when the queue is full |
 | `Flush`                        | Wait for the records already queued to be written, for at most 2 seconds                   |
 | `ParseLevel`                   | Turn a level name into a Level, reporting false for an unknown name so Init falls back to info |
 | `render`                       | Build one complete line in the format go-logger produces under the configuration of main.initLogger |
 | `Dropped` / `QueueLen`         | Observe the drop count and the queue length                                                 |
 
-### 4.9 main
+The `*f` methods collect the call site in their own frame rather than in a helper, which keeps the debug call site naming the caller after the asynchronous rewrite.
 
-* `main`: Load configuration, initialise logging and start the configured role, flushing the log queue before exit
-* Logging initialisation now calls `logx.Init` and rendering belongs to logx, so main no longer configures the logging library
+### 4.9 i18n
+
+Responsibility: language tag parsing and the message catalogue
+
+Files: `i18n.go` (tag parsing and the current language), `catalog.go` (registration, lookup and formatting), `i18n_test.go`, `catalog_test.go`
+
+| Function / Type | Description |
+| --------------- | ----------- |
+| `Parse` | Resolve a BCP 47 tag of the `language[-Script][-REGION]` form into a supported language, reporting false for a malformed tag and for a well-formed tag outside what this version supports |
+| `Set` / `Current` | Read and write the current language, with `Set` falling back to the default when handed an unsupported value |
+| `Supported` / `Default` | List the supported languages and give the default used when none is set |
+| `Register` | Add a batch of entries, panicking on a duplicate key because that would silently replace the text registered first |
+| `Text` / `T` | Render one key in a given language or in the current language, returning a `!key!` marker for an unregistered key so missing text is visible in the output |
+| `Keys` / `Lookup` / `Entry.All` | Read the catalogue, used by the cross-package gate |
+
+Tag resolution: `en` and any English region or script resolve to `en-US`; `zh` with an explicit script uses that script; otherwise the region decides, so `zh-CN`, `zh-SG`, `zh-MY` and a bare `zh` resolve to `zh-Hans` while `zh-TW`, `zh-HK` and `zh-MO` resolve to `zh-Hant`. A single-character subtag starts an extension whose subtags are discarded, and a variant subtag is outside the recognised form and takes the fallback path.
+
+The cross-package gate `src/i18n_catalog_test.go` lives in `package main` because it imports every role package to trigger their registration, and it checks that every declared key is registered, that no extra key sits in the registry, that a key's prefix matches its package directory, that all three languages carry text, that the verb sequence agrees across the three languages, and that no non-test source keeps a log call that bypasses the catalogue.
+
+### 4.10 main
+
+* `main`: Settle the language, load the configuration, validate it, initialise logging and start the configured role, flushing the log queue before exit
+* Logging initialisation calls `logx.Init` and rendering belongs to logx, so main no longer configures the logging library
+* `resolveLang`: Turn the effective tag into a supported language, returning a notice for an unsupported one; the notice is always rendered in the default language so that its value does not depend on call order
+* The language is settled before the configuration is validated, which puts validation failures in the selected language, while a configuration load failure can only use `--lang` because `self.lang` is not readable at that point
 
 ## 5. Key Data Structures
 

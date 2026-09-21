@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MarchSnow-1/OptiRoute/logx"
 	"github.com/MarchSnow-1/OptiRoute/util"
-	"github.com/donnie4w/go-logger/logger"
 )
 
 // Monitor 维护源站探测的 RTT 窗口与丢包结果窗口
@@ -117,7 +117,7 @@ func (m *Monitor) probe() {
 			// Log throttling: lastLossWarn is updated only when a warning is actually printed and is not reset when the loss rate falls back, so the throttling is global rather than per continuous episode
 			// The effect is that two warnings are at least 30s apart regardless of whether the condition stayed true in between, nothing is printed while the rate is low, and the next breach prints immediately once 30s have passed since the last warning
 			if m.lastLossWarn.IsZero() || time.Since(m.lastLossWarn) >= 30*time.Second {
-				logger.Warn("链路丢包率超阈值 loss_rate:", lossRate, " threshold:", *cfg.Self.LossRateThreshold)
+				logx.Warn("链路丢包率超阈值 loss_rate:", lossRate, " threshold:", *cfg.Self.LossRateThreshold)
 				m.lastLossWarn = time.Now()
 			}
 		}

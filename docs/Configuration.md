@@ -2,6 +2,16 @@
 
 OptiRoute uses a JSON configuration file, launched via `--config-path=config.json`.
 
+**Command-line arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `--config-path=<path>` | Path to the configuration file |
+| `--config-base64=<base64>` | Inject the configuration as base64, which is not encryption |
+| `--disable-log` | Turn log output off; logging stays on unless this is passed |
+
+How they are recognised: an argument must use the `--name=value` form with an equals sign; the program scans the command line from the start and the first `--config-path=` or `--config-base64=` wins, with no later argument of the same name overriding it; when neither prefix is present it reads `config.json` from the working directory, and a missing file ends the process with a read error. Unrecognised arguments are ignored and do not abort the run.
+
 > ⚠️ Security warning: `--config-base64` is only for convenient config injection; base64 is not encryption. The full config (including secrets) will appear in the process command line and may be visible to local users or monitoring tools. In production prefer a config file with restrictive permissions.
 
 For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/OptiRoute/issues).
@@ -205,6 +215,13 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | forward_real_ip | bool | false | Server: whether to inject PPv2 header upstream |
 | log_level | string | info | Log level: must be one of debug / info / warn / error, and any other value fails during configuration validation |
 | disable_log | bool | false | Whether to turn log output off; false by default, which keeps logging enabled, so silence needs an explicit opt-in; the command line `--disable-log` overrides it to true |
+
+**How records are written:** log records go out asynchronously through a bounded queue that a dedicated writer goroutine drains into standard output.
+
+- The queue holds 4096 records and a full one drops the new record and prints a drop-count notice ahead of the next record actually written, so a blocked output cannot hold up a business goroutine
+- At the default level each line reads `[level] date time message`, and with `log_level` set to `debug` the call site, shaped like `file.go:123`, appears after the time
+- The queue is flushed before exit, while records still queued when the process dies are lost
+
 
 **remote (connecting to remote components)**
 

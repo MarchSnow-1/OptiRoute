@@ -11,14 +11,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/MarchSnow-1/OptiRoute/logx"
+	"github.com/MarchSnow-1/OptiRoute/protocol"
+	"github.com/MarchSnow-1/OptiRoute/util"
 	"io"
 	"net"
 	"sync/atomic"
 	"time"
-
-	"github.com/MarchSnow-1/OptiRoute/protocol"
-	"github.com/MarchSnow-1/OptiRoute/util"
-	"github.com/donnie4w/go-logger/logger"
 )
 
 // BusinessFirstPacket 是业务连接的首帧载荷，由 Client Agent 构造
@@ -88,19 +87,19 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 
 	firstPacket, err := readFirstPacketWithPrefix(conn, alreadyRead, deadline)
 	if err != nil {
-		logger.Warn("[", remote, "] 读取首包失败 err:", err)
+		logx.Warn("[", remote, "] 读取首包失败 err:", err)
 		return
 	}
 
 	var fp BusinessFirstPacket
 	if err := json.Unmarshal(firstPacket, &fp); err != nil {
-		logger.Warn("[", remote, "] 首包 JSON 解析失败")
+		logx.Warn("[", remote, "] 首包 JSON 解析失败")
 		return
 	}
 
 	clientTCPAddr, ok := conn.RemoteAddr().(*net.TCPAddr)
 	if !ok {
-		logger.Warn("[", remote, "] 无法解析客户端地址")
+		logx.Warn("[", remote, "] 无法解析客户端地址")
 		return
 	}
 
@@ -113,7 +112,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	// A nil switch means binding; with the binding off the same Token can be used from another source IP, which is the trade-off the operator opted into
 	bindClientIP := n.cfg.Self.TokenBindClientIP == nil || *n.cfg.Self.TokenBindClientIP
 	if !n.auth.VerifyRouteToken(fp.Token, fp.Timestamp, n.ccClient().GetSelfUUID(), clientTCPAddr.IP.String(), bindClientIP, n.cfg.Self.TokenTTLS) {
-		logger.Warn("[", remote, "] Token 验签失败，丢弃连接")
+		logx.Warn("[", remote, "] Token 验签失败，丢弃连接")
 		return
 	}
 
@@ -124,7 +123,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	}
 
 	if err := util.WriteWithDeadline(conn, []byte{0x01}, 5*time.Second); err != nil {
-		logger.Warn("[", remote, "] 写入验签确认失败 err:", err)
+		logx.Warn("[", remote, "] 写入验签确认失败 err:", err)
 		return
 	}
 
@@ -132,20 +131,20 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	originConn, err := net.DialTimeout("tcp", originAddr,
 		time.Duration(n.cfg.Self.ConnectTimeoutMs)*time.Millisecond)
 	if err != nil {
-		logger.Warn("[", remote, "] 连接源站失败 err:", err)
+		logx.Warn("[", remote, "] 连接源站失败 err:", err)
 		return
 	}
 	defer originConn.Close()
 
 	edgeTCPAddr, ok := conn.LocalAddr().(*net.TCPAddr)
 	if !ok {
-		logger.Warn("[", remote, "] 无法解析本端地址")
+		logx.Warn("[", remote, "] 无法解析本端地址")
 		return
 	}
 	// 写入通信密钥（Server Agent 验证）
 	// Write the communication secret for the Server Agent to verify
 	if err := util.WriteWithDeadline(originConn, []byte(n.cfg.Remote.CommSecret), 5*time.Second); err != nil {
-		logger.Warn("[", remote, "] 写入通信密钥失败 err:", err)
+		logx.Warn("[", remote, "] 写入通信密钥失败 err:", err)
 		return
 	}
 	ppv2Hdr := protocol.BuildPPv2Header(
@@ -153,7 +152,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 		edgeTCPAddr.IP, uint16(edgeTCPAddr.Port),
 	)
 	if err := util.WriteWithDeadline(originConn, ppv2Hdr, 5*time.Second); err != nil {
-		logger.Warn("[", remote, "] 写入 PPv2 包头失败 err:", err)
+		logx.Warn("[", remote, "] 写入 PPv2 包头失败 err:", err)
 		return
 	}
 
@@ -164,12 +163,12 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	// and a missing or unparsable frame drops the connection because an older Server Agent is not compatible and has to be upgraded together
 	var serverVersion, serverUUID string
 	if ackData, err := util.ReadFrame(originConn, 3*time.Second); err != nil {
-		logger.Warn("[", remote, "] 读取 Server 确认帧失败 err:", err, "（Server Agent 版本过旧？）")
+		logx.Warn("[", remote, "] 读取 Server 确认帧失败 err:", err, "（Server Agent 版本过旧？）")
 		return
 	} else {
 		var ack protocol.ServerAck
 		if err := json.Unmarshal(ackData, &ack); err != nil {
-			logger.Warn("[", remote, "] Server 确认帧解析失败 err:", err)
+			logx.Warn("[", remote, "] Server 确认帧解析失败 err:", err)
 			return
 		}
 		serverVersion = ack.Version
@@ -198,7 +197,7 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 		}
 	}
 
-	logger.Info("[", remote, "] L4 转发通道已建立 origin:", originAddr, " client_v:", fp.Version, " server_v:", serverVersion)
+	logx.Info("[", remote, "] L4 转发通道已建立 origin:", originAddr, " client_v:", fp.Version, " server_v:", serverVersion)
 
 	var counter *atomic.Int64
 	if n.bwTracker != nil {

@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/MarchSnow-1/OptiRoute/config"
+	"github.com/MarchSnow-1/OptiRoute/logx"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
-	"github.com/donnie4w/go-logger/logger"
 )
 
 // FakeIPState 单个 FAKE-IP 的有效性状态
@@ -57,7 +57,7 @@ func NewFakeIPManager(node *Node) *FakeIPManager {
 	m := &FakeIPManager{node: node}
 	for _, f := range node.cfg.Self.FakeIPs {
 		if f.IP == node.cfg.Self.Addr {
-			logger.Warn("FAKE-IP 与本机地址相同，已跳过 ip:", f.IP)
+			logx.Warn("FAKE-IP 与本机地址相同，已跳过 ip:", f.IP)
 			continue
 		}
 		// proto 与 weight 的默认值由 config 的 defaults() 统一填充，此处不再兜底，避免两处口径不一致

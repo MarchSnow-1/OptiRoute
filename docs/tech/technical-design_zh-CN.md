@@ -27,17 +27,24 @@ Client -> Client Agent -> Bootstrap Edge -> Target Edge -> Server Agent -> Upstr
 main
   -> config
   -> center | edge | agent
+  -> logx
 edge
-  -> auth, protocol, util, config
+  -> auth, protocol, util, config, logx
 center
-  -> auth, protocol, util, config
+  -> auth, protocol, util, config, logx
 agent
-  -> protocol, util, config
+  -> protocol, util, config, logx
+auth
+  -> logx（无其它内部依赖）
 protocol
   -> (无内部依赖，纯消息定义)
+logx
+  -> (无内部依赖，仅依赖标准库；测试中引用 go-logger 作参考实现)
 ```
 
-依赖方向保持单向：`protocol` 和 `util` 是最底层，`config` 独立，业务层引用它们
+依赖方向保持单向：`protocol`、`util`、`logx` 与 `auth` 是最底层，`config` 独立，业务层引用它们
+
+`logx` 是各包共用的日志出口：调用方只把日志投进有界内存队列，由单独的写 goroutine 落盘，因此标准输出阻塞时调用方不被卡住；渲染由 `logx` 自己完成，格式以 go-logger 在 `main.initLogger` 配置下的真实输出为金标逐字段比对（见 `src/logx/format_test.go`）
 
 ## 3. 核心流程
 
@@ -292,10 +299,25 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 | `handleEdgeConn` | 密钥校验、ACK、PPv2、上游透传 |
 | `util.NewRateLimiter`（ServerAgent.authLimiter） | 每 IP 认证前限速，实现复用 util |
 
-### 4.8 main
+### 4.8 logx
 
-- `main`：加载配置、初始化日志、启动角色
-- `initLogger`：日志级别与格式
+职责：有界异步日志出口
+
+文件：`logx.go`（日志器与渲染）、`logx_test.go`（异步行为契约）、`format_test.go`（与 go-logger 的金标格式比对）
+
+| 函数 | 说明 |
+|---|---|
+| `Init` | 按 log_level 与 disable_log 初始化包级日志器 |
+| `Debug` / `Info` / `Warn` / `Error` | 投递一条日志，队列满时丢弃并计数而不阻塞调用方 |
+| `Flush` | 等待队列中已排队的日志写出，最长等待 2 秒 |
+| `ParseLevel` | 级别名转 Level，无法识别时返回 false 供 Init 回落到 info |
+| `render` | 生成完整一行，格式与 go-logger 在 main.initLogger 配置下的输出一致 |
+| `Dropped` / `QueueLen` | 观测丢弃条数与队列长度 |
+
+### 4.9 main
+
+- `main`：加载配置、初始化日志、启动角色，退出前冲刷日志队列
+- 日志初始化改为调用 `logx.Init`，格式渲染由 logx 承担，因此 main 不再配置日志库
 
 ## 5. 关键数据结构
 
@@ -323,6 +345,7 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 - nonce 防重放缓存为本地内存，重启后清空
 - 密钥不得出现在 URL query 中
 - 缓存文件权限为 0600，异步写盘避免阻塞控制面
+- 日志经有界队列异步写出：队列容量 4096，满时丢弃并计数而不阻塞调用方，因此输出端阻塞不会传导到数据面 goroutine；退出前冲刷队列，崩溃时队列中未写出的日志会丢失
 
 ## 7. 测试策略
 

@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/MarchSnow-1/OptiRoute/config"
+	"github.com/MarchSnow-1/OptiRoute/logx"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
-	logger "github.com/donnie4w/go-logger/logger"
 )
 
 type ClientAgent struct {
@@ -35,7 +35,7 @@ func (a *ClientAgent) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("本地端口监听失败 %s: %w", addr, err)
 	}
-	logger.Info("Client Agent 监听中 addr:", addr)
+	logx.Info("Client Agent 监听中 addr:", addr)
 
 	go func() {
 		<-ctx.Done()
@@ -49,7 +49,7 @@ func (a *ClientAgent) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			default:
-				logger.Warn("Accept 错误 err:", err)
+				logx.Warn("Accept 错误 err:", err)
 				time.Sleep(100 * time.Millisecond) // 退避 100ms，避免 Accept 因 fd 耗尽等错误持续失败时忙循环空转 / Backs off for 100ms so that a persistently failing Accept, for instance one caused by fd exhaustion, cannot spin the loop
 				continue
 			}
@@ -64,11 +64,11 @@ func (a *ClientAgent) handleLocalConn(ctx context.Context, localConn net.Conn) {
 
 	edgeConn, err := a.doAccessFlow(ctx, remote)
 	if err != nil {
-		logger.Warn("[", remote, "] 接入流程失败 err:", err)
+		logx.Warn("[", remote, "] 接入流程失败 err:", err)
 		return
 	}
 
-	logger.Info("[", remote, "] 透传通道已建立")
+	logx.Info("[", remote, "] 透传通道已建立")
 	util.Relay(localConn, edgeConn, nil)
 }
 
@@ -143,7 +143,7 @@ func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn
 	if err := json.Unmarshal(listData, &items); err != nil {
 		return nil, fmt.Errorf("解析探测项列表失败: %w", err)
 	}
-	logger.Debug("[", remote, "] 收到探测项列表 count:", len(items))
+	logx.Debug("[", remote, "] 收到探测项列表 count:", len(items))
 
 	probeTimeout := time.Duration(a.cfg.Self.ProbeTimeoutMs) * time.Millisecond
 	results := a.probeItems(items, probeTimeout)
@@ -164,7 +164,7 @@ func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn
 	if err := json.Unmarshal(redirectData, &cmd); err != nil {
 		return nil, fmt.Errorf("解析 Redirect 命令失败: %w", err)
 	}
-	logger.Info("[", remote, "] 收到 Redirect target:", cmd.TargetIP, " port:", cmd.BusinessPort)
+	logx.Info("[", remote, "] 收到 Redirect target:", cmd.TargetIP, " port:", cmd.BusinessPort)
 
 	return a.connectWithToken(cmd.TargetIP, cmd.BusinessPort, cmd.Token, cmd.Timestamp)
 }

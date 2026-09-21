@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	logger "github.com/donnie4w/go-logger/logger"
+	"github.com/MarchSnow-1/OptiRoute/logx"
 )
 
 type AuthManager struct {
@@ -73,7 +73,7 @@ func (a *AuthManager) UpdateSecret(newSecret []byte, tokenTTLS int, version uint
 	// The project has not reached STABLE, so no compatibility with a legacy Center is kept
 	// The version needs to increase strictly, and a legacy push with version=0 or an out-of-order push is ignored
 	if version == 0 || version <= a.currentVersion {
-		logger.Warn("[UpdateSecret] 忽略非法或旧版本 secret push version:", version, " current:", a.currentVersion)
+		logx.Warn("[UpdateSecret] 忽略非法或旧版本 secret push version:", version, " current:", a.currentVersion)
 		return
 	}
 	a.currentVersion = version
@@ -81,7 +81,7 @@ func (a *AuthManager) UpdateSecret(newSecret []byte, tokenTTLS int, version uint
 	a.previous = a.current
 	a.prevExpiry = time.Now().Add(time.Duration(tokenTTLS*2) * time.Second)
 	a.current = newSecret
-	logger.Debug("AuthManager secret 已更新 fingerprint:", secretFingerprint(newSecret))
+	logx.Debug("AuthManager secret 已更新 fingerprint:", secretFingerprint(newSecret))
 }
 
 // V2 路由 Token 的格式常量：前缀、版本号、nonce 字节数与记录的 nonce 条数上限
@@ -183,46 +183,46 @@ func (a *AuthManager) GenerateRouteToken(targetUUID, issuerUUID, clientIP string
 // It checks the prefix, the base64, the JSON, the Token version, the target UUID, the optional client IP, the timestamp and the time window in turn, then verifies the signature with the current secret or with the previous one inside its window, and finally records the nonce to block replay, returning false as soon as one step fails
 func (a *AuthManager) VerifyRouteToken(token string, clientTS int64, selfUUID, clientIP string, bindClientIP bool, tokenTTLS int) bool {
 	if !strings.HasPrefix(token, routeTokenPrefix) {
-		logger.Warn("[VerifyRouteToken] 未知 token 格式")
+		logx.Warn("[VerifyRouteToken] 未知 token 格式")
 		return false
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(token, routeTokenPrefix))
 	if err != nil {
-		logger.Warn("[VerifyRouteToken] token base64 解码失败 err:", err)
+		logx.Warn("[VerifyRouteToken] token base64 解码失败 err:", err)
 		return false
 	}
 
 	var env routeTokenEnvelope
 	if err := json.Unmarshal(raw, &env); err != nil {
-		logger.Warn("[VerifyRouteToken] token JSON 解析失败 err:", err)
+		logx.Warn("[VerifyRouteToken] token JSON 解析失败 err:", err)
 		return false
 	}
 	if env.V != routeTokenVersion {
-		logger.Warn("[VerifyRouteToken] 未知 token 版本:", env.V)
+		logx.Warn("[VerifyRouteToken] 未知 token 版本:", env.V)
 		return false
 	}
 	if env.Target != selfUUID {
-		logger.Warn("[VerifyRouteToken] token 目标 UUID 不匹配")
+		logx.Warn("[VerifyRouteToken] token 目标 UUID 不匹配")
 		return false
 	}
 	if bindClientIP && env.ClientIP != clientIP {
-		logger.Warn("[VerifyRouteToken] token 客户端 IP 不匹配 token_ip:", env.ClientIP, " conn_ip:", clientIP)
+		logx.Warn("[VerifyRouteToken] token 客户端 IP 不匹配 token_ip:", env.ClientIP, " conn_ip:", clientIP)
 		return false
 	}
 	if env.TS != clientTS {
-		logger.Warn("[VerifyRouteToken] token 时间戳与首包不一致")
+		logx.Warn("[VerifyRouteToken] token 时间戳与首包不一致")
 		return false
 	}
 
 	now := time.Now().Unix()
 	if math.Abs(float64(now-env.TS)) > float64(tokenTTLS) {
-		logger.Warn("[VerifyRouteToken] 时间窗口超期 now:", now, " ts:", env.TS, " ttl:", tokenTTLS)
+		logx.Warn("[VerifyRouteToken] 时间窗口超期 now:", now, " ts:", env.TS, " ttl:", tokenTTLS)
 		return false
 	}
 
 	unsigned, err := json.Marshal(env.routeTokenClaims)
 	if err != nil {
-		logger.Warn("[VerifyRouteToken] 序列化 claims 失败 err:", err)
+		logx.Warn("[VerifyRouteToken] 序列化 claims 失败 err:", err)
 		return false
 	}
 
@@ -239,7 +239,7 @@ func (a *AuthManager) VerifyRouteToken(token string, clientTS int64, selfUUID, c
 		valid = hmac.Equal([]byte(expectedPrev), []byte(env.HMAC))
 	}
 	if !valid {
-		logger.Warn("[VerifyRouteToken] 验签失败 target:", env.Target, " issuer:", env.Issuer)
+		logx.Warn("[VerifyRouteToken] 验签失败 target:", env.Target, " issuer:", env.Issuer)
 		return false
 	}
 
@@ -255,7 +255,7 @@ func (a *AuthManager) VerifyRouteToken(token string, clientTS int64, selfUUID, c
 		nonceBase = env.TS
 	}
 	if !a.markNonceUsed(env.Nonce, time.Unix(nonceBase, 0).Add(time.Duration(tokenTTLS)*time.Second)) {
-		logger.Warn("[VerifyRouteToken] nonce 重放拒绝 target:", env.Target, " nonce:", env.Nonce)
+		logx.Warn("[VerifyRouteToken] nonce 重放拒绝 target:", env.Target, " nonce:", env.Nonce)
 		return false
 	}
 	return true

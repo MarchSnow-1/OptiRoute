@@ -27,17 +27,24 @@ Client -> Client Agent -> Bootstrap Edge -> Target Edge -> Server Agent -> Upstr
 main
   -> config
   -> center | edge | agent
+  -> logx
 edge
-  -> auth, protocol, util, config
+  -> auth, protocol, util, config, logx
 center
-  -> auth, protocol, util, config
+  -> auth, protocol, util, config, logx
 agent
-  -> protocol, util, config
+  -> protocol, util, config, logx
+auth
+  -> logx (no other internal dependencies)
 protocol
   -> (no internal dependencies, pure message definitions)
+logx
+  -> (no internal dependencies beyond the standard library; its tests reference go-logger as a reference implementation)
 ```
 
-Dependency direction remains one-way: `protocol` and `util` are the lowest-level packages, while `config` is independent and business-layer packages depend on them.
+Dependency direction remains one-way: `protocol`, `util`, `logx` and `auth` are the lowest-level packages, while `config` is independent and business-layer packages depend on them.
+
+`logx` is the shared logging exit for every package: a caller only queues a record in a bounded in-memory queue that a dedicated writer goroutine flushes, so a blocked standard output cannot stall the caller. Rendering is done by `logx` itself, and the format is compared field by field against the real output of go-logger under the configuration of `main.initLogger` as a golden reference (see `src/logx/format_test.go`).
 
 ## 3. Core Flows
 
@@ -294,8 +301,25 @@ The package contains multiple files, organized by responsibility:
 
 ### 4.8 main
 
-* `main`: Load configuration, initialize logging, and start the configured role
-* `initLogger`: Configure log level and output format
+### 4.8 logx
+
+Responsibility: the bounded asynchronous logging exit
+
+Files: `logx.go` (logger and rendering), `logx_test.go` (the asynchronous behaviour contract), `format_test.go` (the golden format comparison against go-logger)
+
+| Function                       | Description                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `Init`                         | Initialise the package-level logger from log_level and disable_log                          |
+| `Debug` / `Info` / `Warn` / `Error` | Queue one record, dropping and counting it instead of blocking the caller when the queue is full |
+| `Flush`                        | Wait for the records already queued to be written, for at most 2 seconds                   |
+| `ParseLevel`                   | Turn a level name into a Level, reporting false for an unknown name so Init falls back to info |
+| `render`                       | Build one complete line in the format go-logger produces under the configuration of main.initLogger |
+| `Dropped` / `QueueLen`         | Observe the drop count and the queue length                                                 |
+
+### 4.9 main
+
+* `main`: Load configuration, initialise logging and start the configured role, flushing the log queue before exit
+* Logging initialisation now calls `logx.Init` and rendering belongs to logx, so main no longer configures the logging library
 
 ## 5. Key Data Structures
 
@@ -323,6 +347,7 @@ The package contains multiple files, organized by responsibility:
 * The nonce replay-prevention cache is in local memory and is cleared on process restart
 * Secrets must not appear in URL query parameters
 * Cache files use permissions `0600`, and asynchronous disk writes prevent the control plane from being blocked
+* Log records go out asynchronously through a bounded queue: the queue holds 4096 records and a full one drops and counts rather than blocking the caller, so a blocked output cannot reach a data-plane goroutine; the queue is flushed before exit, while records still queued at a crash are lost
 
 ## 7. Testing Strategy
 

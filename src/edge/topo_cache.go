@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MarchSnow-1/OptiRoute/logx"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
-	logger "github.com/donnie4w/go-logger/logger"
 )
 
 // topoCacheFile 是缓存文件的磁盘结构，字段与 JSON 标签构成缓存格式
@@ -63,7 +63,7 @@ func (t *TopoCache) asyncWriteLoop() {
 		select {
 		case <-t.writeCh:
 			if err := t.SaveToFile(); err != nil {
-				logger.Warn("拓扑缓存异步写入失败 err:", err)
+				logx.Warn("拓扑缓存异步写入失败 err:", err)
 			}
 		case <-t.done:
 			return
@@ -100,7 +100,7 @@ func (t *TopoCache) Close() {
 		t.mu.RUnlock()
 		if hasData {
 			if err := t.SaveToFile(); err != nil {
-				logger.Warn("拓扑缓存关闭前冲刷失败 err:", err)
+				logx.Warn("拓扑缓存关闭前冲刷失败 err:", err)
 			}
 		}
 		close(t.done)
@@ -222,6 +222,6 @@ func (t *TopoCache) LoadFromFile(path string) error {
 	t.secret = data.Secret
 	t.mu.Unlock()
 
-	logger.Info("已从本地缓存加载拓扑 nodes:", len(data.Nodes), " updated_at:", data.UpdatedAt)
+	logx.Info("已从本地缓存加载拓扑 nodes:", len(data.Nodes), " updated_at:", data.UpdatedAt)
 	return nil
 }

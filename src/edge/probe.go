@@ -11,8 +11,8 @@ import (
 	"context"
 	"net"
 
+	"github.com/MarchSnow-1/OptiRoute/logx"
 	"github.com/MarchSnow-1/OptiRoute/util"
-	"github.com/donnie4w/go-logger/logger"
 )
 
 // runProbeServer 按探测协议启动探测服务：
@@ -32,7 +32,7 @@ import (
 // That is a known defect, and a later fix should decide from the protocol whether to start and which service to start
 func (n *Node) runProbeServer(ctx context.Context) {
 	if n.cfg.Self.ProbePort == 0 {
-		logger.Info("probe_port 未配置，跳过探测服务（fakeip-only 或 icmp 模式）")
+		logx.Info("probe_port 未配置，跳过探测服务（fakeip-only 或 icmp 模式）")
 		return
 	}
 
@@ -53,10 +53,10 @@ func (n *Node) runProbeTCPServer(ctx context.Context) {
 	addr := util.JoinHostPort("", n.cfg.Self.ProbePort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		logger.Warn("TCP 探测端口监听失败 err:", err)
+		logx.Warn("TCP 探测端口监听失败 err:", err)
 		return
 	}
-	logger.Info("TCP 探测端口监听中 addr:", addr)
+	logx.Info("TCP 探测端口监听中 addr:", addr)
 	defer ln.Close()
 
 	for {
@@ -82,10 +82,10 @@ func (n *Node) runProbeUDPServer(ctx context.Context) {
 	addr := util.JoinHostPort("", n.cfg.Self.ProbePort)
 	pc, err := net.ListenPacket("udp", addr)
 	if err != nil {
-		logger.Warn("UDP 探测端口监听失败 err:", err)
+		logx.Warn("UDP 探测端口监听失败 err:", err)
 		return
 	}
-	logger.Info("UDP 探测端口监听中 addr:", addr)
+	logx.Info("UDP 探测端口监听中 addr:", addr)
 	defer pc.Close()
 
 	buf := make([]byte, 1500)

@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/MarchSnow-1/OptiRoute/config"
+	"github.com/MarchSnow-1/OptiRoute/logx"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
-	logger "github.com/donnie4w/go-logger/logger"
 )
 
 type ServerAgent struct {
@@ -47,7 +47,7 @@ func (a *ServerAgent) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("Server Agent 监听失败 %s: %w", addr, err)
 	}
-	logger.Info("Server Agent 监听中 addr:", addr)
+	logx.Info("Server Agent 监听中 addr:", addr)
 
 	go func() {
 		<-ctx.Done()
@@ -61,13 +61,13 @@ func (a *ServerAgent) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			default:
-				logger.Warn("Accept 错误 err:", err)
+				logx.Warn("Accept 错误 err:", err)
 				time.Sleep(100 * time.Millisecond) // 退避 100ms，避免 Accept 因 fd 耗尽等错误持续失败时忙循环空转 / Backs off for 100ms so that a persistently failing Accept, for instance one caused by fd exhaustion, cannot spin the loop
 				continue
 			}
 		}
 		if !a.tryAcquireHandshake() {
-			logger.Debug("Server Agent 认证前握手并发已满，拒绝新连接")
+			logx.Debug("Server Agent 认证前握手并发已满，拒绝新连接")
 			conn.Close()
 			continue
 		}
@@ -104,7 +104,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 		host = remote
 	}
 	if a.authLimiter != nil && !a.authLimiter.Allow(host) {
-		logger.Warn("[", remote, "] 认证前连接超过限速，拒绝")
+		logx.Warn("[", remote, "] 认证前连接超过限速，拒绝")
 		return
 	}
 
@@ -116,13 +116,13 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	secretBuf := make([]byte, len(a.cfg.Remote.CommSecret))
 	if _, err := io.ReadFull(conn, secretBuf); err != nil {
 		if err != io.EOF {
-			logger.Warn("[", remote, "] 读取通信密钥失败 err:", err)
+			logx.Warn("[", remote, "] 读取通信密钥失败 err:", err)
 		}
 		conn.Close()
 		return
 	}
 	if subtle.ConstantTimeCompare(secretBuf, []byte(a.cfg.Remote.CommSecret)) != 1 {
-		logger.Warn("[", remote, "] 通信密钥认证失败")
+		logx.Warn("[", remote, "] 通信密钥认证失败")
 		conn.Close()
 		return
 	}
@@ -135,7 +135,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	// The edge does not wait for this frame while writing the PPv2 header, so the relative order of the ack write and the PPv2 header read is not a blocking condition for the two sides
 	ackJSON, _ := json.Marshal(protocol.ServerAck{UUID: a.uuid, Version: a.version})
 	if err := util.WriteFrameWithDeadline(conn, ackJSON, 5*time.Second); err != nil {
-		logger.Warn("[", remote, "] 回确认帧失败 err:", err)
+		logx.Warn("[", remote, "] 回确认帧失败 err:", err)
 		conn.Close()
 		return
 	}
@@ -147,7 +147,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	hdr := make([]byte, protocol.PPv2MinHeaderLen)
 	if _, err := io.ReadFull(conn, hdr); err != nil {
 		if err != io.EOF {
-			logger.Warn("[", remote, "] 读取 PPv2 包头失败 err:", err)
+			logx.Warn("[", remote, "] 读取 PPv2 包头失败 err:", err)
 		}
 		conn.Close()
 		return
@@ -158,7 +158,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	if addrLen > 0 {
 		tail := make([]byte, addrLen)
 		if _, err := io.ReadFull(conn, tail); err != nil {
-			logger.Warn("[", remote, "] 读取 PPv2 地址数据失败 err:", err)
+			logx.Warn("[", remote, "] 读取 PPv2 地址数据失败 err:", err)
 			conn.Close()
 			return
 		}
@@ -168,13 +168,13 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 
 	clientIP, clientPort, err := protocol.ParsePPv2Header(hdr)
 	if err != nil {
-		logger.Warn("[", remote, "] PPv2 包头校验失败 err:", err)
+		logx.Warn("[", remote, "] PPv2 包头校验失败 err:", err)
 		conn.Close()
 		return
 	}
 
 	if a.cfg.Self.LogRealIP {
-		logger.Info("[", remote, "] 客户端真实地址 ip:", clientIP.String(), " port:", clientPort)
+		logx.Info("[", remote, "] 客户端真实地址 ip:", clientIP.String(), " port:", clientPort)
 	}
 
 	// 3. 连接上游游戏服务器，超时取自 Self.ConnectTimeoutMs
@@ -183,7 +183,7 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	upstreamConn, err := net.DialTimeout("tcp", upstreamAddr,
 		time.Duration(a.cfg.Self.ConnectTimeoutMs)*time.Millisecond)
 	if err != nil {
-		logger.Warn("[", remote, "] 连接游戏服务器失败 err:", err)
+		logx.Warn("[", remote, "] 连接游戏服务器失败 err:", err)
 		conn.Close()
 		return
 	}
@@ -196,13 +196,13 @@ func (a *ServerAgent) handleEdgeConn(conn net.Conn) {
 	if a.cfg.Self.ForwardRealIP {
 		ppv2Hdr := protocol.BuildPPv2Header(clientIP, clientPort, net.IP{}, 0)
 		if err := util.WriteWithDeadline(upstreamConn, ppv2Hdr, 5*time.Second); err != nil {
-			logger.Warn("[", remote, "] 写入 PPv2 包头至上游失败 err:", err)
+			logx.Warn("[", remote, "] 写入 PPv2 包头至上游失败 err:", err)
 			return
 		}
-		logger.Info("[", remote, "] 已注入 PPv2 包头 client_ip:", clientIP.String())
+		logx.Info("[", remote, "] 已注入 PPv2 包头 client_ip:", clientIP.String())
 	}
 
-	logger.Info("[", remote, "] 转发通道已建立 client_ip:", clientIP.String(), " upstream:", upstreamAddr)
+	logx.Info("[", remote, "] 转发通道已建立 client_ip:", clientIP.String(), " upstream:", upstreamAddr)
 
 	// 5. 双向透传，util.Relay 在返回前已关闭两端连接，随后本函数的两处 defer 再次关闭这两条连接
 	// 5. Relays both directions; util.Relay closes both connections before it returns, and the two defers of this function then close these two connections again

@@ -19,15 +19,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/MarchSnow-1/OptiRoute/logx"
+	"github.com/MarchSnow-1/OptiRoute/protocol"
+	"github.com/MarchSnow-1/OptiRoute/util"
 	"io"
 	"math/big"
 	"net"
 	"sort"
 	"time"
-
-	"github.com/MarchSnow-1/OptiRoute/protocol"
-	"github.com/MarchSnow-1/OptiRoute/util"
-	"github.com/donnie4w/go-logger/logger"
 )
 
 // newProbeCode 生成一次性随机编码（16 字节 = 128 位），防碰撞后返回
@@ -78,7 +77,7 @@ func (n *Node) runBusinessServer(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("业务端口监听失败 %s: %w", addr, err)
 	}
-	logger.Info("业务端口监听中 addr:", addr)
+	logx.Info("业务端口监听中 addr:", addr)
 
 	for {
 		conn, err := ln.Accept()
@@ -87,12 +86,12 @@ func (n *Node) runBusinessServer(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			default:
-				logger.Warn("Accept 错误 err:", err)
+				logx.Warn("Accept 错误 err:", err)
 				continue
 			}
 		}
 		if !n.tryAcquireHandshake() {
-			logger.Debug("未认证/引导握手并发已满，拒绝新连接")
+			logx.Debug("未认证/引导握手并发已满，拒绝新连接")
 			conn.Close()
 			continue
 		}
@@ -236,12 +235,12 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 		host = remote
 	}
 	if n.bootstrapLimiter != nil && !n.bootstrapLimiter.Allow(host) {
-		logger.Warn("[", remote, "] 引导请求超过限速，拒绝")
+		logx.Warn("[", remote, "] 引导请求超过限速，拒绝")
 		return
 	}
 
 	if n.degraded.Load() {
-		logger.Warn("[", remote, "] 降级模式下引导客户端，使用缓存拓扑")
+		logx.Warn("[", remote, "] 降级模式下引导客户端，使用缓存拓扑")
 	}
 
 	// 1. 收集所有节点的探测项，为每项生成一次性随机编码（本连接局部，函数返回即清理）
@@ -280,7 +279,7 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	}
 
 	if len(probeItems) == 0 {
-		logger.Warn("[", remote, "] 无可用探测项")
+		logx.Warn("[", remote, "] 无可用探测项")
 		return
 	}
 
@@ -292,7 +291,7 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	// 3. Send the probe item list
 	listJSON, _ := json.Marshal(probeItems)
 	if err := util.WriteFrameWithDeadline(conn, listJSON, 5*time.Second); err != nil {
-		logger.Warn("[", remote, "] 下发探测项列表失败 err:", err)
+		logx.Warn("[", remote, "] 下发探测项列表失败 err:", err)
 		return
 	}
 
@@ -300,18 +299,18 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	// 4. Read the probe results reported by the client
 	rttData, err := util.ReadFrame(conn, 5*time.Second)
 	if err != nil {
-		logger.Warn("[", remote, "] 读取探测结果失败 err:", err)
+		logx.Warn("[", remote, "] 读取探测结果失败 err:", err)
 		return
 	}
 	var results []protocol.ProbeResult
 	if err := json.Unmarshal(rttData, &results); err != nil {
-		logger.Warn("[", remote, "] 探测结果解析失败 err:", err)
+		logx.Warn("[", remote, "] 探测结果解析失败 err:", err)
 		return
 	}
 	// 客户端至多上报每个探测项一次；超出即视为异常，避免超大/重复结果占用内存
 	// The client reports each probe item at most once, and a larger list is treated as abnormal to keep oversized or duplicated results from using memory
 	if len(results) > len(probeItems) {
-		logger.Warn("[", remote, "] 探测结果数量异常 results:", len(results), " items:", len(probeItems))
+		logx.Warn("[", remote, "] 探测结果数量异常 results:", len(results), " items:", len(probeItems))
 		return
 	}
 	// 可信上界取默认值与 probe_timeout_ms*2 中的较大者，probe_timeout_ms 非正时不抬升上界
@@ -329,7 +328,7 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 		// 拒绝负数与不合理超大 RTT，防止恶意客户端操纵选路
 		// Negative and unreasonably large RTTs are dropped so a malicious client cannot steer route selection
 		if r.RTTMs < 0 || r.RTTMs > maxRTT {
-			logger.Warn("[", remote, "] 忽略异常 RTT code:", r.Code, " rtt_ms:", r.RTTMs)
+			logx.Warn("[", remote, "] 忽略异常 RTT code:", r.Code, " rtt_ms:", r.RTTMs)
 			continue
 		}
 		rttByCode[r.Code] = r.RTTMs
@@ -379,11 +378,11 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	// 过滤后无可用节点，回退使用全部节点（含 overloaded）
 	// With no usable node left after filtering, fall back to every node including the overloaded ones
 	if len(candidates) == 0 && len(overloaded) > 0 {
-		logger.Warn("[", remote, "] 所有节点均已满载，回退使用 overloaded 节点")
+		logx.Warn("[", remote, "] 所有节点均已满载，回退使用 overloaded 节点")
 		candidates = overloaded
 	}
 	if len(candidates) == 0 {
-		logger.Warn("[", remote, "] 无可用候选节点")
+		logx.Warn("[", remote, "] 无可用候选节点")
 		return
 	}
 	sort.Slice(candidates, func(i, j int) bool {
@@ -398,7 +397,7 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	// This function hands the client IP to GenerateRouteToken, which writes it into the claims; token_bind_client_ip only makes the verifying side skip the comparison without affecting what is written here, which keeps one Token judged the same way on every node
 	token, ts, err := n.auth.GenerateRouteToken(best.UUID, n.cfg.Self.UUID, host)
 	if err != nil {
-		logger.Error("[", remote, "] Token 生成失败 err:", err)
+		logx.Error("[", remote, "] Token 生成失败 err:", err)
 		return
 	}
 
@@ -412,9 +411,9 @@ func (n *Node) handleBootstrap(conn net.Conn) {
 	}
 	cmdJSON, _ := json.Marshal(cmd)
 	if err := util.WriteFrameWithDeadline(conn, cmdJSON, 5*time.Second); err != nil {
-		logger.Warn("[", remote, "] 下发 Redirect 命令失败 err:", err)
+		logx.Warn("[", remote, "] 下发 Redirect 命令失败 err:", err)
 		return
 	}
 
-	logger.Info("[", remote, "] 引导完成 target:", best.UUID, " total_rtt_ms:", candidates[0].totalRTT)
+	logx.Info("[", remote, "] 引导完成 target:", best.UUID, " total_rtt_ms:", candidates[0].totalRTT)
 }

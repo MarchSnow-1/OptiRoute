@@ -58,6 +58,17 @@ func IsValidLogLevel(level string) bool {
 	return false
 }
 
+// errf 按消息键取当前语言的格式串并交给 fmt.Errorf
+// 取的是未填充的格式串而不是已渲染的文本，使 %w 仍由 fmt.Errorf 处理，错误链得以保留
+// 语言由 main 在调用 Validate 之前设置，因此同一次启动的各类报错使用同一个语言
+//
+// errf takes the format string of a message key in the current language and hands it to fmt.Errorf
+// The unfilled format string is used rather than rendered text, so a %w verb is still handled by fmt.Errorf and the error chain survives
+// The language is set by main before it calls Validate, so one start-up run reports every failure in the language it selected
+func errf(key i18n.Key, args ...any) error {
+	return fmt.Errorf(i18n.T(key), args...)
+}
+
 // FakeIPConfig 是单个 FAKE-IP 探测项的配置
 // FakeIPConfig is the configuration of one FAKE-IP probe entry
 type FakeIPConfig struct {
@@ -437,7 +448,7 @@ func parseArgs(args []string) cliOptions {
 func loadFromFile(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("读取配置文件失败 %s: %w", path, err)
+		return nil, errf(KeyConfigReadFailed, path, err)
 	}
 	return parse(data)
 }
@@ -447,7 +458,7 @@ func loadFromFile(path string) (*Config, error) {
 func loadFromBase64(b64 string) (*Config, error) {
 	data, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		return nil, fmt.Errorf("base64 解码失败: %w", err)
+		return nil, errf(KeyConfigBase64Failed, err)
 	}
 	return parse(data)
 }
@@ -461,12 +472,12 @@ func parse(data []byte) (*Config, error) {
 		Self json.RawMessage `json:"self"`
 	}
 	if err := json.Unmarshal(data, &probe); err != nil || probe.Self == nil {
-		return nil, fmt.Errorf("JSON 解析失败: 缺少 self 配置段")
+		return nil, errf(KeyJSONMissingSelf)
 	}
 
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
-		return nil, fmt.Errorf("JSON 解析失败: %w", err)
+		return nil, errf(KeyJSONParseFailed, err)
 	}
 	c.defaults()
 	return &c, nil
@@ -475,18 +486,18 @@ func parse(data []byte) (*Config, error) {
 // Validate 校验配置的完整性与取值范围，返回第一个不通过的字段错误
 // 先检查 role 是否为空，再走 validateCommonNumerics 校验全角色共用的数值，然后按 c.Self.Role 走对应 case 分支校验该角色的必填字段、端口范围、地址与密钥
 // 各分支把零值当作缺配置，因此被分支检查到的字段在 defaults() 之后仍为零值时会在这里被拒，未知 role 落到 default 分支返回错误
-// 错误文本为中文，由调用方直接打印
+// 报错文案取自消息目录，因此随 self.lang 或 --lang 切换，调用方直接打印即可
 //
 // Validate checks the completeness and value ranges of the configuration and returns the first failing field as an error
 // It first rejects an empty role, then runs validateCommonNumerics over the numerics shared by all roles, and then takes the case arm of c.Self.Role to validate that role's required fields, port ranges, addresses and secrets
 // The arms treat a zero value as a missing setting, so a field they check is rejected here when it is still zero after defaults(), and an unknown role falls through to the default arm and returns an error
-// The error text is Chinese for the caller to print as is
+// The error text comes from the message catalogue and therefore follows self.lang or --lang, so the caller prints it as it stands
 func (c *Config) Validate() error {
 	if c.Self.Role == "" {
-		return fmt.Errorf("必填字段缺失: role")
+		return errf(KeyRoleRequired)
 	}
 	if !IsValidLogLevel(c.Self.LogLevel) {
-		return fmt.Errorf("未知日志级别: %s（%s）", c.Self.LogLevel, strings.Join(LogLevels, "/"))
+		return errf(KeyLogLevelUnknown, c.Self.LogLevel, strings.Join(LogLevels, "/"))
 	}
 	if err := c.validateCommonNumerics(); err != nil {
 		return err
@@ -494,7 +505,7 @@ func (c *Config) Validate() error {
 	switch c.Self.Role {
 	case RoleCenter:
 		if c.Self.ListenPort == 0 {
-			return fmt.Errorf("center 角色必须配置 self.listen_port")
+			return errf(KeyCenterListenPortRequired)
 		}
 		if err := validatePortRange("self.listen_port", c.Self.ListenPort); err != nil {
 			return err
@@ -507,16 +518,16 @@ func (c *Config) Validate() error {
 		}
 	case RoleEdge:
 		if c.Self.UUID == "" {
-			return fmt.Errorf("edge 角色必须配置 self.uuid")
+			return errf(KeyEdgeUUIDRequired)
 		}
 		if c.Self.Addr == "" {
-			return fmt.Errorf("edge 角色必须配置 self.addr")
+			return errf(KeyEdgeAddrRequired)
 		}
 		if err := validateAddr(c.Self.Addr, "self.addr"); err != nil {
 			return err
 		}
 		if c.Remote.CenterAddr == "" || c.Remote.CenterPort == 0 {
-			return fmt.Errorf("edge 角色必须配置 remote.center_addr 和 remote.center_port")
+			return errf(KeyEdgeCenterRequired)
 		}
 		if err := validateAddr(c.Remote.CenterAddr, "remote.center_addr"); err != nil {
 			return err
@@ -528,7 +539,7 @@ func (c *Config) Validate() error {
 			return err
 		}
 		if c.Remote.OriginAddr == "" || c.Remote.OriginPort == 0 {
-			return fmt.Errorf("edge 角色必须配置 remote.origin_addr 和 remote.origin_port")
+			return errf(KeyEdgeOriginRequired)
 		}
 		if err := validateAddr(c.Remote.OriginAddr, "remote.origin_addr"); err != nil {
 			return err
@@ -548,54 +559,54 @@ func (c *Config) Validate() error {
 			// The probe port may stay empty for fakeip-only or probe_proto=icmp, since ICMP pings the IP directly and needs no port
 			icmpOnly := c.Self.ProbeMode == "fakeip" || c.Self.ProbeProto == "icmp"
 			if !icmpOnly {
-				return fmt.Errorf("edge 角色 probe_mode=%s 且 probe_proto=%s 必须配置 self.probe_port", c.Self.ProbeMode, c.Self.ProbeProto)
+				return errf(KeyEdgeProbePortRequired, c.Self.ProbeMode, c.Self.ProbeProto)
 			}
 		}
 		if err := validateCommSecret(c.Remote.CommSecret, "edge"); err != nil {
 			return err
 		}
 		if c.Remote.CenterSecret == c.Remote.CommSecret {
-			return fmt.Errorf("remote.center_secret 与 remote.comm_secret 必须使用不同的独立密钥")
+			return errf(KeyEdgeSecretsMustDiffer)
 		}
 		if c.Self.ProbeMode != "direct" && c.Self.ProbeMode != "fakeip" && c.Self.ProbeMode != "mixed" {
-			return fmt.Errorf("未知探测模式: %s（direct/fakeip/mixed）", c.Self.ProbeMode)
+			return errf(KeyProbeModeUnknown, c.Self.ProbeMode)
 		}
 		if c.Self.ProbeProto != "tcp" && c.Self.ProbeProto != "udp" && c.Self.ProbeProto != "icmp" {
-			return fmt.Errorf("未知探测协议: %s（tcp/udp/icmp）", c.Self.ProbeProto)
+			return errf(KeyProbeProtoUnknown, c.Self.ProbeProto)
 		}
 		if c.Self.FakeIPMaxCount < 1 {
-			return fmt.Errorf("fake_ip_max_count 必须 ≥ 1，当前 %d", c.Self.FakeIPMaxCount)
+			return errf(KeyFakeIPMaxCountTooSmall, c.Self.FakeIPMaxCount)
 		}
 		// 上限与 center 注册校验共用 MaxFakeIPsPerEdge：超出该值时 center 会拒绝注册，配置阶段直接拦下以免启动后才发现
 		// The cap shares MaxFakeIPsPerEdge with the center registration check: beyond it the center rejects the registration, so the configuration stage rejects it first instead of failing after startup
 		if c.Self.FakeIPMaxCount > MaxFakeIPsPerEdge {
-			return fmt.Errorf("fake_ip_max_count 超出上限: %d > %d", c.Self.FakeIPMaxCount, MaxFakeIPsPerEdge)
+			return errf(KeyFakeIPMaxCountTooLarge, c.Self.FakeIPMaxCount, MaxFakeIPsPerEdge)
 		}
 		for i, f := range c.Self.FakeIPs {
 			if net.ParseIP(f.IP) == nil {
-				return fmt.Errorf("fake_ips[%d].ip 非法: %s", i, f.IP)
+				return errf(KeyFakeIPInvalid, i, f.IP)
 			}
 			if f.Proto != "" && f.Proto != "tcp" && f.Proto != "udp" && f.Proto != "icmp" {
-				return fmt.Errorf("fake_ips[%d].proto 非法: %s（tcp/udp/icmp）", i, f.Proto)
+				return errf(KeyFakeIPProtoInvalid, i, f.Proto)
 			}
 			if f.Weight != nil && *f.Weight < 0 {
-				return fmt.Errorf("fake_ips[%d].weight 必须 ≥ 0，当前 %f", i, *f.Weight)
+				return errf(KeyFakeIPWeightNegative, i, *f.Weight)
 			}
 			// tcp/udp 探测必须显式端口（FAKE-IP 是外部地址，探测其自身开放端口，不适用本机 probe_port）
 			// A tcp/udp probe needs an explicit port: the FAKE-IP is an external address whose own open port gets probed, so the local probe_port does not apply
 			if (f.Proto == "" || f.Proto == "tcp" || f.Proto == "udp") && f.Port == 0 {
-				return fmt.Errorf("fake_ips[%d]（%s）必须配置 port", i, f.Proto)
+				return errf(KeyFakeIPPortRequired, i, f.Proto)
 			}
 			if f.Port < 0 || f.Port > 65535 {
-				return fmt.Errorf("fake_ips[%d].port 超出范围: %d（1-65535）", i, f.Port)
+				return errf(KeyFakeIPPortRange, i, f.Port)
 			}
 			if f.RTTFallbackMs < 0 {
-				return fmt.Errorf("fake_ips[%d].rtt_fallback_ms 必须 ≥ 0", i)
+				return errf(KeyFakeIPRTTFallbackNegative, i)
 			}
 		}
 	case RoleClient:
 		if c.Self.ListenPort == 0 {
-			return fmt.Errorf("client 角色必须配置 self.listen_port")
+			return errf(KeyClientListenPortRequired)
 		}
 		if err := validatePortRange("self.listen_port", c.Self.ListenPort); err != nil {
 			return err
@@ -604,7 +615,7 @@ func (c *Config) Validate() error {
 			return err
 		}
 		if c.Remote.BootstrapAddr == "" || c.Remote.BootstrapPort == 0 {
-			return fmt.Errorf("client 角色必须配置 remote.bootstrap_addr 和 remote.bootstrap_port")
+			return errf(KeyClientBootstrapRequired)
 		}
 		if err := validatePortRange("remote.bootstrap_port", c.Remote.BootstrapPort); err != nil {
 			return err
@@ -614,10 +625,10 @@ func (c *Config) Validate() error {
 		}
 	case RoleServer:
 		if c.Self.UUID == "" {
-			return fmt.Errorf("server 角色必须配置 self.uuid（供中心按 UUID 去重上报）")
+			return errf(KeyServerUUIDRequired)
 		}
 		if c.Self.ListenPort == 0 || c.Remote.UpstreamPort == 0 {
-			return fmt.Errorf("server 角色必须配置 self.listen_port 和 remote.upstream_port")
+			return errf(KeyServerPortsRequired)
 		}
 		if err := validatePortRange("self.listen_port", c.Self.ListenPort); err != nil {
 			return err
@@ -635,7 +646,7 @@ func (c *Config) Validate() error {
 			return err
 		}
 	default:
-		return fmt.Errorf("未知角色: %s", c.Self.Role)
+		return errf(KeyRoleUnknown, c.Self.Role)
 	}
 	return nil
 }
@@ -647,74 +658,74 @@ func (c *Config) Validate() error {
 // defaults() has already filled the missing zeros, so a field that is still zero here can only be an explicit configuration mistake or a pointer-based optional field
 func (c *Config) validateCommonNumerics() error {
 	if c.Self.ConnectTimeoutMs <= 0 {
-		return fmt.Errorf("self.connect_timeout_ms 必须 > 0，当前 %d", c.Self.ConnectTimeoutMs)
+		return errf(KeyFieldMustBePositive, "self.connect_timeout_ms", c.Self.ConnectTimeoutMs)
 	}
 	if c.Self.ProbeTimeoutMs <= 0 {
-		return fmt.Errorf("self.probe_timeout_ms 必须 > 0，当前 %d", c.Self.ProbeTimeoutMs)
+		return errf(KeyFieldMustBePositive, "self.probe_timeout_ms", c.Self.ProbeTimeoutMs)
 	}
 	if c.Self.MonitorProbeTimeoutMs <= 0 {
-		return fmt.Errorf("self.monitor_probe_timeout_ms 必须 > 0，当前 %d", c.Self.MonitorProbeTimeoutMs)
+		return errf(KeyFieldMustBePositive, "self.monitor_probe_timeout_ms", c.Self.MonitorProbeTimeoutMs)
 	}
 	if c.Self.TopoSyncIntervalS <= 0 {
-		return fmt.Errorf("self.topo_sync_interval_s 必须 > 0，当前 %d", c.Self.TopoSyncIntervalS)
+		return errf(KeyFieldMustBePositive, "self.topo_sync_interval_s", c.Self.TopoSyncIntervalS)
 	}
 	if c.Self.RTTWindowS <= 0 {
-		return fmt.Errorf("self.rtt_window_s 必须 > 0，当前 %d", c.Self.RTTWindowS)
+		return errf(KeyFieldMustBePositive, "self.rtt_window_s", c.Self.RTTWindowS)
 	}
 	if c.Self.TokenTTLS <= 0 {
-		return fmt.Errorf("self.token_ttl_s 必须 > 0，当前 %d", c.Self.TokenTTLS)
+		return errf(KeyFieldMustBePositive, "self.token_ttl_s", c.Self.TokenTTLS)
 	}
 	if c.Self.SecretRotationIntervalS <= 0 {
-		return fmt.Errorf("self.secret_rotation_interval_s 必须 > 0，当前 %d", c.Self.SecretRotationIntervalS)
+		return errf(KeyFieldMustBePositive, "self.secret_rotation_interval_s", c.Self.SecretRotationIntervalS)
 	}
 	if c.Self.PingIntervalS <= 0 {
-		return fmt.Errorf("self.ping_interval_s 必须 > 0，当前 %d", c.Self.PingIntervalS)
+		return errf(KeyFieldMustBePositive, "self.ping_interval_s", c.Self.PingIntervalS)
 	}
 	if c.Self.MaxEdges <= 0 {
-		return fmt.Errorf("self.max_edges 必须 > 0，当前 %d", c.Self.MaxEdges)
+		return errf(KeyFieldMustBePositive, "self.max_edges", c.Self.MaxEdges)
 	}
 	if c.Self.EdgeRegisterRatePerMinute <= 0 {
-		return fmt.Errorf("self.edge_register_rate_per_minute 必须 > 0，当前 %d", c.Self.EdgeRegisterRatePerMinute)
+		return errf(KeyFieldMustBePositive, "self.edge_register_rate_per_minute", c.Self.EdgeRegisterRatePerMinute)
 	}
 	if c.Self.FakeIPCheckTTLS <= 0 {
-		return fmt.Errorf("self.fake_ip_check_ttl_s 必须 > 0，当前 %d", c.Self.FakeIPCheckTTLS)
+		return errf(KeyFieldMustBePositive, "self.fake_ip_check_ttl_s", c.Self.FakeIPCheckTTLS)
 	}
 	if c.Self.CenterConnectRetryCount < 0 {
-		return fmt.Errorf("self.center_connect_retry_count 必须 ≥ 0，当前 %d", c.Self.CenterConnectRetryCount)
+		return errf(KeyFieldMustBeNonNegative, "self.center_connect_retry_count", c.Self.CenterConnectRetryCount)
 	}
 	if c.Self.CenterConnectRetryIntervalS < 0 {
-		return fmt.Errorf("self.center_connect_retry_interval_s 必须 ≥ 0，当前 %d", c.Self.CenterConnectRetryIntervalS)
+		return errf(KeyFieldMustBeNonNegative, "self.center_connect_retry_interval_s", c.Self.CenterConnectRetryIntervalS)
 	}
 	// 指针型字段显式传入负值时报错，nil 已由 defaults() 填为默认值，显式 0 允许（表示关闭抖动）
 	// Pointer-based fields report an error on an explicit negative value; defaults() has already filled a nil one, and an explicit 0 is allowed and means jitter off
 	if c.Self.TopoSyncJitterMs != nil && *c.Self.TopoSyncJitterMs < 0 {
-		return fmt.Errorf("self.topo_sync_jitter_ms 必须 ≥ 0，当前 %d", *c.Self.TopoSyncJitterMs)
+		return errf(KeyFieldMustBeNonNegative, "self.topo_sync_jitter_ms", *c.Self.TopoSyncJitterMs)
 	}
 	// 连接数上限允许显式 0 表示不限制，负值无意义
 	// The connection cap accepts an explicit 0 meaning no limit, while a negative value has no meaning
 	if c.Self.MaxConnections != nil && *c.Self.MaxConnections < 0 {
-		return fmt.Errorf("self.max_connections 必须 ≥ 0，当前 %d", *c.Self.MaxConnections)
+		return errf(KeyFieldMustBeNonNegative, "self.max_connections", *c.Self.MaxConnections)
 	}
 	if c.Self.MaxBandwidthMbps < 0 {
-		return fmt.Errorf("self.max_bandwidth_mbps 必须 ≥ 0，当前 %f", c.Self.MaxBandwidthMbps)
+		return errf(KeyFieldMustBeNonNegativeFloat, "self.max_bandwidth_mbps", c.Self.MaxBandwidthMbps)
 	}
 	if c.Self.IdleTimeoutS != nil && *c.Self.IdleTimeoutS < 0 {
-		return fmt.Errorf("self.idle_timeout_s 必须 ≥ 0，当前 %d", *c.Self.IdleTimeoutS)
+		return errf(KeyFieldMustBeNonNegative, "self.idle_timeout_s", *c.Self.IdleTimeoutS)
 	}
 	if c.Self.LossRateThreshold != nil && (*c.Self.LossRateThreshold < 0 || *c.Self.LossRateThreshold > 1) {
-		return fmt.Errorf("self.loss_rate_threshold 必须在 0-1 之间，当前 %f", *c.Self.LossRateThreshold)
+		return errf(KeyFieldBetweenZeroAndOne, "self.loss_rate_threshold", *c.Self.LossRateThreshold)
 	}
 	if c.Self.BWWarningRatio != nil && (*c.Self.BWWarningRatio < 0 || *c.Self.BWWarningRatio > 1) {
-		return fmt.Errorf("self.bw_warning_ratio 必须在 0-1 之间，当前 %f", *c.Self.BWWarningRatio)
+		return errf(KeyFieldBetweenZeroAndOne, "self.bw_warning_ratio", *c.Self.BWWarningRatio)
 	}
 	if c.Self.BWOverloadRatio != nil && (*c.Self.BWOverloadRatio < 0 || *c.Self.BWOverloadRatio > 1) {
-		return fmt.Errorf("self.bw_overload_ratio 必须在 0-1 之间，当前 %f", *c.Self.BWOverloadRatio)
+		return errf(KeyFieldBetweenZeroAndOne, "self.bw_overload_ratio", *c.Self.BWOverloadRatio)
 	}
 	if c.Self.BWWarningRatio != nil && c.Self.BWOverloadRatio != nil && *c.Self.BWWarningRatio > *c.Self.BWOverloadRatio {
-		return fmt.Errorf("self.bw_warning_ratio 不能大于 self.bw_overload_ratio")
+		return errf(KeyBWRatiosInverted)
 	}
 	if c.Remote.BWWarningPenalty != nil && *c.Remote.BWWarningPenalty < 0 {
-		return fmt.Errorf("remote.bw_warning_penalty 必须 ≥ 0，当前 %f", *c.Remote.BWWarningPenalty)
+		return errf(KeyFieldMustBeNonNegativeFloat, "remote.bw_warning_penalty", *c.Remote.BWWarningPenalty)
 	}
 	return nil
 }
@@ -723,7 +734,7 @@ func (c *Config) validateCommonNumerics() error {
 // validatePortRange requires a port to fall in 1-65535 and does nothing special for an empty field name
 func validatePortRange(name string, port int) error {
 	if port < 1 || port > 65535 {
-		return fmt.Errorf("%s 必须在 1-65535 之间，当前 %d", name, port)
+		return errf(KeyPortOutOfRange, name, port)
 	}
 	return nil
 }
@@ -738,10 +749,10 @@ func validateCommSecret(secret, role string) error {
 // validateSecretField requires a non-empty secret of exactly 32 bytes, counted in bytes rather than characters
 func validateSecretField(field, secret, role string) error {
 	if secret == "" {
-		return fmt.Errorf("%s 角色必须配置 %s", role, field)
+		return errf(KeySecretRequired, role, field)
 	}
 	if len(secret) != 32 {
-		return fmt.Errorf("%s 长度必须为 32 字节，当前 %d 字节", field, len(secret))
+		return errf(KeySecretLength, field, len(secret))
 	}
 	return nil
 }
@@ -757,12 +768,12 @@ func validateAddr(addr, field string) error {
 	}
 	if strings.HasPrefix(addr, "[") {
 		if !strings.HasSuffix(addr, "]") {
-			return fmt.Errorf("%s 方括号未闭合: %s", field, addr)
+			return errf(KeyAddrBracketUnclosed, field, addr)
 		}
 		inner := addr[1 : len(addr)-1]
 		ip := net.ParseIP(inner)
 		if ip == nil || ip.To4() != nil {
-			return fmt.Errorf("%s 方括号内必须是合法 IPv6 地址: %s", field, addr)
+			return errf(KeyAddrBracketNotIPv6, field, addr)
 		}
 		return nil
 	}
@@ -771,7 +782,7 @@ func validateAddr(addr, field string) error {
 		return nil
 	}
 	if strings.Contains(addr, ":") {
-		return fmt.Errorf("%s IPv6 地址必须加方括号: [%s]", field, addr)
+		return errf(KeyAddrIPv6NeedsBrackets, field, addr)
 	}
 	return nil
 }

@@ -395,7 +395,10 @@ func (c *CenterClient) rttReportLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if c.monitor != nil {
-				payload := protocol.RTTReportPayload{RTTMs: c.monitor.AverageRTT()}
+				payload := protocol.RTTReportPayload{
+					RTTMs:      c.monitor.AverageRTT(),
+					LinkStatus: c.monitor.LinkStatus(),
+				}
 				if c.fakeMgr != nil {
 					payload.FakeRTTs = c.fakeMgr.FakeRTTs()
 				}

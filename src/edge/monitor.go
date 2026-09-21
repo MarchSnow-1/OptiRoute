@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/MarchSnow-1/OptiRoute/logx"
+	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
 )
 
@@ -22,13 +23,28 @@ type Monitor struct {
 	mu           sync.Mutex
 	rttWindow    []int64   // 滑动窗口内的 RTT 样本（仅成功） / RTT samples inside the sliding window, successful probes only
 	probeResults []bool    // 滑动窗口内的探测结果（true=成功, false=丢包） / probe results inside the sliding window, true for success and false for loss
-	lastLossWarn time.Time // 上次丢包告警时间，用于日志节流 / time of the last loss warning, used to throttle the log
+	lastLossWarn time.Time // 上次链路状态日志时间，用于限制日志频率 / time of the last link status log, used to limit how often it is written
+	linkStatus   protocol.LinkStatus
 }
 
 // NewMonitor 构造 Monitor，窗口在首次探测时按需增长
+// 初始链路状态为 stable：窗口内尚无样本时没有证据表明链路不稳定，因此按未观察到异常处理
+//
 // NewMonitor builds a Monitor whose windows grow on demand during the first probes
+// The initial link status is stable, because with no sample in the window nothing suggests instability and the state therefore counts as no anomaly observed
 func NewMonitor(node *Node) *Monitor {
-	return &Monitor{node: node}
+	return &Monitor{node: node, linkStatus: protocol.LinkStatusStable}
+}
+
+// LinkStatus 返回当前链路质量状态，取值见 protocol.LinkStatus
+// 该状态只用于观测与日志，不参与选路
+//
+// LinkStatus returns the current link quality state, whose values are the ones of protocol.LinkStatus
+// The state serves observation and logging only and takes no part in route selection
+func (m *Monitor) LinkStatus() protocol.LinkStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.linkStatus
 }
 
 // AverageRTT 返回滑动窗口内 RTT 的平均值，无数据时返回 0
@@ -101,25 +117,59 @@ func (m *Monitor) probe() {
 	}
 
 	// 从 probeResults 计算丢包率
-	// Compute the loss rate from probeResults
-	if len(m.probeResults) > 0 {
-		lossCount := 0
-		for _, ok := range m.probeResults {
-			if !ok {
-				lossCount++
-			}
-		}
-		lossRate := float64(lossCount) / float64(len(m.probeResults))
-		if lossRate > *cfg.Self.LossRateThreshold {
-			// 日志节流：lastLossWarn 只在真正打印时更新，丢包率回落也不重置，因此节流是全局的而非按告警连续段计
-			// 效果是两次打印之间至少间隔 30s，与这期间的告警是否连续无关；回落期间不打印，再次超阈值时只要距上次打印已满 30s 就会立即打印
-			//
-			// Log throttling: lastLossWarn is updated only when a warning is actually printed and is not reset when the loss rate falls back, so the throttling is global rather than per continuous episode
-			// The effect is that two warnings are at least 30s apart regardless of whether the condition stayed true in between, nothing is printed while the rate is low, and the next breach prints immediately once 30s have passed since the last warning
-			if m.lastLossWarn.IsZero() || time.Since(m.lastLossWarn) >= 30*time.Second {
-				logx.Warn("链路丢包率超阈值 loss_rate:", lossRate, " threshold:", *cfg.Self.LossRateThreshold)
-				m.lastLossWarn = time.Now()
-			}
+	// 从 probeResults 计算丢包率，并据此更新链路状态
+	// The loss rate is computed from probeResults and the link status follows it
+	m.judgeLinkStatus()
+}
+
+// judgeLinkStatus 依窗口内的丢包率重新判定链路状态，并在状态变迁时记日志
+// 判据是「窗口内丢包率严格大于 loss_rate_threshold 即 unstable」，等于阈值不算超阈值
+// 日志只在状态变迁时打印，并用最小间隔限制频率，避免链路在阈值附近反复抖动时把日志刷满
+// 该状态只用于观测与日志，不参与选路，因此这里不读写任何选路相关字段
+//
+// judgeLinkStatus decides the link status again from the loss rate inside the window and logs a transition
+// The rule is that a loss rate strictly greater than loss_rate_threshold makes it unstable, so a rate equal to the threshold does not breach it
+// A log line is written on a transition only, with a minimum interval that keeps a link flapping around the threshold from flooding the log
+// The status serves observation and logging only and takes no part in route selection, so no routing field is read or written here
+func (m *Monitor) judgeLinkStatus() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if len(m.probeResults) == 0 {
+		return
+	}
+
+	lossCount := 0
+	for _, ok := range m.probeResults {
+		if !ok {
+			lossCount++
 		}
 	}
+	lossRate := float64(lossCount) / float64(len(m.probeResults))
+
+	// 阈值未配置时按 0 处理，即任何丢包都判为不稳定；配置校验会保证该字段非 nil，这里兜底是为了让只构造部分字段的调用方也能工作
+	// An unset threshold counts as 0, which makes any loss unstable; configuration validation keeps the field non-nil, and the fallback here lets a caller that built only part of the struct work too
+	threshold := 0.0
+	if m.node != nil && m.node.cfg != nil && m.node.cfg.Self.LossRateThreshold != nil {
+		threshold = *m.node.cfg.Self.LossRateThreshold
+	}
+
+	status := protocol.LinkStatusStable
+	if lossRate > threshold {
+		status = protocol.LinkStatusUnstable
+	}
+
+	previous := m.linkStatus
+	m.linkStatus = status
+
+	if status == previous {
+		return
+	}
+	// 变迁日志的最小间隔为 30 秒：链路在阈值附近反复抖动时，这段时间内只保留第一次变迁的日志
+	// The minimum interval between transition logs is 30 seconds, so a link flapping around the threshold keeps only the first transition logged within that span
+	if !m.lastLossWarn.IsZero() && time.Since(m.lastLossWarn) < 30*time.Second {
+		return
+	}
+	logx.Warn("链路状态变化 from:", previous, " to:", status, " loss_rate:", lossRate, " threshold:", threshold)
+	m.lastLossWarn = time.Now()
 }

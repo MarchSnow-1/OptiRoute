@@ -150,6 +150,43 @@ func TestRuntimeReportsRejectUnboundedData(t *testing.T) {
 			t.Fatalf("a valid update should replace the list, got %v", rec.FakeItems)
 		}
 	})
+
+	// Phase 7b-3 的链路状态：只接受 protocol 定义的两种取值，其它内容保留原值
+	// The link status of Phase 7b-3 accepts only the two values defined by protocol and keeps the previous one for anything else
+	t.Run("rtt report stores a defined link status", func(t *testing.T) {
+		raw := mustJSON(t, protocol.RTTReportPayload{RTTMs: 10, LinkStatus: protocol.LinkStatusUnstable})
+		s.handleRTTReport(nil, raw)
+		if rec.LinkStatus != protocol.LinkStatusUnstable {
+			t.Fatalf("link status = %q, want unstable", rec.LinkStatus)
+		}
+
+		raw = mustJSON(t, protocol.RTTReportPayload{RTTMs: 10, LinkStatus: protocol.LinkStatusStable})
+		s.handleRTTReport(nil, raw)
+		if rec.LinkStatus != protocol.LinkStatusStable {
+			t.Fatalf("link status = %q, want stable", rec.LinkStatus)
+		}
+	})
+
+	t.Run("rtt report keeps the status when the field is absent or unknown", func(t *testing.T) {
+		raw := mustJSON(t, protocol.RTTReportPayload{RTTMs: 10, LinkStatus: protocol.LinkStatusUnstable})
+		s.handleRTTReport(nil, raw)
+
+		// 字段缺失时保留原值
+		// A missing field keeps the previous value
+		raw = mustJSON(t, protocol.RTTReportPayload{RTTMs: 10})
+		s.handleRTTReport(nil, raw)
+		if rec.LinkStatus != protocol.LinkStatusUnstable {
+			t.Fatalf("a missing field should keep the previous status, got %q", rec.LinkStatus)
+		}
+
+		// 未定义取值同样保留原值，避免任意字符串进入拓扑
+		// An undefined value keeps it as well, which stops an arbitrary string from entering the topology
+		raw = mustJSON(t, protocol.RTTReportPayload{RTTMs: 10, LinkStatus: protocol.LinkStatus("whatever")})
+		s.handleRTTReport(nil, raw)
+		if rec.LinkStatus != protocol.LinkStatusUnstable {
+			t.Fatalf("an unknown status should be ignored, got %q", rec.LinkStatus)
+		}
+	})
 }
 
 // TestAPIAuthRestrictsToGet 覆盖开放 API 的鉴权与方法限制：缺少或错误的密钥回 401，非 GET 回 405，GET 才进入处理函数

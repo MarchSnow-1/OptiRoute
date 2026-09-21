@@ -273,7 +273,7 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 
 #### monitor.go / bandwidth.go / probe.go
 
-- `monitor.go`：源站连通性 RTT 与丢包率窗口，日志节流
+- `monitor.go`：源站连通性 RTT 与丢包率窗口，依丢包率产出链路状态（stable/unstable）并在变迁时记一条日志（最小间隔 30 秒）；该状态随 rtt_report 上报，供观测而不参与选路
 - `bandwidth.go`：每秒带宽采样与状态判定
 - `probe.go`：对外探测服务，TCP accept-close、UDP echo
 

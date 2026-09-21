@@ -47,13 +47,16 @@ type EdgeRecord struct {
 	FakeRTTs      map[string]int64               // ip → f2n 实测 / ip to the measured f2n latency
 	RTTToOriginMs int64
 	BWStatus      string
-	CurrentBps    int64
-	MaxBps        int64
-	conn          *websocket.Conn
-	writeCh       chan []byte // 发送队列，由 sendMsg 投递、writeLoop 消费 / send queue filled by sendMsg and drained by writeLoop
-	mu            sync.Mutex  // 保护 RTTToOriginMs、BW 三字段、FakeRTTs、FakeItems、ServerUUID、ClientInfos 的并发读写 / guards concurrent access to RTTToOriginMs, the three BW fields, FakeRTTs, FakeItems, ServerUUID and ClientInfos
-	sendMu        sync.Mutex  // 保护 writeCh 发送与 closed 检查，使 sendMsg 与各关闭路径串行 / guards the writeCh send and the closed check so sendMsg serialises with the close paths
-	closed        bool        // 标记该 record 已停用，sendMu 下检查以避免向已关闭的 writeCh 发送 / marks the record retired, checked under sendMu to avoid sending on a closed writeCh
+	// 链路质量状态，取自该 Edge 最近一次 rtt_report；该字段不参与选路，仅供观测
+	// The link quality state taken from the most recent rtt_report of that Edge, kept for observation and taking no part in route selection
+	LinkStatus protocol.LinkStatus
+	CurrentBps int64
+	MaxBps     int64
+	conn       *websocket.Conn
+	writeCh    chan []byte // 发送队列，由 sendMsg 投递、writeLoop 消费 / send queue filled by sendMsg and drained by writeLoop
+	mu         sync.Mutex  // 保护 RTTToOriginMs、BW 三字段、LinkStatus、FakeRTTs、FakeItems、ServerUUID、ClientInfos 的并发读写 / guards concurrent access to RTTToOriginMs, the three BW fields, LinkStatus, FakeRTTs, FakeItems, ServerUUID and ClientInfos
+	sendMu     sync.Mutex  // 保护 writeCh 发送与 closed 检查，使 sendMsg 与各关闭路径串行 / guards the writeCh send and the closed check so sendMsg serialises with the close paths
+	closed     bool        // 标记该 record 已停用，sendMu 下检查以避免向已关闭的 writeCh 发送 / marks the record retired, checked under sendMu to avoid sending on a closed writeCh
 }
 
 // writeLoop 消费 writeCh 并把消息写入该 WebSocket 连接
@@ -641,6 +644,17 @@ func (s *CenterServer) handleRTTReport(conn *websocket.Conn, raw json.RawMessage
 	if record != nil {
 		record.mu.Lock()
 		record.RTTToOriginMs = report.RTTMs
+		// 链路状态只接受 protocol 定义的两种取值：对端上报其它内容时保留原值，避免未定义的字符串进入拓扑
+		// The link status accepts only the two values defined by protocol: anything else reported by the peer keeps the previous value, which stops an undefined string from entering the topology
+		switch report.LinkStatus {
+		case protocol.LinkStatusStable, protocol.LinkStatusUnstable:
+			record.LinkStatus = report.LinkStatus
+		case "":
+			// 留空表示该 Edge 未上报该字段，保持原值
+			// An empty value means the Edge reported no such field, so the previous one stays
+		default:
+			logx.Warn("RTTReport 含未知链路状态，忽略该字段 link_status:", report.LinkStatus)
+		}
 		for _, e := range report.FakeRTTs {
 			record.FakeRTTs[strings.TrimSpace(e.IP)] = e.RTTMs
 		}
@@ -800,6 +814,7 @@ func (s *CenterServer) handleTopoQuery(conn *websocket.Conn) {
 			Group:         r.Group,
 			RTTToOriginMs: r.RTTToOriginMs,
 			BWStatus:      r.BWStatus,
+			LinkStatus:    r.LinkStatus,
 			CurrentBps:    r.CurrentBps,
 			MaxBps:        r.MaxBps,
 			Items:         s.buildItems(r),

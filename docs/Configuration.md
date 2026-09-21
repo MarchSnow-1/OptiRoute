@@ -201,7 +201,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | topo_sync_interval_s | int | 10 | Edge topology sync interval (seconds) |
 | topo_sync_jitter_ms | int | 2000 | Edge max jitter for topology sync (milliseconds); an explicit 0 disables jitter |
 | rtt_window_s | int | 30 | Edge RTT sliding window size (seconds) |
-| loss_rate_threshold | float | 0.40 | Edge packet loss rate threshold |
+| loss_rate_threshold | float | 0.40 | Edge packet loss rate threshold, ranging from 0 to 1; a loss rate inside the rtt_window_s window strictly above it makes the link status unstable, while a rate equal to it stays stable; the status is reported to the Center with rtt_report and enters the topology for observation, and a transition writes one log line at least 30 seconds apart; the status takes no part in route selection |
 | token_ttl_s | int | 30 | Edge token validity window (seconds) |
 | token_bind_client_ip | bool | true | Bind token to client IP; false disables the check |
 | stop_reconnect_on_reject | bool | true | Stop reconnecting after the Center rejects the registration; false keeps retrying with a backoff, and the switch applies in both normal and degraded mode |

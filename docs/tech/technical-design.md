@@ -273,7 +273,7 @@ The package contains multiple files, organized by responsibility:
 
 #### monitor.go / bandwidth.go / probe.go
 
-* `monitor.go`: origin connectivity RTT and packet-loss windows, with log throttling
+* `monitor.go`: origin connectivity RTT and packet-loss windows, deriving a link status of stable or unstable from the loss rate and writing one log line on a transition, at least 30 seconds apart; the status goes out with rtt_report for observation and takes no part in route selection
 * `bandwidth.go`: per-second bandwidth sampling and state determination
 * `probe.go`: externally accessible probe service, including TCP accept-close and UDP echo
 

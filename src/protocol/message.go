@@ -75,11 +75,33 @@ type RegisteredPayload struct {
 
 // ── RTT 上报 / RTT report ────────────────────────────
 
+// LinkStatus 是链路质量状态的取值，由 Edge 依 rtt_window_s 窗口内的丢包率判定
+// 该状态目前只用于观测与日志，不参与选路：选路只读取 RTTToOriginMs 与带宽状态
+//
+// LinkStatus holds the values of the link quality state, which the Edge derives from the loss rate inside the rtt_window_s window
+// The state serves observation and logging only and takes no part in route selection, which reads RTTToOriginMs and the bandwidth status alone
+type LinkStatus string
+
+const (
+	// LinkStatusStable 表示窗口内丢包率未超过 loss_rate_threshold
+	// LinkStatusStable means the loss rate inside the window does not exceed loss_rate_threshold
+	LinkStatusStable LinkStatus = "stable"
+	// LinkStatusUnstable 表示窗口内丢包率超过 loss_rate_threshold
+	// LinkStatusUnstable means the loss rate inside the window exceeds loss_rate_threshold
+	LinkStatusUnstable LinkStatus = "unstable"
+)
+
 // RTTReportPayload 边缘节点上报自身到源站的 RTT 及各 FAKE-IP 的 f2n 延迟
 // RTTReportPayload reports the RTT from the Edge to the origin together with the f2n latency of each FAKE-IP
 type RTTReportPayload struct {
 	RTTMs    int64          `json:"rtt_ms"`
 	FakeRTTs []FakeRTTEntry `json:"fake_rtts,omitempty"` // ip → f2n 实测 / ip mapped to the measured f2n
+	// 链路质量状态，留空表示该 Edge 未上报；Center 收到后原样存下，供开放 API 观测
+	// 该字段不参与选路，选路只读取 RTTToOriginMs 与带宽状态
+	//
+	// The link quality state, where an empty value means the Edge reported none; the Center stores it as received for the open API to observe
+	// The field takes no part in route selection, which reads RTTToOriginMs and the bandwidth status alone
+	LinkStatus LinkStatus `json:"link_status,omitempty"`
 }
 
 // FakeRTTEntry 单个 FAKE-IP 的 f2n 实测延迟
@@ -125,9 +147,12 @@ type NodeInfo struct {
 	Group         string          `json:"group"` // 节点分组 / node group
 	Items         []ProbeItemInfo `json:"items"` // 混合探测项列表（真实+FAKE）：nil=旧缓存缺字段，[]=新模式明确为空 / the mixed probe-item list of real and FAKE entries: nil means an older cache without the field and [] means the new mode reports nothing
 	RTTToOriginMs int64           `json:"rtt_to_origin_ms"`
-	BWStatus      string          `json:"bw_status"`   // 取值 "normal" | "warning" | "overloaded" / one of "normal", "warning" or "overloaded"
-	CurrentBps    int64           `json:"current_bps"` // 当前带宽（Bytes/sec），0=未配置限制 / current bandwidth in bytes per second, 0 means no configured cap
-	MaxBps        int64           `json:"max_bps"`     // 配置上限（Bytes/sec），0=不限 / configured cap in bytes per second, 0 means no cap
+	BWStatus      string          `json:"bw_status"` // 取值 "normal" | "warning" | "overloaded" / one of "normal", "warning" or "overloaded"
+	// 链路质量状态，取自该 Edge 最近一次 rtt_report；该字段不参与选路，仅供观测
+	// The link quality state taken from the most recent rtt_report of that Edge, kept for observation and taking no part in route selection
+	LinkStatus LinkStatus `json:"link_status,omitempty"`
+	CurrentBps int64      `json:"current_bps"` // 当前带宽（Bytes/sec），0=未配置限制 / current bandwidth in bytes per second, 0 means no configured cap
+	MaxBps     int64      `json:"max_bps"`     // 配置上限（Bytes/sec），0=不限 / configured cap in bytes per second, 0 means no cap
 }
 
 // EffectiveItems 返回节点的探测项列表

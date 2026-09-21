@@ -204,7 +204,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | topo_sync_interval_s | int | 10 | edge 拓扑同步间隔 (秒) |
 | topo_sync_jitter_ms | int | 2000 | edge 拓扑同步抖动上限 (毫秒); 显式 0 = 不加抖动 |
 | rtt_window_s | int | 30 | edge RTT 滑动窗口大小 (秒) |
-| loss_rate_threshold | float | 0.40 | edge 丢包率触发不稳定阈值 |
+| loss_rate_threshold | float | 0.40 | edge 丢包率判定阈值, 取值 0-1; rtt_window_s 窗口内丢包率严格大于该值时链路状态判为 unstable, 等于阈值仍为 stable; 状态随 rtt_report 上报 Center 并进入拓扑供观测, 状态变迁时打一条日志(最小间隔 30 秒); 该状态不参与选路 |
 | token_ttl_s | int | 30 | edge Token 有效时间窗口 (秒) |
 | token_bind_client_ip | bool | true | Token 是否绑定客户端 IP, false 时关闭 |
 | stop_reconnect_on_reject | bool | true | 注册被 Center 拒绝后是否停止重连, false 时继续按退避重连; 该开关在正常模式与降级模式下都生效 |

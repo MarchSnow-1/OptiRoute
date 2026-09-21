@@ -53,7 +53,7 @@ func TestFirstPacketShortPrefixHasNoChineseInEnglishMode(t *testing.T) {
 // 该分支在 Connect 未执行时成立，因此直接构造一个未连接过的 CenterClient 即可触发
 //
 // TestRegistrationFlowNotStartedHasNoChineseInEnglishMode checks that the error for a registration flow which has not started carries no Chinese character in English mode
-// The branch holds while Connect has not run, so a CenterClient that never connected reaches it
+// The branch holds while Connect has not run, so a CenterClient on which Connect was not called reaches it
 func TestRegistrationFlowNotStartedHasNoChineseInEnglishMode(t *testing.T) {
 	useEnglishForTest(t)
 

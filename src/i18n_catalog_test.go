@@ -32,7 +32,7 @@ import (
 //
 // keyDeclPattern matches a declaration shaped like const KeyX i18n.Key = "pkg.key_name"
 // The (?:i18n\.)? in the type part covers the declaration inside the i18n package itself: that package cannot spell i18n.Key without referencing itself, so the type there is written as a bare Key
-// The dot in the prefix is a literal and a constant name such as KeyX matches neither form, so there is always exactly one capture group and m[1] at the call sites reads the key name either way
+// The dot in the prefix is a literal and a constant name such as KeyX matches neither form, so there is exactly one capture group and m[1] at the call sites reads the key name either way
 var keyDeclPattern = regexp.MustCompile(`(?:i18n\.)?Key\s*=\s*"([^"]+)"`)
 
 // verbPattern 已不再用于格式符判定，格式符的判定见 verbsOf：正则的字符类无法把 %% 与紧随其后的空格区分开

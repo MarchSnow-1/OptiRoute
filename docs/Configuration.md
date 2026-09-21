@@ -50,15 +50,15 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 {
   "self": {
     "role": "edge",
-    "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
-    "addr": "x.x.x.x",
+    "uuid": "00000000-0000-4000-8000-000000000001",
+    "addr": "203.0.113.10",
     "group": "asia-east-1",
     "probe_mode": "mixed",
     "probe_proto": "udp",
     "probe_port": 20001,
     "business_port": 18001,
     "fake_ips": [
-      { "ip": "a.b.c.d", "proto": "icmp", "weight": 1.1, "rtt_fallback_ms": 20 }
+      { "ip": "203.0.113.20", "proto": "icmp", "weight": 1.1, "rtt_fallback_ms": 20 }
     ],
     "fake_ip_max_count": 2,
     "fake_ip_check_ttl_s": 60,
@@ -69,9 +69,9 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
     "log_level": "info"
   },
   "remote": {
-    "center_addr": "y.y.y.y",
+    "center_addr": "203.0.113.1",
     "center_port": 7000,
-    "origin_addr": "z.z.z.z",
+    "origin_addr": "203.0.113.30",
     "origin_port": 18002,
     "center_secret": "0123456789abcdef0123456789abcdef",
     "comm_secret": "fedcba9876543210fedcba9876543210"
@@ -82,8 +82,8 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 | Field | Value | Description |
 |-------|-------|-------------|
 | self.role | edge | Start as an edge node |
-| self.uuid | b09ad5e0-xxx | Unique identifier for this edge node; must be globally unique |
-| self.addr | x.x.x.x | Public entry IP or domain for this node; used for registration and failover self-identification; IPv6 must use brackets |
+| self.uuid | 00000000-0000-4000-8000-000000000001 | Unique identifier for this edge node; must be globally unique |
+| self.addr | 203.0.113.10 | Public entry IP or domain for this node; used for registration and failover self-identification; IPv6 must use brackets |
 | self.probe_port | 20001 | Probe port used by clients to measure RTT (optional for fakeip-only or probe_proto=icmp); with probe_proto=icmp no listener is started even when a port is set |
 | self.probe_mode | mixed | Probe mode: direct (real IP only) / fakeip (FAKE-IP only) / mixed |
 | self.probe_proto | udp | Local probe protocol: tcp / udp / icmp |
@@ -93,18 +93,18 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 | self.business_port | 18001 | Business port; carries both bootstrap and data traffic |
 | self.group | asia-east-1 | Node group; defaults to "default" if omitted |
 | self.topo_cache_dir | ./cache | Topology cache directory; empty = no caching (recommended for container environments) |
-| self.center_connect_retry_count | 3 | Number of retries when connecting to the center node at startup |
+| self.center_connect_retry_count | 3 | Total number of connect attempts towards the center node at startup, counting the first one; it is not a number of retries on top of a first attempt |
 | self.center_connect_retry_interval_s | 5 | Interval between retries (seconds) |
 | self.monitor_probe_timeout_ms | 2000 | Monitor probe timeout (milliseconds) |
 | self.log_level | info | Log level: debug / info / warn / error |
-| remote.center_addr | y.y.y.y | Center node IP; IPv6 must use brackets |
+| remote.center_addr | 203.0.113.1 | Center node IP; IPv6 must use brackets |
 | remote.center_port | 7000 | Center node port |
-| remote.origin_addr | z.z.z.z | Server Agent IP or domain; IPv6 must use brackets |
+| remote.origin_addr | 203.0.113.30 | Server Agent IP or domain; IPv6 must use brackets |
 | remote.origin_port | 18002 | Server Agent port |
 | remote.center_secret | 0123456789abcdef0123456789abcdef | Edge → Center control-plane secret; must be exactly 32 bytes; must match center self.comm_secret |
 | remote.comm_secret | fedcba9876543210fedcba9876543210 | Edge ↔ Server Agent data-plane secret; must be exactly 32 bytes; must match Server Agent and must differ from center_secret |
 
-**Startup behavior:** On startup the node retries connecting to the center node up to `self.center_connect_retry_count` times. If all attempts fail:
+**Startup behavior:** On startup the node makes up to `self.center_connect_retry_count` connect attempts towards the center node, the first one included. If all attempts fail:
 
 - If `self.topo_cache_dir` is configured and a local cache file exists → load the cache and enter **degraded mode**; the node continues attempting to reconnect in the background and automatically switches back to normal mode once the connection is restored.
 - If no cache directory is configured or no cache file exists → the process exits.
@@ -120,7 +120,7 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
     "log_level": "info"
   },
   "remote": {
-    "bootstrap_addr": "x.x.x.x",
+    "bootstrap_addr": "203.0.113.10",
     "bootstrap_port": 18001
   }
 }
@@ -132,7 +132,7 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 | self.listen_addr | 127.0.0.1 | Local listen address; IPv6 must use brackets |
 | self.listen_port | 18000 | Local listen port |
 | self.log_level | info | Log level: debug / info / warn / error |
-| remote.bootstrap_addr | x.x.x.x | Bootstrap node address (IP or domain); any online edge node works; IPv6 must use brackets |
+| remote.bootstrap_addr | 203.0.113.10 | Bootstrap node address (IP or domain); any online edge node works; IPv6 must use brackets |
 | remote.bootstrap_port | 18001 | Edge node's business port (`business_port`) |
 
 ## Server Agent
@@ -141,10 +141,10 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 {
   "self": {
     "role": "server",
-    "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
+    "uuid": "00000000-0000-4000-8000-000000000002",
     "listen_port": 18002,
     "log_real_ip": true,
-    "forward_real_ip": true,
+    "forward_real_ip": false,
     "log_level": "info"
   },
   "remote": {
@@ -158,10 +158,10 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 | Field | Value | Description |
 |-------|-------|-------------|
 | self.role | server | Start as a server agent |
-| self.uuid | b09ad5e0-xxx | Unique identifier for this server agent; required; the Center deduplicates reports by it (multiple Edges connecting to the same Server produce one record) |
+| self.uuid | 00000000-0000-4000-8000-000000000002 | Unique identifier for this server agent; required; the Center deduplicates reports by it (multiple Edges connecting to the same Server produce one record) |
 | self.listen_port | 18002 | Listen port; edge nodes connect here |
 | self.log_real_ip | true | Whether to log the client's real IP (extracted from the PPv2 header) |
-| self.forward_real_ip | true | Whether to inject a PPv2 header when forwarding to upstream (requires upstream Proxy Protocol v2 support) |
+| self.forward_real_ip | false | Whether to inject a PPv2 header when forwarding to upstream; it stays false in this example because the upstream has to support Proxy Protocol v2, and setting it true towards an upstream that does not understand the header breaks the connection |
 | self.log_level | info | Log level: debug / info / warn / error |
 | remote.upstream_addr | 127.0.0.1 | Address of the third-party server; defaults to localhost; IPv6 must use brackets |
 | remote.upstream_port | 18000 | Third-party server port; raw data (after PPv2 header is stripped) is forwarded here |
@@ -192,7 +192,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | max_bandwidth_mbps | float | 0 | Edge bandwidth limit (Mbps); 0 = unlimited |
 | bw_warning_ratio | float | 0.80 | Edge bandwidth usage warning threshold |
 | bw_overload_ratio | float | 0.95 | Edge bandwidth usage overloaded threshold |
-| center_connect_retry_count | int | 3 | Edge retry count when connecting to center at startup |
+| center_connect_retry_count | int | 3 | Total number of connect attempts towards the center at startup, the first one included |
 | center_connect_retry_interval_s | int | 5 | Edge interval between retries (seconds) |
 | connect_timeout_ms | int | 5000 | Connection timeout (milliseconds) |
 | probe_timeout_ms | int | 1000 | Client probe timeout (milliseconds) |

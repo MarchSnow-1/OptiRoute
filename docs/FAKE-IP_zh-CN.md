@@ -68,8 +68,8 @@
 
 ```json
 "fake_ips": [
-  { "ip": "a.b.c.d", "proto": "icmp", "weight": 1.1, "rtt_fallback_ms": 20 },
-  { "ip": "e.f.g.h", "proto": "udp", "port": 20002, "weight": 1.0, "rtt_fallback_ms": 5 }
+  { "ip": "203.0.113.20", "proto": "icmp", "weight": 1.1, "rtt_fallback_ms": 20 },
+  { "ip": "203.0.113.21", "proto": "udp", "port": 20002, "weight": 1.0, "rtt_fallback_ms": 5 }
 ]
 ```
 

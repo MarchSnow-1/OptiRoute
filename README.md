@@ -213,12 +213,12 @@ curl -H "Authorization: Bearer <key>" http://<center>:7000/api/version
 ```json
 {
   "edges": [
-    {"uuid": "...", "ip": "1.2.3.4", "version": "0.3.0", "server_uuid": "svr-1", "client_count": 12}
+    {"uuid": "...", "ip": "192.0.2.10", "version": "v1.2.3", "server_uuid": "svr-1", "client_count": 12}
   ],
   "servers": [
-    {"uuid": "svr-1", "ip": "5.6.7.8", "version": "0.3.0", "updated_at": 1786533751, "edges": ["edge-a", "edge-b"]}
+    {"uuid": "svr-1", "ip": "198.51.100.20", "version": "v1.2.3", "updated_at": 1786533751, "edges": ["edge-a", "edge-b"]}
   ],
-  "client_versions": {"0.3.0": 45, "0.2.0": 3}
+  "client_versions": {"v1.2.3": 45, "v1.1.0": 3}
 }
 ```
 

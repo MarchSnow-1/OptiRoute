@@ -50,15 +50,15 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 {
   "self": {
     "role": "edge",
-    "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
-    "addr": "x.x.x.x",
+    "uuid": "00000000-0000-4000-8000-000000000001",
+    "addr": "203.0.113.10",
     "group": "asia-east-1",
     "probe_mode": "mixed",
     "probe_proto": "udp",
     "probe_port": 20001,
     "business_port": 18001,
     "fake_ips": [
-      { "ip": "a.b.c.d", "proto": "icmp", "weight": 1.1, "rtt_fallback_ms": 20 }
+      { "ip": "203.0.113.20", "proto": "icmp", "weight": 1.1, "rtt_fallback_ms": 20 }
     ],
     "fake_ip_max_count": 2,
     "fake_ip_check_ttl_s": 60,
@@ -69,9 +69,9 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
     "log_level": "info"
   },
   "remote": {
-    "center_addr": "y.y.y.y",
+    "center_addr": "203.0.113.1",
     "center_port": 7000,
-    "origin_addr": "z.z.z.z",
+    "origin_addr": "203.0.113.30",
     "origin_port": 18002,
     "center_secret": "0123456789abcdef0123456789abcdef",
     "comm_secret": "fedcba9876543210fedcba9876543210"
@@ -82,8 +82,8 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | 配置项 | 值 | 用途 |
 |--------|------|------|
 | self.role | edge | 作为边缘节点启动 |
-| self.uuid | b09ad5e0-xxx | 边缘节点的 UUID, 不可重复 |
-| self.addr | x.x.x.x | 访问本节点的入口 IP 或域名, 用于注册和故障转移自识别, IPv6 需加方括号 |
+| self.uuid | 00000000-0000-4000-8000-000000000001 | 边缘节点的 UUID, 不可重复 |
+| self.addr | 203.0.113.10 | 访问本节点的入口 IP 或域名, 用于注册和故障转移自识别, IPv6 需加方括号 |
 | self.probe_port | 20001 | 探测端口, 供客户端测量 RTT (fakeip-only 或 probe_proto=icmp 时可空); probe_proto=icmp 时即使填了端口也不会被监听 |
 | self.probe_mode | mixed | 探测模式: direct (真实 IP 直测) / fakeip (全 FAKE-IP) / mixed (混合) |
 | self.probe_proto | udp | 本机探测协议: tcp / udp / icmp |
@@ -93,18 +93,18 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | self.business_port | 18001 | 业务端口, 承载引导和业务流量 |
 | self.group | asia-east-1 | 节点分组, 未填=default |
 | self.topo_cache_dir | ./cache | 拓扑缓存目录, 空值或不填=不缓存 (容器环境推荐留空) |
-| self.center_connect_retry_count | 3 | 启动时连接中心节点的重试次数, 超过后尝试加载本地缓存 |
+| self.center_connect_retry_count | 3 | 启动时连接中心节点的总尝试次数, 含第一次; 它不是「第一次之外再重试几次」 |
 | self.center_connect_retry_interval_s | 5 | 每次重试间隔 (秒) |
 | self.monitor_probe_timeout_ms | 2000 | Monitor 探测超时 (毫秒) |
 | self.log_level | info | 日志级别: debug / info / warn / error |
-| remote.center_addr | y.y.y.y | 中心节点的 IP 地址, IPv6 需加方括号 |
+| remote.center_addr | 203.0.113.1 | 中心节点的 IP 地址, IPv6 需加方括号 |
 | remote.center_port | 7000 | 中心节点的端口 |
-| remote.origin_addr | z.z.z.z | 服务端代理 (Server Agent) IP 或域名, IPv6 需加方括号 |
+| remote.origin_addr | 203.0.113.30 | 服务端代理 (Server Agent) IP 或域名, IPv6 需加方括号 |
 | remote.origin_port | 18002 | 服务端代理 (Server Agent) 端口 |
 | remote.center_secret | 0123456789abcdef0123456789abcdef | Edge → Center 控制面密钥, 必须恰好 32 字节, 与 center.self.comm_secret 一致 |
 | remote.comm_secret | fedcba9876543210fedcba9876543210 | Edge ↔ Server Agent 数据面密钥, 必须恰好 32 字节, 与 Server Agent 一致且不得与 center_secret 相同 |
 
-**启动说明:** 启动时会按 `self.center_connect_retry_count` 次重试连接中心节点, 若全部失败:
+**启动说明:** 启动时会连接中心节点最多 `self.center_connect_retry_count` 次(含第一次), 若全部失败:
 
 - 配置了 `self.topo_cache_dir` 且本地存在缓存文件
   - 加载缓存, 进入**降级模式**运行, 后台持续尝试重连中心节点, 重连成功后自动切回正常模式
@@ -123,7 +123,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
     "log_level": "info"
   },
   "remote": {
-    "bootstrap_addr": "x.x.x.x",
+    "bootstrap_addr": "203.0.113.10",
     "bootstrap_port": 18001
   }
 }
@@ -135,7 +135,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | self.listen_addr | 127.0.0.1 | 本地监听地址, IPv6 需加方括号 |
 | self.listen_port | 18000 | 本地监听端口 |
 | self.log_level | info | 日志级别: debug / info / warn / error |
-| remote.bootstrap_addr | x.x.x.x | 引导节点地址 (IP 或域名), 可填任一在线边缘节点, IPv6 需加方括号 |
+| remote.bootstrap_addr | 203.0.113.10 | 引导节点地址 (IP 或域名), 可填任一在线边缘节点, IPv6 需加方括号 |
 | remote.bootstrap_port | 18001 | 边缘节点的业务端口 (business_port) |
 
 ## 服务端代理 (Server Agent)
@@ -144,10 +144,10 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 {
   "self": {
     "role": "server",
-    "uuid": "b09ad5e0-5b73-11f1-b0fa-03c49af310c6",
+    "uuid": "00000000-0000-4000-8000-000000000002",
     "listen_port": 18002,
     "log_real_ip": true,
-    "forward_real_ip": true,
+    "forward_real_ip": false,
     "log_level": "info"
   },
   "remote": {
@@ -161,10 +161,10 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | 配置项 | 值 | 用途 |
 |--------|------|------|
 | self.role | server | 作为服务端代理启动 |
-| self.uuid | b09ad5e0-xxx | 服务端代理的 UUID, 必填, 中心按此去重上报 (多 Edge 连同一 Server 只记录一份) |
+| self.uuid | 00000000-0000-4000-8000-000000000002 | 服务端代理的 UUID, 必填, 中心按此去重上报 (多 Edge 连同一 Server 只记录一份) |
 | self.listen_port | 18002 | 监听端口, 边缘节点接入此端口 |
 | self.log_real_ip | true | 是否在日志中记录客户端真实 IP (从 PPv2 包头提取) |
-| self.forward_real_ip | true | 是否向上游注入 PPv2 包头以传递客户端真实 IP (需上游支持 Proxy Protocol v2) |
+| self.forward_real_ip | false | 是否向上游注入 PPv2 包头以传递客户端真实 IP; 本示例保持 false, 因为需要上游支持 Proxy Protocol v2, 而上游不认识该包头时链路会中断 |
 | self.log_level | info | 日志级别: debug / info / warn / error |
 | remote.upstream_addr | 127.0.0.1 | 第三方服务的服务端地址, 默认本机, IPv6 需加方括号 |
 | remote.upstream_port | 18000 | 第三方服务的服务端端口, 剥离 PPv2 包头后的原始数据转发至此 |
@@ -195,7 +195,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | max_bandwidth_mbps | float | 0 | edge 带宽上限 (Mbps), 0=不限制 |
 | bw_warning_ratio | float | 0.80 | edge 带宽使用率触发 warning 阈值 |
 | bw_overload_ratio | float | 0.95 | edge 带宽使用率触发 overloaded 阈值 |
-| center_connect_retry_count | int | 3 | edge 启动时连接中心节点的重试次数 |
+| center_connect_retry_count | int | 3 | edge 启动时连接中心节点的总尝试次数, 含第一次 |
 | center_connect_retry_interval_s | int | 5 | edge 每次重试间隔 (秒) |
 | connect_timeout_ms | int | 5000 | 连接超时 (毫秒) |
 | probe_timeout_ms | int | 1000 | client 探测超时 (毫秒) |

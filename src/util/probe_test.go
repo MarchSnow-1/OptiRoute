@@ -142,13 +142,17 @@ func TestICMPTransportsOrderAndKind(t *testing.T) {
 	}
 }
 
-// TestICMPDestinationMatchesSocketKind 验证目标地址类型随套接字种类而变
-// 这是本次修复的核心：ping socket 要求 *net.UDPAddr，raw socket 要求 *net.IPAddr，传错类型时 WriteTo 返回 EINVAL
-// 用向真实 UDP 连接写入的方式间接确认该要求，因为类型不符时 (*net.UDPConn).WriteTo 必然报错
+// TestICMPDestinationMatchesSocketKind 验证目标地址类型随套接字种类而变，并确认类型不符会被拒绝
+// 这是本次修复的核心：ping socket 内部是 *net.UDPConn，它的 WriteTo 只接受 *net.UDPAddr，传 *net.IPAddr 会在所有平台上报 EINVAL
+// raw socket 则相反，只接受 *net.IPAddr
+// 两个方向都用真实 UDP 套接字互相收发验证：能被接受的类型必须让数据报真的到达对端，不能被接受的类型必须报错
+// 早先的写法把目标端口留为 0 并向它发送，而各平台对「向 0 端口发送」的处置不同，Windows 接受而 Linux 报 EINVAL，使该断言成为平台相关的假通过
 //
-// TestICMPDestinationMatchesSocketKind checks that the destination type follows the socket kind
-// This is the core of the fix: the ping socket requires a *net.UDPAddr and the raw socket a *net.IPAddr, and a mismatched type makes WriteTo return EINVAL
-// The requirement is confirmed indirectly by writing to a real UDP connection, because (*net.UDPConn).WriteTo certainly fails on a mismatched type
+// TestICMPDestinationMatchesSocketKind checks that the destination type follows the socket kind and that a mismatched type is refused
+// This is the core of the fix: a ping socket is a *net.UDPConn internally, whose WriteTo accepts *net.UDPAddr alone, and passing *net.IPAddr reports EINVAL on every platform
+// The raw socket is the other way round and accepts *net.IPAddr alone
+// Both directions are verified with two real UDP sockets talking to each other: an accepted type has to make the datagram really arrive and a refused type has to report an error
+// The earlier form left the destination port at 0 and sent to it, while platforms differ on a send to port 0, Windows accepting it and Linux reporting EINVAL, which made that assertion a platform-dependent false pass
 func TestICMPDestinationMatchesSocketKind(t *testing.T) {
 	target := net.ParseIP("127.0.0.1")
 
@@ -164,18 +168,50 @@ func TestICMPDestinationMatchesSocketKind(t *testing.T) {
 		t.Errorf("raw socket 的目标地址应为 *net.IPAddr，实际 %T", dst)
 	}
 
-	// 用真实 UDP 连接印证类型要求：ping socket 的那种地址能被接受，raw socket 的那种不能被接受
-	// A real UDP connection confirms the type requirement: the ping-socket address is accepted and the raw-socket one is not
-	uc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	// 对端绑定在回环的临时端口上，因此目标端口由内核给出，不必依赖 0 端口的语义
+	// The peer binds to an ephemeral loopback port, so the destination port comes from the kernel and nothing depends on the meaning of port 0
+	recv, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
 	if err != nil {
 		t.Fatalf("ListenUDP 失败: %v", err)
 	}
-	defer uc.Close()
-
-	if _, err := uc.WriteTo([]byte("probe"), icmpDestination(target, true)); err != nil {
-		t.Errorf("ping socket 的地址类型应被 UDP 连接接受，实际报错: %v", err)
+	defer recv.Close()
+	recvAddr, ok := recv.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		t.Fatalf("对端地址类型异常: %T", recv.LocalAddr())
 	}
-	if _, err := uc.WriteTo([]byte("probe"), icmpDestination(target, false)); err == nil {
+
+	send, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP 失败: %v", err)
+	}
+	defer send.Close()
+
+	// 甲）ping socket 那种类型必须被接受，且数据报确实到达对端
+	// A) The ping-socket type has to be accepted and the datagram has to arrive
+	accepted, isUDPAddr := icmpDestination(recvAddr.IP, true).(*net.UDPAddr)
+	if !isUDPAddr {
+		t.Fatal("ping socket 的目标地址应为 *net.UDPAddr")
+	}
+	accepted.Port = recvAddr.Port
+	payload := []byte("probe")
+	if _, err := send.WriteTo(payload, accepted); err != nil {
+		t.Errorf("ping socket 的地址类型应被 UDP 连接接受，实际报错: %v", err)
+	} else {
+		if err := recv.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("设置读超时失败: %v", err)
+		}
+		buf := make([]byte, 64)
+		n, _, err := recv.ReadFromUDP(buf)
+		if err != nil {
+			t.Errorf("对端未收到数据报: %v", err)
+		} else if string(buf[:n]) != string(payload) {
+			t.Errorf("对端收到的内容不符: %q", buf[:n])
+		}
+	}
+
+	// 乙）raw socket 那种类型必须被拒绝，这正是修复前传错类型的表现
+	// B) The raw-socket type has to be refused, which is exactly what passing the wrong type did before the fix
+	if _, err := send.WriteTo(payload, icmpDestination(recvAddr.IP, false)); err == nil {
 		t.Error("raw socket 的地址类型不应被 UDP 连接接受，实际成功")
 	}
 }

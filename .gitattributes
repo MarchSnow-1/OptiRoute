@@ -1,0 +1,5 @@
+# 让全部已跟踪文本文件在所有平台统一为 LF，使 gofmt、diff 与 CI 检查在 Windows 与 Unix 上结果一致
+# 本仓库索引中所有文本文件均为 LF；若依赖各平台 core.autocrlf，Windows 检出会变成 CRLF，导致 gofmt -l 误报
+# Normalize all tracked text files to LF on every platform, so gofmt, diff and CI checks behave identically on Windows and Unix
+# Every text file in this repository's index is LF; relying on a platform core.autocrlf turns Windows checkouts into CRLF, which makes gofmt -l report false positives
+* text=auto eol=lf

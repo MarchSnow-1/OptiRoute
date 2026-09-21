@@ -166,11 +166,11 @@ func (m *FakeIPManager) checkItem(it *FakeIPStatus) {
 
 // notifyChanged 把筛选后的 FAKE-IP 列表上报 Center
 // 只在 cc 为 nil 时跳过：runFakeIPCheck 与 CenterClient 的创建都在 Node.Start 的 Phase 0 附近启动，检查循环先跑起来时可能读到 nil
-// 降级模式下不走这个跳过分支：Node.Start 无条件新建 CenterClient，此后 ccClient 返回的不是 nil，因此仍会调用 sendMsg，只是 writeLoop 没有运行，消息留在 writeCh 中不被写出
+// 降级模式下不走这个跳过分支：Node.Start 在启动流程中调用 NewCenterClient 并把它赋给 n.cc，该赋值不带条件判断，此后 ccClient 返回的不是 nil，因此仍会调用 sendMsg，只是 writeLoop 没有运行，消息留在 writeCh 中不被写出
 //
 // notifyChanged reports the filtered FAKE-IP list to Center
 // It skips only when cc is nil: runFakeIPCheck and the creation of the CenterClient both start around Phase 0 of Node.Start, so the check loop can read a nil before the field is set
-// Degraded mode does not take that skip: Node.Start builds a CenterClient unconditionally, so ccClient returns a non-nil value afterwards and sendMsg is still called, only with writeLoop not running the message stays on writeCh instead of being written out
+// Degraded mode does not take that skip: Node.Start calls NewCenterClient and assigns it to n.cc without a condition guarding that assignment, so ccClient returns a non-nil value afterwards and sendMsg is still called, only with writeLoop not running the message stays on writeCh instead of being written out
 func (m *FakeIPManager) notifyChanged() {
 	cc := m.node.ccClient()
 	if cc == nil {

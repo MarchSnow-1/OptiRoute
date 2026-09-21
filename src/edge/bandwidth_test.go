@@ -40,12 +40,12 @@ func TestBandwidthTrackerTickAndStatus(t *testing.T) {
 	}
 }
 
-// TestBandwidthTrackerUnlimitedAlwaysNormal 验证 maxBandwidthMbps 为 0 时即便样本达到 1GiB，Status 仍然返回 normal
+// TestBandwidthTrackerUnlimitedReportsNormal 验证 maxBandwidthMbps 为 0 时即便样本达到 1GiB，Status 也返回 normal
 // 该期望来自 Status 在 maxBps 不大于 0 时的提前返回分支
 //
-// TestBandwidthTrackerUnlimitedAlwaysNormal checks that with a maxBandwidthMbps of 0 Status still reports normal even for a 1GiB sample
+// TestBandwidthTrackerUnlimitedReportsNormal checks that with a maxBandwidthMbps of 0 Status reports normal even for a 1GiB sample
 // The expectation comes from the early return of Status when maxBps is 0 or less
-func TestBandwidthTrackerUnlimitedAlwaysNormal(t *testing.T) {
+func TestBandwidthTrackerUnlimitedReportsNormal(t *testing.T) {
 	warning := 0.80
 	overload := 0.95
 	bt := NewBandwidthTracker(0, &warning, &overload)

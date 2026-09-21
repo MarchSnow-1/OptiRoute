@@ -20,10 +20,10 @@ import (
 const testTokenTTLS = 30
 
 // signTokenWithTS 用当前密钥按指定签发时刻构造一个 V2 Token
-// 需要手工构造是因为 GenerateRouteToken 总是取当前时刻，而「验证方时钟落后」这一场景要求 ts 位于未来
+// 需要手工构造是因为 GenerateRouteToken 取的是当前时刻，而「验证方时钟落后」这一场景要求 ts 位于未来
 //
 // signTokenWithTS builds a V2 Token at a given issue instant with the current secret
-// The manual construction is needed because GenerateRouteToken always uses the present instant, while the lagging-verifier scenario requires a ts in the future
+// The manual construction is needed because GenerateRouteToken takes its timestamp from the present instant, while the lagging-verifier scenario requires a ts in the future
 func (a *AuthManager) signTokenWithTS(t *testing.T, ts int64, clientIP string) string {
 	t.Helper()
 

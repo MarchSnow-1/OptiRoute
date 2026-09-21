@@ -105,11 +105,11 @@ func (n *Node) handleBusiness(conn net.Conn, alreadyRead []byte, deadline time.T
 	}
 
 	// Token 校验客户端 IP 与 nonce，其中 IP 比对由 token_bind_client_ip 控制
-	// 该开关只在验证方生效：签发方始终把客户端 IP 写入 claims，因此关闭绑定时是「跳过比对」而不是「claims 中没有 IP」
+	// 该开关只在验证方生效：签发方在 edge.handleBootstrap 中把客户端 IP 交给 GenerateRouteToken 写入 claims，因此关闭绑定时是「跳过比对」而不是「claims 中没有 IP」
 	// 开关为 nil 时按绑定处理；关闭绑定后同一 Token 可从其它来源 IP 使用，这是配置方明确接受的取舍
 	//
 	// The Token check covers the client IP and the nonce, with token_bind_client_ip steering the IP comparison
-	// That switch acts on the verifying side only: the issuing side always writes the client IP into the claims, so turning the binding off skips the comparison instead of leaving the claims without an IP
+	// That switch acts on the verifying side only: edge.handleBootstrap hands the client IP to GenerateRouteToken, which writes it into the claims, so turning the binding off skips the comparison instead of leaving the claims without an IP
 	// A nil switch means binding; with the binding off the same Token can be used from another source IP, which is the trade-off the operator opted into
 	bindClientIP := n.cfg.Self.TokenBindClientIP == nil || *n.cfg.Self.TokenBindClientIP
 	if !n.auth.VerifyRouteToken(fp.Token, fp.Timestamp, n.ccClient().GetSelfUUID(), clientTCPAddr.IP.String(), bindClientIP, n.cfg.Self.TokenTTLS) {

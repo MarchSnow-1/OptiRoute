@@ -172,13 +172,13 @@ func (a *AuthManager) GenerateRouteToken(targetUUID, issuerUUID, clientIP string
 
 // VerifyRouteToken 校验 V2 路由 Token
 // clientTS 与 clientIP 来自目标 Edge 当前连接，其中 clientTS 需要与签发时一致
-// clientIP 始终携带当前连接的来源 IP；是否比对由 bindClientIP 决定，该开关只在验证方生效，签发方始终把客户端 IP 写入 claims
+// clientIP 携带当前连接的来源 IP；是否比对由 bindClientIP 决定，该开关只在验证方生效：edge.handleBootstrap 调用 GenerateRouteToken 时把客户端 IP 传入 claims，因此关闭绑定只是让本函数跳过比对，claims 中仍有该 IP
 // 用独立的布尔量而不是空字符串表达「关闭绑定」，是为了让「连接没有可用 IP」与「不绑定」两种情况在调用点就区分开
 // 依次校验前缀、base64、JSON、Token 版本、目标 UUID、可选的客户端 IP、时间戳与时间窗口，再用当前密钥或窗口内的上一代密钥验签，最后登记 nonce 挡住重放，任一环节不通过即返回 false
 //
 // VerifyRouteToken verifies a V2 route Token
 // clientTS and clientIP come from the current connection of the target Edge, and clientTS needs to match the value seen at issuing time
-// clientIP always carries the source IP of the current connection while bindClientIP decides whether it is compared; that switch acts on the verifying side only, and the issuing side always writes the client IP into the claims
+// clientIP carries the source IP of the current connection while bindClientIP decides whether it is compared, and that switch acts on the verifying side only: edge.handleBootstrap passes the client IP into GenerateRouteToken, which writes it into the claims, so turning the binding off merely makes this function skip the comparison while the claims still carry the IP
 // A separate boolean rather than an empty string expresses "binding off" so that the call site keeps "no IP available" apart from "not bound"
 // It checks the prefix, the base64, the JSON, the Token version, the target UUID, the optional client IP, the timestamp and the time window in turn, then verifies the signature with the current secret or with the previous one inside its window, and finally records the nonce to block replay, returning false as soon as one step fails
 func (a *AuthManager) VerifyRouteToken(token string, clientTS int64, selfUUID, clientIP string, bindClientIP bool, tokenTTLS int) bool {

@@ -94,7 +94,7 @@ For suggestions, feel free to open an [Issue](https://github.com/MarchSnow-1/Opt
 | self.fake_ip_check_ttl_s | 60 | Health-check re-probe window for valid FAKE-IPs (seconds) |
 | self.business_port | 18001 | Business port; carries both bootstrap and data traffic |
 | self.group | asia-east-1 | Node group; defaults to "default" if omitted |
-| self.topo_cache_dir | ./cache | Topology cache directory; empty = no caching (recommended for container environments) |
+| self.topo_cache_dir | ./cache | Topology cache directory; empty = no caching (recommended for container environments); the directory is created on the first write when it does not exist |
 | self.center_connect_retry_count | 3 | Total number of connect attempts towards the center node at startup, counting the first one; it is not a number of retries on top of a first attempt |
 | self.center_connect_retry_interval_s | 5 | Interval between retries (seconds) |
 | self.monitor_probe_timeout_ms | 2000 | Monitor probe timeout (milliseconds) |
@@ -189,7 +189,7 @@ All available fields are listed below, grouped by `self` / `remote`. Fields not 
 | fake_ips | array | — | Edge FAKE-IP list; each entry has ip/proto/port/weight/rtt_fallback_ms; an empty proto means tcp, an empty weight means 1.0 and an explicit 0 keeps the multiplier at 0 |
 | fake_ip_max_count | int | 5 | Edge max FAKE-IPs to report; accepts 1-256, where 256 is the cap shared with the Center registration check |
 | fake_ip_check_ttl_s | int | 60 | Edge valid FAKE-IP re-probe window (seconds) |
-| topo_cache_dir | string | (empty) | Edge topology cache directory; empty = no caching |
+| topo_cache_dir | string | (empty) | Edge topology cache directory; empty = no caching; created on the first write when missing |
 | group | string | default | Node group; defaults to "default" if omitted |
 | max_bandwidth_mbps | float | 0 | Edge bandwidth limit (Mbps); 0 = unlimited |
 | bw_warning_ratio | float | 0.80 | Edge bandwidth usage warning threshold |

@@ -591,6 +591,10 @@
     "text": "拓扑缓存关闭前冲刷失败 err:%v",
     "note": "KeyTopoCacheFlushFailed is the key used when the flush before close fails, whose argument is the write error"
   },
+  "edge.topo_cache_dir_created": {
+    "text": "已创建拓扑缓存目录 dir:%s",
+    "note": "KeyTopoCacheDirCreated is the key used once the cache directory has been created because it did not exist, whose argument is that directory; the line goes out once and only when the directory was really missing"
+  },
   "edge.topo_cache_loaded": {
     "text": "已从本地缓存加载拓扑 nodes:%d updated_at:%d",
     "note": "KeyTopoCacheLoaded is the key used after the topology was loaded from the cache file, with the node count and the cache write instant in Unix seconds as arguments"

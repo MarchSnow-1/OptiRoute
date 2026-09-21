@@ -591,6 +591,10 @@
     "text": "topology cache flush before close failed err:%v",
     "note": "KeyTopoCacheFlushFailed is the key used when the flush before close fails, whose argument is the write error"
   },
+  "edge.topo_cache_dir_created": {
+    "text": "created the topology cache directory dir:%s",
+    "note": "KeyTopoCacheDirCreated is the key used once the cache directory has been created because it did not exist, whose argument is that directory; the line goes out once and only when the directory was really missing"
+  },
   "edge.topo_cache_loaded": {
     "text": "loaded the topology from the local cache nodes:%d updated_at:%d",
     "note": "KeyTopoCacheLoaded is the key used after the topology was loaded from the cache file, with the node count and the cache write instant in Unix seconds as arguments"

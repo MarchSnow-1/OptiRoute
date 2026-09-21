@@ -94,7 +94,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | self.fake_ip_check_ttl_s | 60 | 有效 FAKE-IP 健康检查重测窗口 (秒), 窗口内不重测 |
 | self.business_port | 18001 | 业务端口, 承载引导和业务流量 |
 | self.group | asia-east-1 | 节点分组, 未填=default |
-| self.topo_cache_dir | ./cache | 拓扑缓存目录, 空值或不填=不缓存 (容器环境推荐留空) |
+| self.topo_cache_dir | ./cache | 拓扑缓存目录, 空值或不填=不缓存 (容器环境推荐留空); 目录不存在时由首次写盘创建 |
 | self.center_connect_retry_count | 3 | 启动时连接中心节点的总尝试次数, 含第一次; 它不是「第一次之外再重试几次」 |
 | self.center_connect_retry_interval_s | 5 | 每次重试间隔 (秒) |
 | self.monitor_probe_timeout_ms | 2000 | Monitor 探测超时 (毫秒) |
@@ -192,7 +192,7 @@ OptiRoute 使用 JSON 配置文件, 通过 `--config-path=config.json` 启动
 | fake_ips | array | — | edge FAKE-IP 列表, 每项含 ip/proto/port/weight/rtt_fallback_ms; proto 留空= tcp, weight 留空= 1.0, 显式 0 表示乘数为 0 |
 | fake_ip_max_count | int | 5 | edge 上报 FAKE-IP 数量上限, 取值 1-256 (256 与 Center 注册校验共用上限) |
 | fake_ip_check_ttl_s | int | 60 | edge 有效 FAKE-IP 重测窗口 (秒) |
-| topo_cache_dir | string | 空 | edge 拓扑缓存目录, 空值=不缓存 |
+| topo_cache_dir | string | 空 | edge 拓扑缓存目录, 空值=不缓存; 目录不存在时由首次写盘创建 |
 | group | string | default | 节点分组, 未填=default |
 | max_bandwidth_mbps | float | 0 | edge 带宽上限 (Mbps), 0=不限制 |
 | bw_warning_ratio | float | 0.80 | edge 带宽使用率触发 warning 阈值 |

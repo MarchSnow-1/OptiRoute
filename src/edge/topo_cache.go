@@ -10,6 +10,7 @@ package edge
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -133,6 +134,30 @@ func (t *TopoCache) GetAll() []protocol.NodeInfo {
 	return cp
 }
 
+// ensureDir 使缓存文件所在的目录存在，缺失时创建它
+// 目录由本函数按需创建，而不是要求部署方预先建好：配置里写 ./cache 而该目录不存在时，若不创建则每次写盘都失败，缓存文件不会出现，降级模式随之失去可加载的缓存
+// 每次写盘都检查一遍，因此目录在运行期被删掉后，下一次写盘会把它重新建起来
+// 权限按 0700 传入，缓存内含 shared_secret，因此目录只允许属主访问；该参数只在类 Unix 系统上生效，Windows 下目录权限由 ACL 决定，与缓存文件自身对 perm 的处置一致
+//
+// ensureDir makes the directory holding the cache file exist and creates it when missing
+// The directory is created on demand rather than required to exist beforehand: with ./cache configured and that directory absent, without creation every write fails, the cache file does not appear, and degraded mode is left with no cache to load
+// The check runs on every write, so a directory removed at run time is created again by the next write
+// The permission is passed as 0700 because the cache holds the shared_secret, so only the owner may reach the directory; the argument takes effect on Unix-like systems alone, since Windows derives directory permissions from the ACL, matching how the cache file itself treats perm
+func (t *TopoCache) ensureDir() error {
+	if t.cacheFilePath == "" {
+		return nil
+	}
+	dir := filepath.Dir(t.cacheFilePath)
+	if _, err := os.Stat(dir); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	logx.Infof(KeyTopoCacheDirCreated, dir)
+	return nil
+}
+
 // SaveToFile 将当前拓扑原子写入缓存文件（先写 .tmp 再 rename），writeMu 串行化并发写
 // 普通拓扑更新走 requestSave；需要立即确认落盘时可同步调用本方法
 // 权限按 0600 传入，该参数只在类 Unix 系统上生效，Windows 下文件权限由 ACL 决定，perm 参数被忽略，因此同一份代码在 Windows 上不会因该参数获得受限权限
@@ -154,6 +179,10 @@ func (t *TopoCache) SaveToFile() error {
 
 	raw, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
+		return err
+	}
+
+	if err := t.ensureDir(); err != nil {
 		return err
 	}
 

@@ -20,6 +20,13 @@ const (
 	// KeyTopoCacheFlushFailed is the key used when the flush before close fails, whose argument is the write error
 	KeyTopoCacheFlushFailed i18n.Key = "edge.topo_cache_flush_failed"
 
+	// KeyTopoCacheDirCreated 是缓存目录原本不存在因而被创建时的键，参数为该目录
+	// 该行只在目录确实缺失时输出一次，因此正常启动不会带上它
+	//
+	// KeyTopoCacheDirCreated is the key used once the cache directory has been created because it did not exist, whose argument is that directory
+	// The line goes out once and only when the directory was really missing, so a normal start-up does not carry it
+	KeyTopoCacheDirCreated i18n.Key = "edge.topo_cache_dir_created"
+
 	// KeyTopoCacheLoaded 是从缓存文件加载拓扑成功时的键，参数依次为节点数与缓存写入时刻（Unix 秒）
 	// KeyTopoCacheLoaded is the key used after the topology was loaded from the cache file, with the node count and the cache write instant in Unix seconds as arguments
 	KeyTopoCacheLoaded i18n.Key = "edge.topo_cache_loaded"

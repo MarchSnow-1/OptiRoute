@@ -2,7 +2,7 @@
 
 # OptiRoute
 
-A highly available, low-latency clustering reverse proxy and edge forwarding engine
+An adaptive edge forwarding cluster engine optimised for latency and stability
 
 <!-- Badges -->
 
@@ -30,9 +30,9 @@ The system consists of four roles: **Center Node**, **Edge Node**, **Client Agen
 
 **Core Features**
 
-- **Origin IP Hiding** — All traffic is relayed through edge nodes; the origin server's IP is never exposed externally.
+- **Origin IP Hiding** — All traffic is relayed through edge nodes, so the origin server's IP is not exposed to clients directly.
+- **Anti-DDoS Design** — In FAKE-IP probe mode, clients cannot tell the real nodes apart during the latency-testing phase, which mitigates large-scale malicious attacks.
 - **Intelligent Routing** — The client actively measures RTT to all edge nodes (multi-protocol tcp/udp/icmp), sends the results back, and combines them with each edge node's RTT to the origin. The system automatically selects the node with the lowest end-to-end latency.
-- **Anti-DDoS Design** — In FAKE-IP probe mode, clients cannot distinguish real nodes during the latency-testing phase, mitigating large-scale malicious attacks.
 - **Dual-Stack Support** — Full IPv4/IPv6 dual-stack operation, making full use of existing infrastructure.
 - **Zero Modification** — Third-party clients and servers require no code changes; seamless integration is achieved through external Server and Client Agents.
 - **Low Cost** — Edge nodes perform Layer 4 forwarding only with no business logic, so even low-spec, high-bandwidth machines can run them.
@@ -44,7 +44,7 @@ The system consists of four roles: **Center Node**, **Edge Node**, **Client Agen
 | Role | Description |
 |------|-------------|
 | **Center Node** | Control plane — manages edge nodes and carries no actual traffic |
-| **Edge Node** | Data plane — accepts client connections on business and probe ports, validates V2 route tokens, and forwards data to the origin; supports injecting Proxy Protocol v2 headers to preserve the client's real IP |
+| **Edge Node** | Data plane — accepts client connections on the business port, which carries both bootstrap and business traffic, and serves a probe port for clients to measure RTT; it validates V2 route tokens with nonce replay protection and forwards data to the origin, and can inject Proxy Protocol v2 headers to preserve the client's real IP |
 | **Client Agent** | Runs on the player's local machine; listens on a local port and triggers the full onboarding flow whenever a third-party client connects |
 | **Server Agent** | Runs on the origin server; parses and strips the Proxy Protocol v2 header, extracts the client's real IP, and forwards the raw data to the third-party server |
 
@@ -65,7 +65,7 @@ The system consists of four roles: **Center Node**, **Edge Node**, **Client Agen
 
 3. **Concurrent Probing**
    - The Client Agent probes all items concurrently by protocol (TCP handshake / UDP echo round-trip / ICMP ping).
-   - TCP failures fall back to ICMP; UDP falls back to ICMP after one retry; ICMP failure means the item is unreachable (missing results are not reported).
+   - TCP failures fall back to ICMP straight away; UDP retries once and then falls back to ICMP; an item whose ICMP probe also fails counts as unreachable, and a failed item does not enter the reported results.
    - The probe round-trip time is used as $RTT_{Client \to Target}$.
 
 4. **Intelligent Decision**
@@ -85,7 +85,7 @@ The system consists of four roles: **Center Node**, **Edge Node**, **Client Agen
 
 7. **Transparent Tunnel**
    - The Edge node asynchronously establishes a connection to the origin (Server Agent).
-   - A standard **Proxy Protocol v2 header** is injected at the front of the data stream, after which data is forwarded transparently (unconditional on the Edge→origin hop; upstream injection by the Server Agent depends on `forward_real_ip`).
+   - A standard **Proxy Protocol v2 header** is injected after the data-plane secret handshake and ahead of the business data, after which data is forwarded transparently (unconditional on the Edge→origin hop; upstream injection by the Server Agent depends on `forward_real_ip`).
 
 ---
 
@@ -104,7 +104,7 @@ git clone https://github.com/MarchSnow-1/OptiRoute.git
 cd OptiRoute
 
 # Fetch dependencies
-go mod tidy
+cd src && go mod tidy && cd ..
 
 # Build
 cd src && go build -o ../dist/optiroute.exe . && cd ..
@@ -120,7 +120,7 @@ git clone https://github.com/MarchSnow-1/OptiRoute.git
 cd OptiRoute
 
 # Fetch dependencies
-go mod tidy
+cd src && go mod tidy && cd ..
 
 # Build
 cd src && go build -o ../dist/optiroute . && cd ..
@@ -134,6 +134,13 @@ cd src && go build -o ../dist/optiroute . && cd ..
 ## Configuration Guide
 
 Config examples and the full configuration reference for all four roles: see [Configuration Guide](docs/Configuration.md)
+
+Runnable example configurations for all four roles live in [examples/](examples/), and each one carries every required field
+
+## Protocol and Upgrade
+
+- [Protocol Reference](docs/PROTOCOL.md) — the wire format of the bootstrap and business connections, length frames, control-plane message types and the handshake towards a Server Agent
+- [Upgrade and Downgrade](docs/UPGRADE.md) — the version policy, the upgrade order, the behaviour boundaries of degraded mode and the rollback steps
 
 ---
 
@@ -151,7 +158,7 @@ See [Token and Registration Access Control](docs/TOKEN.md)
 
 ## Proxy Protocol v2 Support
 
-When forwarding traffic to the origin, the Edge node injects a standard Proxy Protocol v2 header at the front of the data stream, carrying the client's real IP and port.
+When forwarding traffic to the origin, the Edge node injects a standard Proxy Protocol v2 header after the data-plane secret handshake, carrying the client's real IP and port.
 
 See [Proxy Protocol v2 Protocol Guide](docs/PPv2.md) — header layout / data flow / configuration / security notes
 

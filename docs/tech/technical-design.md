@@ -326,8 +326,9 @@ Files: `logx.go` (logger and rendering), `logx_test.go` (the asynchronous behavi
 | `Config`                   | config   | Main entry point for all configuration            |
 | `Envelope`                 | protocol | Control-plane message envelope                    |
 | `NodeInfo`                 | protocol | Individual node in the topology                   |
-| `ProbeItemInfo`            | protocol | Probe item exposed to the Client Agent            |
-| `RouteToken` related types | auth     | Internal structures used by the V2 Token          |
+| `ProbeItemInfo`            | protocol | Probe item on the trusted center-to-edge channel, carrying the internal `IsReal` type mark |
+| `ProbeItem` / `ProbeResult` | protocol | The probe item and the result a client sees, without `IsReal`, so a client cannot tell a real item from a FAKE one by its fields |
+| `routeTokenClaims` / `routeTokenEnvelope` | auth     | Internal structures used by the V2 Token          |
 | `CenterServer`             | center   | Center state                                      |
 | `EdgeRecord`               | center   | Online state of an individual Edge                |
 | `Node`                     | edge     | Edge runtime state                                |

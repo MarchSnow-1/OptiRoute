@@ -20,7 +20,7 @@
 </div>
 
 > [!WARNING]
-> This project is still under development. Features may change or be unstable.
+> 本项目仍在开发中, 功能可能变动或不稳定
 
 ## 项目简介
 
@@ -30,7 +30,7 @@ OptiRoute 是一套使用 Go 编写的分布式四层反向代理系统
 
 **核心特性**
 
-- **隐藏源站 IP** — 所有流量经边缘节点中转, 源站 IP 对外完全不可见
+- **隐藏源站 IP** — 所有流量经边缘节点中转, 源站 IP 不直接暴露给客户端
 - **防打击设计** — FAKE-IP 探测模式下, 客户端在延迟测试阶段无法区分真实节点, 可规避大规模恶意攻击
 - **智能选路** — 客户端主动测量到全部边缘节点的 RTT (多协议 tcp/udp/icmp), 回传后与全部 Edge 节点到源站的 RTT 相叠加, 自动选出全链路延迟最低的节点
 - **双栈支持** — 支持 IPv4 与 IPv6 混合使用, 充分利用现有资源
@@ -42,7 +42,7 @@ OptiRoute 是一套使用 Go 编写的分布式四层反向代理系统
 | 角色 | 说明 |
 |------|------|
 | **中心节点** | 控制面, 管理边缘节点, 不承载实际流量 |
-| **边缘节点** | 数据面, 通过业务端口和引导端口接受客户端连接, 执行 V2 Token 验签与 nonce 防重放并将数据转发至源站, 支持注入 Proxy Protocol v2 包头以获取客户端真实 IP |
+| **边缘节点** | 数据面, 在业务端口接受客户端连接 (该端口同时承载引导与业务流量), 另设探测端口供客户端测量 RTT, 执行 V2 Token 验签与 nonce 防重放并将数据转发至源站, 支持注入 Proxy Protocol v2 包头以获取客户端真实 IP |
 | **客户端代理** | 运行在玩家本机, 监听本地端口, 在每次第三方客户端连接时触发完整接入流程 |
 | **服务端代理** | 运行在源站服务器, 解析并剥离 Proxy Protocol v2 包头, 提取客户端真实 IP, 将原始数据转发给第三方服务端 |
 
@@ -62,8 +62,8 @@ OptiRoute 是一套使用 Go 编写的分布式四层反向代理系统
 
 3. **并发探测**
 * 客户端代理同时对所有探测项按协议发起探测
-* TCP / UDP 不通自动降级 ICMP, ICMP 不通视为该节点不可达
-* 以探测往返耗时作为 $RTT_{Client \to Edge}$ 衡量标尺
+* TCP 不通即降级 ICMP; UDP 先重试一次, 仍不通再降级 ICMP; ICMP 也不通视为该项不可达, 失败项不进入上报结果
+* 以探测往返耗时作为 $RTT_{Client \to Target}$ 衡量标尺
 
 
 4. **智能决策**
@@ -86,7 +86,7 @@ OptiRoute 是一套使用 Go 编写的分布式四层反向代理系统
 
 7. **透传建立**
 * Edge 节点异步向源站 (服务端代理)建立连接
-* 在数据流最前端注入标准 **Proxy Protocol v2 数据包头**, 随后透传数据 (Edge→源站一跳为无条件注入; Server→上游是否注入按 `forward_real_ip` 配置)
+* 在数据面密钥握手之后、业务数据之前注入标准 **Proxy Protocol v2 数据包头**, 随后透传数据 (Edge→源站一跳为无条件注入; Server→上游是否注入按 `forward_real_ip` 配置)
 
 ## 快速开始
 
@@ -104,7 +104,7 @@ git clone https://github.com/MarchSnow-1/OptiRoute.git
 cd OptiRoute
 
 # 拉取依赖
-go mod tidy
+cd src && go mod tidy && cd ..
 
 # 构建
 cd src && go build -o ../dist/optiroute.exe . && cd ..
@@ -121,7 +121,7 @@ git clone https://github.com/MarchSnow-1/OptiRoute.git
 cd OptiRoute
 
 # 拉取依赖
-go mod tidy
+cd src && go mod tidy && cd ..
 
 # 构建
 cd src && go build -o ../dist/optiroute . && cd ..
@@ -130,9 +130,16 @@ cd src && go build -o ../dist/optiroute . && cd ..
 ./dist/optiroute --config-path=edge.json
 ```
 
-### 配置指南
+## 配置指南
 
 配置示例 与 完整配置项参考 请查看 [配置指南](docs/Configuration_zh-CN.md)
+
+可直接启动的四角色示例配置见 [examples/](examples/), 每个示例都包含全部必填项
+
+## 协议与升级
+
+- [协议说明](docs/PROTOCOL_zh-CN.md) — 引导与业务连接的线格式 / 长度帧 / 控制面消息类型 / 与 Server Agent 的对接顺序
+- [升级与降级](docs/UPGRADE_zh-CN.md) — 版本策略 / 升级顺序 / 降级模式的行为边界 / 回退步骤
 
 ## FAKE-IP 模式
 
@@ -148,7 +155,7 @@ cd src && go build -o ../dist/optiroute . && cd ..
 
 ## Proxy Protocol v2 支持
 
-Edge 节点在转发流量至源站时, 在数据流最前端注入标准 Proxy Protocol v2 包头, 携带客户端真实 IP 和端口
+Edge 节点在转发流量至源站时, 在数据面密钥握手之后注入标准 Proxy Protocol v2 包头, 携带客户端真实 IP 和端口
 
 详见 [Proxy Protocol v2 协议介绍](docs/PPv2_zh-CN.md) — 包头结构 / 数据链路 / 配置 / 安全说明
 

@@ -326,8 +326,9 @@ Token 格式为 `v2:<base64url(json)>`，JSON 内包含：
 | `Config` | config | 全部配置入口 |
 | `Envelope` | protocol | 控制面消息信封 |
 | `NodeInfo` | protocol | 拓扑中的单节点 |
-| `ProbeItemInfo` | protocol | 客户端可见探测项 |
-| `RouteToken` 相关 | auth | V2 Token 内部结构 |
+| `ProbeItemInfo` | protocol | center→edge 可信通道上的探测项，含 `IsReal` 内部类型标记 |
+| `ProbeItem` / `ProbeResult` | protocol | 客户端可见的探测项与回传结果，不含 `IsReal`，因此客户端无法从字段上区分真实项与 FAKE 项 |
+| `routeTokenClaims` / `routeTokenEnvelope` | auth | V2 Token 的内部结构与信封 |
 | `CenterServer` | center | Center 状态 |
 | `EdgeRecord` | center | 单个 Edge 在线状态 |
 | `Node` | edge | Edge 运行状态 |

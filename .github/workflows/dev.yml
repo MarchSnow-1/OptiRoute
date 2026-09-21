@@ -64,9 +64,30 @@ jobs:
         with:
           go-version-file: src/go.mod
 
+      - name: Format check
+        working-directory: src
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt reported unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        working-directory: src
+        run: go vet ./...
+
       - name: Test
         working-directory: src
         run: go test ./...
+
+      # 竞态检测需要 CGO 与 C 工具链，Windows/macOS 运行器不保证具备，故只在 Linux 上执行
+      # Race detection needs CGO and a C toolchain, which Windows/macOS runners do not guarantee, so it runs on Linux only
+      - name: Test (race)
+        if: runner.os == 'Linux'
+        working-directory: src
+        run: go test -race ./...
 
       - name: Compute version
         id: version
@@ -123,3 +144,32 @@ jobs:
         with:
           name: OptiRoute-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}
           path: OptiRoute-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.zip
+
+  # 独立作业：在 Linux 上交叉编译全部发布目标，验证交叉编译可用性（技术设计第 7 节）
+  # Separate job: cross compile every release target on Linux to verify cross compilation (technical design section 7)
+  crosscompile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+
+      - name: Cross compile all release targets
+        working-directory: src
+        run: |
+          set -euo pipefail
+          export CGO_ENABLED=0
+          crossbuild() {
+            echo "building $1/$2${3:+/$3}"
+            GOOS="$1" GOARCH="$2" GOARM="$3" go build -o /dev/null .
+          }
+          crossbuild windows amd64 ""
+          crossbuild linux   amd64 ""
+          crossbuild linux   arm64 ""
+          crossbuild linux   arm   7
+          crossbuild darwin  amd64 ""
+          crossbuild darwin  arm64 ""

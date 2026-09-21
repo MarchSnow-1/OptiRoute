@@ -30,10 +30,45 @@ jobs:
           name: changelog
           path: CHANGELOG.md
 
+  # 发布前必须通过格式检查、静态检查与竞态测试，未通过则不构建任何产物
+  # A release must pass format checks, static analysis and race tests; otherwise no artifact is built
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+
+      - name: Format check
+        working-directory: src
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt reported unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        working-directory: src
+        run: go vet ./...
+
+      - name: Test
+        working-directory: src
+        run: go test ./...
+
+      - name: Test (race)
+        working-directory: src
+        run: go test -race ./...
+
   build:
     runs-on: ${{ matrix.os }}
-    needs: changelog
-    if: always() && (needs.changelog.result == 'success' || needs.changelog.result == 'skipped')
+    needs: [changelog, test]
+    if: always() && needs.test.result == 'success' && (needs.changelog.result == 'success' || needs.changelog.result == 'skipped')
 
     strategy:
       fail-fast: false

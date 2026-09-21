@@ -380,31 +380,43 @@ func (s *CenterServer) handleRegister(conn *websocket.Conn, raw json.RawMessage)
 
 	s.mu.Lock()
 	// 若同一 UUID 已有旧注册，先停掉旧 record 的写循环并关闭旧连接
-	// 同一 UUID 已有注册时，先把旧 record 停掉：置 closed 并关闭其 writeCh，使 sendMsg 不再向它投递，再关闭旧连接
-	// 旧连接等于当前连接时（同一连接重复注册同一 UUID）不能关闭本连接，否则随后的确认与 secret 写不出去，因此这种情形原地复用当前连接，只重启一次 writeLoop
-	// 旧连接是另一条连接时正常关闭它，对端会读到读错误并按其重连策略处理
+	// 旧连接等于当前连接时（同一连接重复注册同一 UUID）不能停掉旧 record，否则本条连接的 writeLoop 随之消失，随后的确认与 secret 将没有写者
+	// 该情形改为原地刷新旧 record 的注册字段，uuidByConn 与 writeLoop 都保持不动
+	// 旧连接是另一条连接时正常停掉旧 record 并关闭它，对端会读到读错误并按其重连策略处理
 	// 新 UUID 则在同一个临界区内检查容量上限，解锁之后才回拒，避免持锁时写连接
 	//
 	// When the same UUID already has a registration, the old record is retired first: it is marked closed with its writeCh closed so sendMsg stops queueing for it, and the old connection is then closed
-	// When that old connection is the current one, as happens when one connection registers the same UUID twice, closing it would make the later confirmation and secret unwritable, so this case reuses the current connection in place and starts writeLoop once
-	// When the old connection is a different one it is closed as usual, and the peer reads an error and follows its own reconnect policy
+	// When that old connection is the current one, as happens when one connection registers the same UUID twice, the old record must not be retired, because its writeLoop serves this very connection and the later confirmation and secret would then have no writer
+	// That case refreshes the registration fields of the old record in place instead, leaving uuidByConn and the writeLoop untouched
+	// When the old connection is a different one the old record is retired as usual and that connection is closed, and the peer reads an error and follows its own reconnect policy
 	// A new UUID checks the capacity limit inside the same critical section and the rejection is sent after unlocking, so no connection is written while the lock is held
 	if old, exists := s.edges[uuid]; exists {
-		delete(s.uuidByConn, old.conn)
-		old.sendMu.Lock()
-		old.closed = true
-		close(old.writeCh)
-		old.sendMu.Unlock()
 		if old.conn == conn {
-			// 当前连接上已有 writeLoop，继续用它写确认与 secret，不重复启动
-			// The current connection already has a writeLoop, which keeps sending the confirmation and secret, so no second one is started
-			s.edges[uuid] = record
+			old.mu.Lock()
+			old.IP = record.IP
+			old.ProbePort = record.ProbePort
+			old.BusinessPort = record.BusinessPort
+			old.Group = record.Group
+			old.ProbeProto = record.ProbeProto
+			old.ProbeMode = record.ProbeMode
+			old.Version = record.Version
+			old.FakeItems = record.FakeItems
+			// 注册数据整体替换，因此累计的 FAKE-IP 实测也一并清空，避免留下已不在列表中的键
+			// The registration data is replaced as a whole, so the accumulated FAKE-IP measurements are cleared as well, which keeps a key that is no longer in the list from lingering
+			old.FakeRTTs = make(map[string]int64)
+			old.mu.Unlock()
+
 			s.mu.Unlock()
 			s.sendMsg(conn, protocol.MsgTypeRegistered, protocol.RegisteredPayload{OK: true})
 			s.pushSecret(conn)
 			logx.Infof(KeyRegisterReusedConnection, uuid)
 			return
 		}
+		delete(s.uuidByConn, old.conn)
+		old.sendMu.Lock()
+		old.closed = true
+		close(old.writeCh)
+		old.sendMu.Unlock()
 		old.conn.Close()
 	} else if edgeCount := len(s.edges); edgeCount >= maxEdges {
 		s.mu.Unlock()

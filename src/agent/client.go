@@ -10,7 +10,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net"
 	"time"
 
@@ -52,7 +51,7 @@ func (a *ClientAgent) Start(ctx context.Context) error {
 	addr := util.JoinHostPort(a.cfg.Self.ListenAddr, a.cfg.Self.ListenPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("本地端口监听失败 %s: %w", addr, err)
+		return errf(KeyClientListenFailed, addr, err)
 	}
 	logx.Infof(KeyClientListening, addr)
 
@@ -156,7 +155,7 @@ func (a *ClientAgent) connectWithToken(targetIP string, businessPort int, token 
 	targetAddr := util.JoinHostPort(targetIP, businessPort)
 	edgeConn, err := net.DialTimeout("tcp", targetAddr, timeout)
 	if err != nil {
-		return nil, fmt.Errorf("连接目标边缘节点失败: %w", err)
+		return nil, errf(KeyEdgeDialFailed, err)
 	}
 
 	firstPacket := struct {
@@ -171,7 +170,7 @@ func (a *ClientAgent) connectWithToken(targetIP string, businessPort int, token 
 	fpJSON, _ := json.Marshal(firstPacket)
 	if err := util.WriteFrameWithDeadline(edgeConn, fpJSON, timeout); err != nil {
 		edgeConn.Close()
-		return nil, fmt.Errorf("发送 Token 首包失败: %w", err)
+		return nil, errf(KeyFirstPacketWriteFailed, err)
 	}
 
 	// 读取 1 字节验签确认，读之前先设置等待验签的读超时，读后清除该超时
@@ -188,17 +187,17 @@ func (a *ClientAgent) connectWithToken(targetIP string, businessPort int, token 
 	if err != nil {
 		edgeConn.Close()
 		if ne, ok := err.(net.Error); ok && ne.Timeout() {
-			return nil, fmt.Errorf("等待验签超时: %w", err)
+			return nil, errf(KeyAckWaitTimeout, err)
 		}
-		return nil, fmt.Errorf("等待验签失败（连接中断）: %w", err)
+		return nil, errf(KeyAckWaitFailed, err)
 	}
 	if n != 1 {
 		edgeConn.Close()
-		return nil, fmt.Errorf("验签未通过（服务端未返回确认字节，收到 %d 字节）", n)
+		return nil, errf(KeyAckByteCountAbnormal, n)
 	}
 	if probe[0] != 0x01 {
 		edgeConn.Close()
-		return nil, fmt.Errorf("验签未通过（服务端返回的确认字节为 0x%02X）", probe[0])
+		return nil, errf(KeyAckByteUnexpected, probe[0])
 	}
 
 	return edgeConn, nil
@@ -210,42 +209,42 @@ func (a *ClientAgent) doAccessFlow(ctx context.Context, remote string) (net.Conn
 	bootstrapAddr := util.JoinHostPort(a.cfg.Remote.BootstrapAddr, a.cfg.Remote.BootstrapPort)
 	bootstrapConn, err := net.DialTimeout("tcp", bootstrapAddr, timeout)
 	if err != nil {
-		return nil, fmt.Errorf("连接引导节点失败: %w", err)
+		return nil, errf(KeyBootstrapDialFailed, err)
 	}
 	defer bootstrapConn.Close()
 
 	if err := util.WriteWithDeadline(bootstrapConn, protocol.InitConnectMagic, timeout); err != nil {
-		return nil, fmt.Errorf("发送 Magic 失败: %w", err)
+		return nil, errf(KeyMagicWriteFailed, err)
 	}
 
 	listData, err := util.ReadFrame(bootstrapConn, timeout)
 	if err != nil {
-		return nil, fmt.Errorf("接收节点列表失败: %w", err)
+		return nil, errf(KeyNodeListReadFailed, err)
 	}
 	var items []protocol.ProbeItem
 	if err := json.Unmarshal(listData, &items); err != nil {
-		return nil, fmt.Errorf("解析探测项列表失败: %w", err)
+		return nil, errf(KeyProbeItemListParseFailed, err)
 	}
 	logx.Debugf(KeyProbeItemListReceived, remote, len(items))
 
 	probeTimeout := time.Duration(a.cfg.Self.ProbeTimeoutMs) * time.Millisecond
 	results := a.probeItems(items, probeTimeout)
 	if len(results) == 0 {
-		return nil, fmt.Errorf("所有探测项均失败")
+		return nil, errf(KeyProbeAllFailed)
 	}
 
 	rttJSON, _ := json.Marshal(results)
 	if err := util.WriteFrameWithDeadline(bootstrapConn, rttJSON, timeout); err != nil {
-		return nil, fmt.Errorf("上报探测结果失败: %w", err)
+		return nil, errf(KeyProbeResultWriteFailed, err)
 	}
 
 	redirectData, err := util.ReadFrame(bootstrapConn, timeout)
 	if err != nil {
-		return nil, fmt.Errorf("接收 Redirect 命令失败: %w", err)
+		return nil, errf(KeyRedirectReadFailed, err)
 	}
 	var cmd protocol.RedirectCommand
 	if err := json.Unmarshal(redirectData, &cmd); err != nil {
-		return nil, fmt.Errorf("解析 Redirect 命令失败: %w", err)
+		return nil, errf(KeyRedirectParseFailed, err)
 	}
 	logx.Infof(KeyRedirectReceived, remote, cmd.TargetIP, cmd.BusinessPort)
 

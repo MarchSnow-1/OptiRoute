@@ -27,8 +27,13 @@ import (
 )
 
 // keyDeclPattern 匹配形如 const KeyX i18n.Key = "pkg.key_name" 的声明
+// 类型部分的 (?:i18n\.)? 覆盖 i18n 包自身的声明：该包不能写 i18n.Key，否则等于自我引用，因此那里的类型只能写成裸 Key
+// 前缀里的点号是字面量，KeyX 这类常量名不会匹配，捕获组始终只有一个，调用点的 m[1] 因此在两种写法下都取到键名
+//
 // keyDeclPattern matches a declaration shaped like const KeyX i18n.Key = "pkg.key_name"
-var keyDeclPattern = regexp.MustCompile(`i18n\.Key\s*=\s*"([^"]+)"`)
+// The (?:i18n\.)? in the type part covers the declaration inside the i18n package itself: that package cannot spell i18n.Key without referencing itself, so the type there is written as a bare Key
+// The dot in the prefix is a literal and a constant name such as KeyX matches neither form, so there is always exactly one capture group and m[1] at the call sites reads the key name either way
+var keyDeclPattern = regexp.MustCompile(`(?:i18n\.)?Key\s*=\s*"([^"]+)"`)
 
 // verbPattern 已不再用于格式符判定，格式符的判定见 verbsOf：正则的字符类无法把 %% 与紧随其后的空格区分开
 // plainLogCallPattern 匹配未走消息目录的日志调用，带 f 后缀的带键方法不在其中

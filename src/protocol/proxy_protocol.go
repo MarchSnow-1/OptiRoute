@@ -7,7 +7,6 @@ package protocol
 
 import (
 	"encoding/binary"
-	"fmt"
 	"net"
 )
 
@@ -76,40 +75,40 @@ func BuildPPv2Header(srcIP net.IP, srcPort uint16, dstIP net.IP, dstPort uint16)
 // It checks the 16-byte minimum length, the 12-byte signature and the 0x21 command byte in that order, then branches on the family byte: a length field that disagrees with the value expected for that family, or an argument shorter than the complete header of that family, is an error
 func ParsePPv2Header(hdr []byte) (srcIP net.IP, srcPort uint16, err error) {
 	if len(hdr) < PPv2MinHeaderLen {
-		return nil, 0, fmt.Errorf("包头长度不足: %d < %d", len(hdr), PPv2MinHeaderLen)
+		return nil, 0, errf(KeyPPv2HeaderTooShort, len(hdr), PPv2MinHeaderLen)
 	}
 	for i, b := range ppv2Signature {
 		if hdr[i] != b {
-			return nil, 0, fmt.Errorf("PPv2 签名校验失败，位置 %d", i)
+			return nil, 0, errf(KeyPPv2SignatureMismatch, i)
 		}
 	}
 	if hdr[12] != 0x21 {
-		return nil, 0, fmt.Errorf("不支持的命令字节: 0x%02X", hdr[12])
+		return nil, 0, errf(KeyPPv2CommandUnsupported, hdr[12])
 	}
 
 	switch hdr[13] {
 	case 0x11: // IPv4/TCP / 地址族 IPv4、传输层 TCP
 		if binary.BigEndian.Uint16(hdr[14:16]) != 12 {
-			return nil, 0, fmt.Errorf("IPv4 包头长度字段不匹配: %d != 12", binary.BigEndian.Uint16(hdr[14:16]))
+			return nil, 0, errf(KeyPPv2IPv4LengthMismatch, binary.BigEndian.Uint16(hdr[14:16]))
 		}
 		if len(hdr) < PPv2HeaderLenIPv4 {
-			return nil, 0, fmt.Errorf("IPv4 包头长度不足: %d < %d", len(hdr), PPv2HeaderLenIPv4)
+			return nil, 0, errf(KeyPPv2IPv4HeaderTooShort, len(hdr), PPv2HeaderLenIPv4)
 		}
 		srcIP = make(net.IP, 4)
 		copy(srcIP, hdr[16:20])
 		srcPort = binary.BigEndian.Uint16(hdr[24:26])
 	case 0x21: // IPv6/TCP / 地址族 IPv6、传输层 TCP
 		if binary.BigEndian.Uint16(hdr[14:16]) != 36 {
-			return nil, 0, fmt.Errorf("IPv6 包头长度字段不匹配: %d != 36", binary.BigEndian.Uint16(hdr[14:16]))
+			return nil, 0, errf(KeyPPv2IPv6LengthMismatch, binary.BigEndian.Uint16(hdr[14:16]))
 		}
 		if len(hdr) < PPv2HeaderLenIPv6 {
-			return nil, 0, fmt.Errorf("IPv6 包头长度不足: %d < %d", len(hdr), PPv2HeaderLenIPv6)
+			return nil, 0, errf(KeyPPv2IPv6HeaderTooShort, len(hdr), PPv2HeaderLenIPv6)
 		}
 		srcIP = make(net.IP, 16)
 		copy(srcIP, hdr[16:32])
 		srcPort = binary.BigEndian.Uint16(hdr[48:50])
 	default:
-		return nil, 0, fmt.Errorf("不支持的协议族/类型: 0x%02X", hdr[13])
+		return nil, 0, errf(KeyPPv2FamilyUnsupported, hdr[13])
 	}
 
 	return srcIP, srcPort, nil

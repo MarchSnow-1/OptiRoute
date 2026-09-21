@@ -10,7 +10,6 @@ package edge
 import (
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"github.com/MarchSnow-1/OptiRoute/logx"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
@@ -40,11 +39,11 @@ type BusinessFirstPacket struct {
 // deadline is an absolute instant reusing the caller's timeout window, and a zero value means no timeout
 func readFirstPacketWithPrefix(conn net.Conn, alreadyRead []byte, deadline time.Time) ([]byte, error) {
 	if len(alreadyRead) < 4 {
-		return nil, fmt.Errorf("已读数据不足 4 字节，无法解析帧长度")
+		return nil, errf(KeyFirstPacketShortPrefix)
 	}
 	frameLen := binary.BigEndian.Uint32(alreadyRead[:4])
 	if frameLen > util.MaxFrameSize {
-		return nil, fmt.Errorf("帧长度超限: %d", frameLen)
+		return nil, errf(KeyFirstPacketOverLimit, frameLen)
 	}
 	got := uint32(len(alreadyRead) - 4)
 	if got > frameLen {
@@ -57,7 +56,7 @@ func readFirstPacketWithPrefix(conn net.Conn, alreadyRead []byte, deadline time.
 		// The branch needs a prefix longer than 4 bytes with a frame length below / 4 bytes, and neither shape handed over by classifyConnection reaches it:
 		// with a 4-byte handoff got is 0 and 0 cannot exceed frameLen in an unsigned comparison, while a 16-byte handoff means the first 4 bytes hit "ORTE" (0x4F525445, about 1.33GB) and the MaxFrameSize check above rejects it first
 		// It is kept as pure defensive code
-		return nil, fmt.Errorf("alreadyRead 包含的数据超过帧长度: got=%d, frameLen=%d", got, frameLen)
+		return nil, errf(KeyFirstPacketPrefixOverflow, got, frameLen)
 	}
 	remaining := frameLen - got
 

@@ -7,7 +7,11 @@
 // Registration happens once in init and the catalogue is only read afterwards
 package auth
 
-import "github.com/MarchSnow-1/OptiRoute/i18n"
+import (
+	"fmt"
+
+	"github.com/MarchSnow-1/OptiRoute/i18n"
+)
 
 const (
 	// KeySecretPushIgnored 是密钥推送因版本号为 0 或不大于当前版本而被忽略时的键
@@ -70,6 +74,35 @@ const (
 	// KeyTokenNonceReplay 是 nonce 在有效期内重复出现时的键，参数依次为目标 UUID 与 nonce
 	// KeyTokenNonceReplay is the key used when a nonce appears again inside its validity window, with the target UUID and the nonce as arguments
 	KeyTokenNonceReplay i18n.Key = "auth.token_nonce_replay"
+
+	// KeyTokenSecretUninitialized 是签发时当前密钥为空的键，不带参数
+	// 该分支出现在 Center 尚未推送任何 secret 时，因此签发无从进行
+	//
+	// KeyTokenSecretUninitialized is the key used when the current secret is empty at issuing time, and it takes no argument
+	// The branch is reached while Center has pushed no secret yet, which leaves nothing to sign with
+	KeyTokenSecretUninitialized i18n.Key = "auth.token_secret_uninitialized"
+
+	// KeyTokenUUIDsRequired 是签发时目标 UUID 或签发方 UUID 为空的键，不带参数
+	// 两个 UUID 都必须非空，是否放行由校验端决定
+	//
+	// KeyTokenUUIDsRequired is the key used when the target UUID or the issuer UUID is empty at issuing time, and it takes no argument
+	// Both UUIDs have to be non-empty, while letting the Token through stays the decision of the verifying side
+	KeyTokenUUIDsRequired i18n.Key = "auth.token_uuids_required"
+
+	// KeyTokenNonceGenerateFailed 是生成 nonce 失败时的键，参数为底层错误
+	// KeyTokenNonceGenerateFailed is the key used when generating the nonce fails, whose argument is the underlying error
+	KeyTokenNonceGenerateFailed i18n.Key = "auth.token_nonce_generate_failed"
+
+	// KeyTokenClaimsEncodeFailed 是签发时序列化 claims 失败时的键，参数为序列化错误
+	// 该键与校验路径上重新序列化 claims 的键分开：两处的文案与上下文不同
+	//
+	// KeyTokenClaimsEncodeFailed is the key used when marshalling the claims fails at issuing time, whose argument is the marshalling error
+	// The key stays apart from the one used for re-serialising the claims on the verifying path, whose text and context differ
+	KeyTokenClaimsEncodeFailed i18n.Key = "auth.token_claims_encode_failed"
+
+	// KeyTokenEnvelopeMarshalFailed 是序列化 Token 信封失败时的键，参数为序列化错误
+	// KeyTokenEnvelopeMarshalFailed is the key used when marshalling the Token envelope fails, whose argument is the marshalling error
+	KeyTokenEnvelopeMarshalFailed i18n.Key = "auth.token_envelope_marshal_failed"
 )
 
 // messages 保存本包的消息，键为 i18n.Key，值为三种语言下的文案
@@ -140,6 +173,40 @@ var messages = map[i18n.Key]i18n.Entry{
 		"[VerifyRouteToken] nonce 重放拒绝 target:%s nonce:%s",
 		"[VerifyRouteToken] nonce 重放拒絕 target:%s nonce:%s",
 	),
+	KeyTokenSecretUninitialized: i18n.New(
+		"the secret has not been initialised",
+		"secret 尚未初始化",
+		"secret 尚未初始化",
+	),
+	KeyTokenUUIDsRequired: i18n.New(
+		"targetUUID and issuerUUID may not be empty",
+		"targetUUID、issuerUUID 均不能为空",
+		"targetUUID、issuerUUID 均不能為空",
+	),
+	KeyTokenNonceGenerateFailed: i18n.New(
+		"generating the nonce failed: %w",
+		"生成 nonce 失败: %w",
+		"產生 nonce 失敗: %w",
+	),
+	KeyTokenClaimsEncodeFailed: i18n.New(
+		"marshalling the token claims failed: %w",
+		"序列化 token claims 失败: %w",
+		"序列化 token claims 失敗: %w",
+	),
+	KeyTokenEnvelopeMarshalFailed: i18n.New(
+		"marshalling the token failed: %w",
+		"序列化 token 失败: %w",
+		"序列化 token 失敗: %w",
+	),
+}
+
+// errf 按消息键取当前语言的格式串并交给 fmt.Errorf
+// 取的是未填充的格式串而不是已渲染的文本，使 %w 仍由 fmt.Errorf 处理，错误链得以保留
+//
+// errf takes the format string of a message key in the current language and hands it to fmt.Errorf
+// The unfilled format string is used rather than rendered text, so a %w verb is still handled by fmt.Errorf and the error chain survives
+func errf(key i18n.Key, args ...any) error {
+	return fmt.Errorf(i18n.T(key), args...)
 }
 
 // init 登记本包的消息，使任何日志调用之前目录已经就绪

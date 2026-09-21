@@ -19,7 +19,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -131,15 +130,15 @@ func (a *AuthManager) GenerateRouteToken(targetUUID, issuerUUID, clientIP string
 	a.mu.RUnlock()
 
 	if len(secret) == 0 {
-		return "", 0, fmt.Errorf("secret 尚未初始化")
+		return "", 0, errf(KeyTokenSecretUninitialized)
 	}
 	if targetUUID == "" || issuerUUID == "" {
-		return "", 0, fmt.Errorf("targetUUID、issuerUUID 均不能为空")
+		return "", 0, errf(KeyTokenUUIDsRequired)
 	}
 
 	nonceBytes := make([]byte, routeTokenNonceLen)
 	if _, err := rand.Read(nonceBytes); err != nil {
-		return "", 0, fmt.Errorf("生成 nonce 失败: %w", err)
+		return "", 0, errf(KeyTokenNonceGenerateFailed, err)
 	}
 	nonce := base64.RawURLEncoding.EncodeToString(nonceBytes)
 
@@ -155,7 +154,7 @@ func (a *AuthManager) GenerateRouteToken(targetUUID, issuerUUID, clientIP string
 
 	unsigned, err := json.Marshal(claims)
 	if err != nil {
-		return "", 0, fmt.Errorf("序列化 token claims 失败: %w", err)
+		return "", 0, errf(KeyTokenClaimsEncodeFailed, err)
 	}
 
 	envelope := routeTokenEnvelope{
@@ -164,7 +163,7 @@ func (a *AuthManager) GenerateRouteToken(targetUUID, issuerUUID, clientIP string
 	}
 	signed, err := json.Marshal(envelope)
 	if err != nil {
-		return "", 0, fmt.Errorf("序列化 token 失败: %w", err)
+		return "", 0, errf(KeyTokenEnvelopeMarshalFailed, err)
 	}
 
 	return routeTokenPrefix + base64.RawURLEncoding.EncodeToString(signed), ts, nil

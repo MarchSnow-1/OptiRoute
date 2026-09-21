@@ -13,7 +13,6 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	mrand "math/rand"
 	"net"
@@ -188,7 +187,7 @@ func (s *CenterServer) Start(ctx context.Context) error {
 func (s *CenterServer) rotateSecret() error {
 	secret := make([]byte, 32)
 	if _, err := crand.Read(secret); err != nil {
-		return fmt.Errorf("生成 secret 失败: %w", err)
+		return errf(KeySecretGenerateFailed, err)
 	}
 	s.secretMu.Lock()
 	s.currentSecret = secret
@@ -467,46 +466,46 @@ const maxFakeItemsPerEdge = config.MaxFakeIPsPerEdge
 func normalizeAndValidateRegister(req *protocol.RegisterPayload) error {
 	req.UUID = strings.TrimSpace(req.UUID)
 	if req.UUID == "" || len(req.UUID) > 128 {
-		return fmt.Errorf("uuid 为空或超长")
+		return errf(KeyRegisterUUIDInvalid)
 	}
 	req.IP = strings.TrimSpace(req.IP)
 	if err := validateNodeAddr(req.IP); err != nil {
-		return fmt.Errorf("ip 非法: %w", err)
+		return errf(KeyRegisterIPInvalid, err)
 	}
 
 	if req.Group == "" {
 		req.Group = config.DefaultGroup
 	}
 	if len(req.Group) > 128 {
-		return fmt.Errorf("group 超长")
+		return errf(KeyRegisterGroupTooLong)
 	}
 
 	if req.ProbeMode == "" {
 		req.ProbeMode = "direct"
 	}
 	if req.ProbeMode != "direct" && req.ProbeMode != "fakeip" && req.ProbeMode != "mixed" {
-		return fmt.Errorf("未知探测模式: %s", req.ProbeMode)
+		return errf(KeyRegisterProbeModeUnknown, req.ProbeMode)
 	}
 
 	if req.ProbeProto == "" {
 		req.ProbeProto = "udp"
 	}
 	if req.ProbeProto != "tcp" && req.ProbeProto != "udp" && req.ProbeProto != "icmp" {
-		return fmt.Errorf("未知探测协议: %s", req.ProbeProto)
+		return errf(KeyRegisterProbeProtoUnknown, req.ProbeProto)
 	}
 
 	if req.BusinessPort < 1 || req.BusinessPort > 65535 {
-		return fmt.Errorf("business_port 超出范围: %d", req.BusinessPort)
+		return errf(KeyRegisterBusinessPortOutOfRange, req.BusinessPort)
 	}
 	if req.ProbePort < 0 || req.ProbePort > 65535 {
-		return fmt.Errorf("probe_port 超出范围: %d", req.ProbePort)
+		return errf(KeyRegisterProbePortOutOfRange, req.ProbePort)
 	}
 	if req.ProbePort == 0 && req.ProbeMode != "fakeip" && req.ProbeProto != "icmp" {
-		return fmt.Errorf("direct/mixed 模式且非 ICMP 探测必须提供 probe_port")
+		return errf(KeyRegisterProbePortRequired)
 	}
 
 	if len(req.Version) > 64 {
-		return fmt.Errorf("version 超长")
+		return errf(KeyRegisterVersionTooLong)
 	}
 	return validateFakeItems(req.FakeItems)
 }
@@ -518,33 +517,33 @@ func normalizeAndValidateRegister(req *protocol.RegisterPayload) error {
 // The registration path and the runtime fake_update path share this function: both accept probe targets reported by a peer, and validating only one of them would let the other carry an invalid target into the network-wide topology
 func validateFakeItems(items []protocol.FakeItemReport) error {
 	if len(items) > maxFakeItemsPerEdge {
-		return fmt.Errorf("fake_items 数量超限: %d > %d", len(items), maxFakeItemsPerEdge)
+		return errf(KeyFakeItemsCountExceeded, len(items), maxFakeItemsPerEdge)
 	}
 	for i := range items {
 		f := &items[i]
 		f.IP = strings.TrimSpace(f.IP)
 		if net.ParseIP(f.IP) == nil {
-			return fmt.Errorf("fake_items[%d].ip 非法: %s", i, f.IP)
+			return errf(KeyFakeItemIPInvalid, i, f.IP)
 		}
 		if f.Proto == "" {
 			f.Proto = "tcp"
 		}
 		if f.Proto != "tcp" && f.Proto != "udp" && f.Proto != "icmp" {
-			return fmt.Errorf("fake_items[%d].proto 非法: %s", i, f.Proto)
+			return errf(KeyFakeItemProtoInvalid, i, f.Proto)
 		}
 		if f.Port < 0 || f.Port > 65535 {
-			return fmt.Errorf("fake_items[%d].port 超出范围: %d", i, f.Port)
+			return errf(KeyFakeItemPortOutOfRange, i, f.Port)
 		}
 		if f.Proto == "tcp" || f.Proto == "udp" {
 			if f.Port == 0 {
-				return fmt.Errorf("fake_items[%d]（%s）必须提供 port", i, f.Proto)
+				return errf(KeyFakeItemPortRequired, i, f.Proto)
 			}
 		}
 		if f.Weight < 0 {
-			return fmt.Errorf("fake_items[%d].weight 必须 ≥ 0", i)
+			return errf(KeyFakeItemWeightNegative, i)
 		}
 		if f.RTTFallbackMs < 0 {
-			return fmt.Errorf("fake_items[%d].rtt_fallback_ms 必须 ≥ 0", i)
+			return errf(KeyFakeItemRTTFallbackNegative, i)
 		}
 	}
 	return nil
@@ -556,22 +555,22 @@ func validateFakeItems(items []protocol.FakeItemReport) error {
 // It rejects an empty address, an unspecified or multicast address, an IPv6 address whose brackets do not close, and input that is neither an IP nor a valid host name
 func validateNodeAddr(addr string) error {
 	if addr == "" {
-		return fmt.Errorf("地址为空")
+		return errf(KeyNodeAddrEmpty)
 	}
 	if strings.HasPrefix(addr, "[") || strings.HasSuffix(addr, "]") {
 		if !strings.HasPrefix(addr, "[") || !strings.HasSuffix(addr, "]") {
-			return fmt.Errorf("IPv6 方括号未闭合: %s", addr)
+			return errf(KeyNodeAddrBracketUnclosed, addr)
 		}
 		addr = addr[1 : len(addr)-1]
 	}
 	if ip := net.ParseIP(addr); ip != nil {
 		if ip.IsUnspecified() || ip.IsMulticast() {
-			return fmt.Errorf("不允许使用未指定/组播地址: %s", addr)
+			return errf(KeyNodeAddrUnspecifiedOrMulticast, addr)
 		}
 		return nil
 	}
 	if !validHostname(addr) {
-		return fmt.Errorf("不是合法 IP 或域名: %s", addr)
+		return errf(KeyNodeAddrNotIPOrHostname, addr)
 	}
 	return nil
 }

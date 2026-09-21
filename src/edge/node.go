@@ -8,7 +8,6 @@ package edge
 import (
 	"context"
 	"encoding/hex"
-	"fmt"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -177,10 +176,10 @@ func (n *Node) Start(ctx context.Context) error {
 		// Phase 2: retries exhausted, enter degraded mode
 		n.degraded.Store(true)
 		if n.topo.cacheFilePath == "" {
-			return fmt.Errorf("连接中心节点失败且未配置拓扑缓存目录 (topo_cache_dir)")
+			return errf(KeyDegradedNoCacheDir)
 		}
 		if err := n.topo.LoadFromFile(n.topo.cacheFilePath); err != nil {
-			return fmt.Errorf("连接中心节点失败且无可用本地缓存: %w", err)
+			return errf(KeyDegradedNoUsableCache, err)
 		}
 		// 用持久化的 shared_secret 初始化 auth，使降级模式仍能签发 Token
 		// Initialise auth from the persisted shared_secret so degraded mode can still sign Tokens

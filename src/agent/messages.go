@@ -9,7 +9,11 @@
 // Registration happens once in init and the catalogue is only read afterwards
 package agent
 
-import "github.com/MarchSnow-1/OptiRoute/i18n"
+import (
+	"fmt"
+
+	"github.com/MarchSnow-1/OptiRoute/i18n"
+)
 
 const (
 	// KeyClientListening 是 Client Agent 的本地监听端口就绪时的键，参数为监听地址
@@ -42,6 +46,83 @@ const (
 	// KeyProbeItemListReceived 是收到引导节点下发的探测项列表时的键，参数依次为来源地址与探测项条数
 	// KeyProbeItemListReceived is the key used when the probe item list delivered by the bootstrap node arrives, with the source address and the item count as arguments
 	KeyProbeItemListReceived i18n.Key = "agent.probe_item_list_received"
+
+	// KeyClientListenFailed 是 Client Agent 本地监听失败时的键，参数依次为监听地址与监听错误
+	// KeyClientListenFailed is the key used when the local listener of the Client Agent fails, with the listen address and the listen error as arguments
+	KeyClientListenFailed i18n.Key = "agent.client_listen_failed"
+
+	// KeyEdgeDialFailed 是 Client Agent 连接目标 Edge 业务端口失败时的键，参数为拨号错误
+	// KeyEdgeDialFailed is the key used when the Client Agent fails to dial the business port of the target Edge, whose argument is the dial error
+	KeyEdgeDialFailed i18n.Key = "agent.edge_dial_failed"
+
+	// KeyFirstPacketWriteFailed 是发送 Token 首包失败时的键，参数为写入错误
+	// KeyFirstPacketWriteFailed is the key used when sending the Token first packet fails, whose argument is the write error
+	KeyFirstPacketWriteFailed i18n.Key = "agent.first_packet_write_failed"
+
+	// KeyAckWaitTimeout 是等待验签确认字节超时时的键，参数为读超时错误
+	// 该分支只在下层错误满足 net.Error 且 Timeout 为真时成立
+	//
+	// KeyAckWaitTimeout is the key used when waiting for the verification ack byte times out, whose argument is the read timeout error
+	// The branch is taken only while the underlying error satisfies net.Error with Timeout reporting true
+	KeyAckWaitTimeout i18n.Key = "agent.ack_wait_timeout"
+
+	// KeyAckWaitFailed 是等待验签确认字节时连接中断的键，参数为读取错误
+	// KeyAckWaitFailed is the key used when the connection drops while waiting for the verification ack byte, whose argument is the read error
+	KeyAckWaitFailed i18n.Key = "agent.ack_wait_failed"
+
+	// KeyAckByteCountAbnormal 是读到的确认字节数不是 1 时的键，参数为实际读到的字节数
+	// KeyAckByteCountAbnormal is the key used when the ack byte count read is not 1, whose argument is the count actually read
+	KeyAckByteCountAbnormal i18n.Key = "agent.ack_byte_count_abnormal"
+
+	// KeyAckByteUnexpected 是确认字节取值不是 0x01 时的键，参数为该字节
+	// KeyAckByteUnexpected is the key used when the ack byte holds a value other than 0x01, whose argument is that byte
+	KeyAckByteUnexpected i18n.Key = "agent.ack_byte_unexpected"
+
+	// KeyBootstrapDialFailed 是连接引导节点失败时的键，参数为拨号错误
+	// KeyBootstrapDialFailed is the key used when dialling the bootstrap node fails, whose argument is the dial error
+	KeyBootstrapDialFailed i18n.Key = "agent.bootstrap_dial_failed"
+
+	// KeyMagicWriteFailed 是发送引导 Magic 失败时的键，参数为写入错误
+	// KeyMagicWriteFailed is the key used when sending the bootstrap Magic fails, whose argument is the write error
+	KeyMagicWriteFailed i18n.Key = "agent.magic_write_failed"
+
+	// KeyNodeListReadFailed 是接收引导节点下发的节点列表失败时的键，参数为读取错误
+	// KeyNodeListReadFailed is the key used when receiving the node list delivered by the bootstrap node fails, whose argument is the read error
+	KeyNodeListReadFailed i18n.Key = "agent.node_list_read_failed"
+
+	// KeyProbeItemListParseFailed 是探测项列表解析失败时的键，参数为解析错误
+	// KeyProbeItemListParseFailed is the key used when the probe item list fails to parse, whose argument is the parse error
+	KeyProbeItemListParseFailed i18n.Key = "agent.probe_item_list_parse_failed"
+
+	// KeyProbeAllFailed 是全部探测项都失败时的键，不带参数
+	// 该分支使本次接入流程直接失败，不上报任何结果
+	//
+	// KeyProbeAllFailed is the key used when every probe item failed, and it takes no argument
+	// The branch fails the whole access flow without reporting any result
+	KeyProbeAllFailed i18n.Key = "agent.probe_all_failed"
+
+	// KeyProbeResultWriteFailed 是上报探测结果失败时的键，参数为写入错误
+	// KeyProbeResultWriteFailed is the key used when reporting the probe results fails, whose argument is the write error
+	KeyProbeResultWriteFailed i18n.Key = "agent.probe_result_write_failed"
+
+	// KeyRedirectReadFailed 是接收 Redirect 命令失败时的键，参数为读取错误
+	// KeyRedirectReadFailed is the key used when receiving the Redirect command fails, whose argument is the read error
+	KeyRedirectReadFailed i18n.Key = "agent.redirect_read_failed"
+
+	// KeyRedirectParseFailed 是 Redirect 命令解析失败时的键，参数为解析错误
+	// KeyRedirectParseFailed is the key used when the Redirect command fails to parse, whose argument is the parse error
+	KeyRedirectParseFailed i18n.Key = "agent.redirect_parse_failed"
+
+	// KeyServerSecretLengthInvalid 是数据面密钥长度不是 requiredCommSecretLen 时的键，参数依次为要求长度与实际长度
+	// 该检查在监听之前完成，使长度为零的密钥不会带着「空切片比较判定相等」的语义进入服务
+	//
+	// KeyServerSecretLengthInvalid is the key used when the data-plane secret is not requiredCommSecretLen bytes long, with the required length and the actual length as arguments
+	// The check runs before listening, which keeps a zero-length secret out of the service, where comparing two empty slices reports equality
+	KeyServerSecretLengthInvalid i18n.Key = "agent.server_secret_length_invalid"
+
+	// KeyServerListenFailed 是 Server Agent 监听失败时的键，参数依次为监听地址与监听错误
+	// KeyServerListenFailed is the key used when the listener of the Server Agent fails, with the listen address and the listen error as arguments
+	KeyServerListenFailed i18n.Key = "agent.server_listen_failed"
 
 	// KeyRedirectReceived 是收到 Redirect 命令时的键，参数依次为来源地址、目标 IP 与业务端口
 	// KeyRedirectReceived is the key used when the Redirect command arrives, with the source address, the target IP and the service port as arguments
@@ -145,6 +226,91 @@ var messages = map[i18n.Key]i18n.Entry{
 		"[%s] 收到探测项列表 count:%d",
 		"[%s] 收到探測項列表 count:%d",
 	),
+	KeyClientListenFailed: i18n.New(
+		"local port listen failed %s: %w",
+		"本地端口监听失败 %s: %w",
+		"本機連接埠監聽失敗 %s: %w",
+	),
+	KeyEdgeDialFailed: i18n.New(
+		"connecting the target edge node failed: %w",
+		"连接目标边缘节点失败: %w",
+		"連線目標邊緣節點失敗: %w",
+	),
+	KeyFirstPacketWriteFailed: i18n.New(
+		"sending the Token first packet failed: %w",
+		"发送 Token 首包失败: %w",
+		"傳送 Token 首包失敗: %w",
+	),
+	KeyAckWaitTimeout: i18n.New(
+		"timed out waiting for the signature check: %w",
+		"等待验签超时: %w",
+		"等待驗簽逾時: %w",
+	),
+	KeyAckWaitFailed: i18n.New(
+		"the signature check failed (connection interrupted): %w",
+		"等待验签失败（连接中断）: %w",
+		"等待驗簽失敗（連線中斷）: %w",
+	),
+	KeyAckByteCountAbnormal: i18n.New(
+		"the signature check failed (the server returned no ack byte, %d bytes received)",
+		"验签未通过（服务端未返回确认字节，收到 %d 字节）",
+		"驗簽未通過（伺服端未回傳確認位元組，收到 %d 位元組）",
+	),
+	KeyAckByteUnexpected: i18n.New(
+		"the signature check failed (the server returned the ack byte 0x%02X)",
+		"验签未通过（服务端返回的确认字节为 0x%02X）",
+		"驗簽未通過（伺服端回傳的確認位元組為 0x%02X）",
+	),
+	KeyBootstrapDialFailed: i18n.New(
+		"connecting the bootstrap node failed: %w",
+		"连接引导节点失败: %w",
+		"連線引導節點失敗: %w",
+	),
+	KeyMagicWriteFailed: i18n.New(
+		"sending the Magic failed: %w",
+		"发送 Magic 失败: %w",
+		"傳送 Magic 失敗: %w",
+	),
+	KeyNodeListReadFailed: i18n.New(
+		"receiving the node list failed: %w",
+		"接收节点列表失败: %w",
+		"接收節點清單失敗: %w",
+	),
+	KeyProbeItemListParseFailed: i18n.New(
+		"parsing the probe item list failed: %w",
+		"解析探测项列表失败: %w",
+		"解析探測項列表失敗: %w",
+	),
+	KeyProbeAllFailed: i18n.New(
+		"every probe item failed",
+		"所有探测项均失败",
+		"所有探測項均失敗",
+	),
+	KeyProbeResultWriteFailed: i18n.New(
+		"reporting the probe results failed: %w",
+		"上报探测结果失败: %w",
+		"上報探測結果失敗: %w",
+	),
+	KeyRedirectReadFailed: i18n.New(
+		"receiving the Redirect command failed: %w",
+		"接收 Redirect 命令失败: %w",
+		"接收 Redirect 命令失敗: %w",
+	),
+	KeyRedirectParseFailed: i18n.New(
+		"parsing the Redirect command failed: %w",
+		"解析 Redirect 命令失败: %w",
+		"解析 Redirect 命令失敗: %w",
+	),
+	KeyServerSecretLengthInvalid: i18n.New(
+		"the data-plane secret has to be %d bytes long, currently %d bytes",
+		"数据面密钥长度必须是 %d 字节，当前 %d 字节",
+		"資料面密鑰長度必須是 %d 位元組，目前 %d 位元組",
+	),
+	KeyServerListenFailed: i18n.New(
+		"Server Agent listen failed %s: %w",
+		"Server Agent 监听失败 %s: %w",
+		"Server Agent 監聽失敗 %s: %w",
+	),
 	KeyRedirectReceived: i18n.New(
 		"[%s] Redirect received target:%s port:%d",
 		"[%s] 收到 Redirect target:%s port:%d",
@@ -220,6 +386,17 @@ var messages = map[i18n.Key]i18n.Entry{
 		"[%s] 转发通道已建立 client_ip:%s upstream:%s",
 		"[%s] 轉發通道已建立 client_ip:%s upstream:%s",
 	),
+}
+
+// errf 按消息键取当前语言的格式串并交给 fmt.Errorf
+// 取的是未填充的格式串而不是已渲染的文本，使 %w 仍由 fmt.Errorf 处理，错误链得以保留
+// 这些错误会被 agent 的调用方经 %w 嵌入日志行，因此文案同样取自目录
+//
+// errf takes the format string of a message key in the current language and hands it to fmt.Errorf
+// The unfilled format string is used rather than rendered text, so a %w verb is still handled by fmt.Errorf and the error chain survives
+// A caller of agent embeds these errors in a log line through %w, so their text comes from the catalogue as well
+func errf(key i18n.Key, args ...any) error {
+	return fmt.Errorf(i18n.T(key), args...)
 }
 
 // init 登记本包的消息，使任何日志调用之前目录已经就绪

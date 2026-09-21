@@ -7,7 +7,11 @@
 // Registration happens once in init and the catalogue is only read afterwards
 package center
 
-import "github.com/MarchSnow-1/OptiRoute/i18n"
+import (
+	"fmt"
+
+	"github.com/MarchSnow-1/OptiRoute/i18n"
+)
 
 const (
 	// KeyWriteEdgeFailed 是向单个边缘节点连接写入消息失败时的键，参数依次为节点 UUID 与写入错误
@@ -32,6 +36,93 @@ const (
 	// KeyStarted 是 HTTP 服务进入监听时的键，参数为监听地址
 	// KeyStarted is the key used once the HTTP service starts listening, whose argument is the listen address
 	KeyStarted i18n.Key = "center.started"
+
+	// KeySecretGenerateFailed 是生成新的 shared_secret 失败时的键，参数为随机源错误
+	// KeySecretGenerateFailed is the key used when generating a new shared_secret fails, whose argument is the random-source error
+	KeySecretGenerateFailed i18n.Key = "center.secret_generate_failed"
+
+	// KeyRegisterUUIDInvalid 是注册消息的 UUID 为空或超过 128 字节时的键，不带参数
+	// KeyRegisterUUIDInvalid is the key used when the UUID of a registration is empty or longer than 128 bytes, and it takes no argument
+	KeyRegisterUUIDInvalid i18n.Key = "center.register_uuid_invalid"
+
+	// KeyRegisterIPInvalid 是注册消息的节点 IP 未通过地址校验时的键，参数为地址校验错误
+	// 地址校验本身也走目录，因此这里的参数是已经本地化的文本，返回的错误链上两层都是当前语言
+	//
+	// KeyRegisterIPInvalid is the key used when the node IP of a registration fails the address check, whose argument is the address validation error
+	// The address check reads the catalogue as well, so the argument is already localised text and both layers of the returned error chain follow the current language
+	KeyRegisterIPInvalid i18n.Key = "center.register_ip_invalid"
+
+	// KeyRegisterGroupTooLong 是注册消息的 group 超过 128 字节时的键，不带参数
+	// KeyRegisterGroupTooLong is the key used when the group of a registration is longer than 128 bytes, and it takes no argument
+	KeyRegisterGroupTooLong i18n.Key = "center.register_group_too_long"
+
+	// KeyRegisterProbeModeUnknown 是注册消息的 probe_mode 不在枚举内时的键，参数为实际取值
+	// KeyRegisterProbeModeUnknown is the key used when the probe_mode of a registration falls outside the enumeration, whose argument is the value read
+	KeyRegisterProbeModeUnknown i18n.Key = "center.register_probe_mode_unknown"
+
+	// KeyRegisterProbeProtoUnknown 是注册消息的 probe_proto 不在枚举内时的键，参数为实际取值
+	// KeyRegisterProbeProtoUnknown is the key used when the probe_proto of a registration falls outside the enumeration, whose argument is the value read
+	KeyRegisterProbeProtoUnknown i18n.Key = "center.register_probe_proto_unknown"
+
+	// KeyRegisterBusinessPortOutOfRange 是注册消息的 business_port 超出 1-65535 时的键，参数为该端口
+	// KeyRegisterBusinessPortOutOfRange is the key used when the business_port of a registration falls outside 1-65535, whose argument is that port
+	KeyRegisterBusinessPortOutOfRange i18n.Key = "center.register_business_port_out_of_range"
+
+	// KeyRegisterProbePortOutOfRange 是注册消息的 probe_port 超出 0-65535 时的键，参数为该端口
+	// KeyRegisterProbePortOutOfRange is the key used when the probe_port of a registration falls outside 0-65535, whose argument is that port
+	KeyRegisterProbePortOutOfRange i18n.Key = "center.register_probe_port_out_of_range"
+
+	// KeyRegisterProbePortRequired 是 direct 或 mixed 模式下非 ICMP 探测未提供 probe_port 时的键，不带参数
+	// KeyRegisterProbePortRequired is the key used when a direct or mixed mode registration carries no probe_port for a non-ICMP probe, and it takes no argument
+	KeyRegisterProbePortRequired i18n.Key = "center.register_probe_port_required"
+
+	// KeyRegisterVersionTooLong 是注册消息的 version 超过 64 字节时的键，不带参数
+	// KeyRegisterVersionTooLong is the key used when the version of a registration is longer than 64 bytes, and it takes no argument
+	KeyRegisterVersionTooLong i18n.Key = "center.register_version_too_long"
+
+	// KeyFakeItemsCountExceeded 是 FAKE-IP 上报条数超过单节点上限时的键，参数依次为条数与上限
+	// KeyFakeItemsCountExceeded is the key used when the reported FAKE-IP count exceeds the per-node cap, with the count and the cap as arguments
+	KeyFakeItemsCountExceeded i18n.Key = "center.fake_items_count_exceeded"
+
+	// KeyFakeItemIPInvalid 是 FAKE-IP 上报项的 IP 非法时的键，参数依次为下标与该 IP
+	// KeyFakeItemIPInvalid is the key used when one FAKE-IP report carries an invalid IP, with the index and that IP as arguments
+	KeyFakeItemIPInvalid i18n.Key = "center.fake_item_ip_invalid"
+
+	// KeyFakeItemProtoInvalid 是 FAKE-IP 上报项的 proto 非法时的键，参数依次为下标与该 proto
+	// KeyFakeItemProtoInvalid is the key used when one FAKE-IP report carries an invalid proto, with the index and that proto as arguments
+	KeyFakeItemProtoInvalid i18n.Key = "center.fake_item_proto_invalid"
+
+	// KeyFakeItemPortOutOfRange 是 FAKE-IP 上报项的 port 越界时的键，参数依次为下标与该端口
+	// KeyFakeItemPortOutOfRange is the key used when the port of one FAKE-IP report falls outside its range, with the index and that port as arguments
+	KeyFakeItemPortOutOfRange i18n.Key = "center.fake_item_port_out_of_range"
+
+	// KeyFakeItemPortRequired 是 tcp 或 udp 的 FAKE-IP 上报项缺少 port 时的键，参数依次为下标与该 proto
+	// KeyFakeItemPortRequired is the key used when a tcp or udp FAKE-IP report carries no port, with the index and that proto as arguments
+	KeyFakeItemPortRequired i18n.Key = "center.fake_item_port_required"
+
+	// KeyFakeItemWeightNegative 是 FAKE-IP 上报项的 weight 为负时的键，参数为下标
+	// KeyFakeItemWeightNegative is the key used when the weight of one FAKE-IP report is negative, whose argument is the index
+	KeyFakeItemWeightNegative i18n.Key = "center.fake_item_weight_negative"
+
+	// KeyFakeItemRTTFallbackNegative 是 FAKE-IP 上报项的 rtt_fallback_ms 为负时的键，参数为下标
+	// KeyFakeItemRTTFallbackNegative is the key used when the rtt_fallback_ms of one FAKE-IP report is negative, whose argument is the index
+	KeyFakeItemRTTFallbackNegative i18n.Key = "center.fake_item_rtt_fallback_negative"
+
+	// KeyNodeAddrEmpty 是节点地址为空时的键，不带参数
+	// KeyNodeAddrEmpty is the key used when a node address is empty, and it takes no argument
+	KeyNodeAddrEmpty i18n.Key = "center.node_addr_empty"
+
+	// KeyNodeAddrBracketUnclosed 是 IPv6 方括号未闭合时的键，参数为该地址
+	// KeyNodeAddrBracketUnclosed is the key used when the brackets of an IPv6 address do not close, whose argument is that address
+	KeyNodeAddrBracketUnclosed i18n.Key = "center.node_addr_bracket_unclosed"
+
+	// KeyNodeAddrUnspecifiedOrMulticast 是被拒的未指定或组播地址时的键，参数为该地址
+	// KeyNodeAddrUnspecifiedOrMulticast is the key used for a rejected unspecified or multicast address, whose argument is that address
+	KeyNodeAddrUnspecifiedOrMulticast i18n.Key = "center.node_addr_unspecified_or_multicast"
+
+	// KeyNodeAddrNotIPOrHostname 是取值既不是合法 IP 也不是合法域名时的键，参数为该地址
+	// KeyNodeAddrNotIPOrHostname is the key used when a value is neither a valid IP nor a valid host name, whose argument is that value
+	KeyNodeAddrNotIPOrHostname i18n.Key = "center.node_addr_not_ip_or_hostname"
 
 	// KeySecretRotated 是完成一次 shared_secret 轮换时的键，参数为新的版本号
 	// KeySecretRotated is the key used after one shared_secret rotation, whose argument is the new version
@@ -161,6 +252,111 @@ var messages = map[i18n.Key]i18n.Entry{
 		"中心节点启动 addr:%s",
 		"中心節點啟動 addr:%s",
 	),
+	KeySecretGenerateFailed: i18n.New(
+		"generating the secret failed: %w",
+		"生成 secret 失败: %w",
+		"產生 secret 失敗: %w",
+	),
+	KeyRegisterUUIDInvalid: i18n.New(
+		"the uuid is empty or too long",
+		"uuid 为空或超长",
+		"uuid 為空或超長",
+	),
+	KeyRegisterIPInvalid: i18n.New(
+		"the ip is invalid: %w",
+		"ip 非法: %w",
+		"ip 不合法: %w",
+	),
+	KeyRegisterGroupTooLong: i18n.New(
+		"the group is too long",
+		"group 超长",
+		"group 超長",
+	),
+	KeyRegisterProbeModeUnknown: i18n.New(
+		"unknown probe mode: %s",
+		"未知探测模式: %s",
+		"未知探測模式: %s",
+	),
+	KeyRegisterProbeProtoUnknown: i18n.New(
+		"unknown probe protocol: %s",
+		"未知探测协议: %s",
+		"未知探測協定: %s",
+	),
+	KeyRegisterBusinessPortOutOfRange: i18n.New(
+		"business_port out of range: %d",
+		"business_port 超出范围: %d",
+		"business_port 超出範圍: %d",
+	),
+	KeyRegisterProbePortOutOfRange: i18n.New(
+		"probe_port out of range: %d",
+		"probe_port 超出范围: %d",
+		"probe_port 超出範圍: %d",
+	),
+	KeyRegisterProbePortRequired: i18n.New(
+		"direct or mixed mode with a non-ICMP probe has to carry probe_port",
+		"direct/mixed 模式且非 ICMP 探测必须提供 probe_port",
+		"direct/mixed 模式且非 ICMP 探測必須提供 probe_port",
+	),
+	KeyRegisterVersionTooLong: i18n.New(
+		"the version is too long",
+		"version 超长",
+		"version 超長",
+	),
+	KeyFakeItemsCountExceeded: i18n.New(
+		"fake_items over the count limit: %d > %d",
+		"fake_items 数量超限: %d > %d",
+		"fake_items 數量超限: %d > %d",
+	),
+	KeyFakeItemIPInvalid: i18n.New(
+		"fake_items[%d].ip is invalid: %s",
+		"fake_items[%d].ip 非法: %s",
+		"fake_items[%d].ip 不合法: %s",
+	),
+	KeyFakeItemProtoInvalid: i18n.New(
+		"fake_items[%d].proto is invalid: %s",
+		"fake_items[%d].proto 非法: %s",
+		"fake_items[%d].proto 不合法: %s",
+	),
+	KeyFakeItemPortOutOfRange: i18n.New(
+		"fake_items[%d].port out of range: %d",
+		"fake_items[%d].port 超出范围: %d",
+		"fake_items[%d].port 超出範圍: %d",
+	),
+	KeyFakeItemPortRequired: i18n.New(
+		"fake_items[%d] (%s) has to carry a port",
+		"fake_items[%d]（%s）必须提供 port",
+		"fake_items[%d]（%s）必須提供 port",
+	),
+	KeyFakeItemWeightNegative: i18n.New(
+		"fake_items[%d].weight has to be >= 0",
+		"fake_items[%d].weight 必须 ≥ 0",
+		"fake_items[%d].weight 必須 ≥ 0",
+	),
+	KeyFakeItemRTTFallbackNegative: i18n.New(
+		"fake_items[%d].rtt_fallback_ms has to be >= 0",
+		"fake_items[%d].rtt_fallback_ms 必须 ≥ 0",
+		"fake_items[%d].rtt_fallback_ms 必須 ≥ 0",
+	),
+	KeyNodeAddrEmpty: i18n.New(
+		"the address is empty",
+		"地址为空",
+		"位址為空",
+	),
+	KeyNodeAddrBracketUnclosed: i18n.New(
+		"the IPv6 bracket is not closed: %s",
+		"IPv6 方括号未闭合: %s",
+		"IPv6 方括號未閉合: %s",
+	),
+	KeyNodeAddrUnspecifiedOrMulticast: i18n.New(
+		"an unspecified or multicast address is not allowed: %s",
+		"不允许使用未指定/组播地址: %s",
+		"不允許使用未指定或群播位址: %s",
+	),
+	KeyNodeAddrNotIPOrHostname: i18n.New(
+		"neither a valid IP nor a host name: %s",
+		"不是合法 IP 或域名: %s",
+		"不是合法 IP 或網域名稱: %s",
+	),
 	KeySecretRotated: i18n.New(
 		"shared_secret rotated version:%d",
 		"shared_secret 已轮转 version:%d",
@@ -281,6 +477,17 @@ var messages = map[i18n.Key]i18n.Entry{
 		"边缘节点写队列已满，关闭连接以触发重连 uuid:%s type:%s",
 		"邊緣節點寫入佇列已滿，關閉連線以觸發重連 uuid:%s type:%s",
 	),
+}
+
+// errf 按消息键取当前语言的格式串并交给 fmt.Errorf
+// 取的是未填充的格式串而不是已渲染的文本，使 %w 仍由 fmt.Errorf 处理，错误链得以保留
+// 这些错误会被 center 的日志行经 %v 嵌入，因此文案同样取自目录
+//
+// errf takes the format string of a message key in the current language and hands it to fmt.Errorf
+// The unfilled format string is used rather than rendered text, so a %w verb is still handled by fmt.Errorf and the error chain survives
+// A log line of center embeds these errors through %v, so their text comes from the catalogue as well
+func errf(key i18n.Key, args ...any) error {
+	return fmt.Errorf(i18n.T(key), args...)
 }
 
 // init 登记本包的消息，使任何日志调用之前目录已经就绪

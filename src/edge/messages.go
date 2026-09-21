@@ -7,7 +7,11 @@
 // Registration happens once in init and the catalogue is only read afterwards
 package edge
 
-import "github.com/MarchSnow-1/OptiRoute/i18n"
+import (
+	"fmt"
+
+	"github.com/MarchSnow-1/OptiRoute/i18n"
+)
 
 const (
 	// KeyTopoCacheWriteFailed 是异步写盘失败时的键，参数为写盘错误
@@ -227,6 +231,60 @@ const (
 	// KeyBusinessAcceptFailed 是业务端口 Accept 失败时的键，参数为 Accept 错误
 	// KeyBusinessAcceptFailed is the key used when the business port Accept fails, whose argument is the accept error
 	KeyBusinessAcceptFailed i18n.Key = "edge.business_accept_failed"
+
+	// KeyBusinessListenFailed 是业务端口监听失败时的键，参数依次为监听地址与监听错误
+	// 该错误由调用方按正常退出处理，因此文案说明的是监听这一步失败
+	//
+	// KeyBusinessListenFailed is the key used when the business port fails to listen, with the listen address and the listen error as arguments
+	// The caller treats it as a normal exit, so the text names the listening step as the one that failed
+	KeyBusinessListenFailed i18n.Key = "edge.business_listen_failed"
+
+	// KeyFirstPacketShortPrefix 是判定阶段移交的已读前缀不足 4 字节时的键，不带参数
+	// 该分支只在调用方移交了短于帧长度字段的前缀时成立
+	//
+	// KeyFirstPacketShortPrefix is the key used when the prefix handed over by the classification stage is shorter than 4 bytes, and it takes no argument
+	// The branch needs a prefix shorter than the frame length field, which the caller is expected not to hand over
+	KeyFirstPacketShortPrefix i18n.Key = "edge.first_packet_short_prefix"
+
+	// KeyFirstPacketOverLimit 是业务首帧声明的帧长超过 util.MaxFrameSize 时的键，参数为该帧长
+	// 该检查在读载荷之前完成，因此为帧体分配的缓冲区不超过 1 MB
+	//
+	// KeyFirstPacketOverLimit is the key used when the frame length declared by the business first frame exceeds util.MaxFrameSize, whose argument is that length
+	// The check runs before the payload is read, so the buffer allocated for the frame body stays within 1 MB
+	KeyFirstPacketOverLimit i18n.Key = "edge.first_packet_over_limit"
+
+	// KeyFirstPacketPrefixOverflow 是已读前缀携带的数据超过帧长时的键，参数依次为前缀含有的帧体字节数与帧长
+	// 该分支为纯防御代码：classifyConnection 移交的 4 字节与 16 字节两种形态都进不到这里
+	//
+	// KeyFirstPacketPrefixOverflow is the key used when the data carried by the read prefix exceeds the frame length, with the frame body byte count inside the prefix and the frame length as arguments
+	// The branch is pure defensive code, because neither the 4-byte nor the 16-byte handoff of classifyConnection reaches it
+	KeyFirstPacketPrefixOverflow i18n.Key = "edge.first_packet_prefix_overflow"
+
+	// KeyRegistrationFlowNotStarted 是 Connect 尚未执行因而等待注册结果无门时的键，不带参数
+	// Connect 未执行时 regCh 为 nil，等待无从建立
+	//
+	// KeyRegistrationFlowNotStarted is the key used when the registration result cannot be awaited because Connect has not run, and it takes no argument
+	// regCh is nil while Connect has not run, which leaves nothing to wait on
+	KeyRegistrationFlowNotStarted i18n.Key = "edge.registration_flow_not_started"
+
+	// KeyRegistrationConnClosed 是连接在注册结果到达前关闭时的键，不带参数
+	// KeyRegistrationConnClosed is the key used when the connection closes before the registration result arrives, and it takes no argument
+	KeyRegistrationConnClosed i18n.Key = "edge.registration_conn_closed"
+
+	// KeyRegistrationWaitTimeout 是等待注册结果超时时的键，不带参数
+	// KeyRegistrationWaitTimeout is the key used when waiting for the registration result times out, and it takes no argument
+	KeyRegistrationWaitTimeout i18n.Key = "edge.registration_wait_timeout"
+
+	// KeyDegradedNoCacheDir 是重试耗尽且未配置拓扑缓存目录时的键，不带参数
+	// 该分支在降级之前返回错误，因为无缓存目录即无从加载本地拓扑
+	//
+	// KeyDegradedNoCacheDir is the key used when the retries are exhausted and no topology cache directory is configured, and it takes no argument
+	// The branch fails before degraded mode, since without a cache directory there is no local topology to load
+	KeyDegradedNoCacheDir i18n.Key = "edge.degraded_no_cache_dir"
+
+	// KeyDegradedNoUsableCache 是重试耗尽且本地缓存不可用时的键，参数为加载缓存错误
+	// KeyDegradedNoUsableCache is the key used when the retries are exhausted and the local cache is unusable, whose argument is the cache loading error
+	KeyDegradedNoUsableCache i18n.Key = "edge.degraded_no_usable_cache"
 
 	// KeyHandshakeConcurrencyFull 是未认证与引导握手并发闸已满时的键，不带参数
 	// KeyHandshakeConcurrencyFull is the key used when the concurrency gate of unauthenticated and bootstrap handshakes is full, and it carries no argument
@@ -590,6 +648,51 @@ var messages = map[i18n.Key]i18n.Entry{
 		"Accept 错误 err:%v",
 		"Accept 錯誤 err:%v",
 	),
+	KeyBusinessListenFailed: i18n.New(
+		"business port listen failed %s: %w",
+		"业务端口监听失败 %s: %w",
+		"業務埠監聽失敗 %s: %w",
+	),
+	KeyFirstPacketShortPrefix: i18n.New(
+		"fewer than 4 bytes were read, so the frame length cannot be parsed",
+		"已读数据不足 4 字节，无法解析帧长度",
+		"已讀資料不足 4 位元組，無法解析幀長度",
+	),
+	KeyFirstPacketOverLimit: i18n.New(
+		"frame length over the limit: %d",
+		"帧长度超限: %d",
+		"幀長度超限: %d",
+	),
+	KeyFirstPacketPrefixOverflow: i18n.New(
+		"the data carried by alreadyRead exceeds the frame length: got=%d, frameLen=%d",
+		"alreadyRead 包含的数据超过帧长度: got=%d, frameLen=%d",
+		"alreadyRead 包含的資料超過幀長度: got=%d, frameLen=%d",
+	),
+	KeyRegistrationFlowNotStarted: i18n.New(
+		"the registration flow has not started yet",
+		"注册流程尚未启动",
+		"註冊流程尚未啟動",
+	),
+	KeyRegistrationConnClosed: i18n.New(
+		"the connection is closed and no registration result arrived",
+		"连接已关闭，未收到注册结果",
+		"連線已關閉，未收到註冊結果",
+	),
+	KeyRegistrationWaitTimeout: i18n.New(
+		"timed out waiting for the registration result",
+		"等待注册结果超时",
+		"等待註冊結果逾時",
+	),
+	KeyDegradedNoCacheDir: i18n.New(
+		"connecting to the Center failed and no topology cache directory (topo_cache_dir) is configured",
+		"连接中心节点失败且未配置拓扑缓存目录 (topo_cache_dir)",
+		"連線中心節點失敗且未設定拓撲快取目錄 (topo_cache_dir)",
+	),
+	KeyDegradedNoUsableCache: i18n.New(
+		"connecting to the Center failed and no usable local cache is available: %w",
+		"连接中心节点失败且无可用本地缓存: %w",
+		"連線中心節點失敗且無可用本機快取: %w",
+	),
 	KeyHandshakeConcurrencyFull: i18n.New(
 		"the concurrency cap of unauthenticated and bootstrap handshakes is full, rejecting the new connection",
 		"未认证/引导握手并发已满，拒绝新连接",
@@ -725,6 +828,17 @@ var messages = map[i18n.Key]i18n.Entry{
 		"[%s] L4 转发通道已建立 origin:%s client_v:%s server_v:%s",
 		"[%s] L4 轉發通道已建立 origin:%s client_v:%s server_v:%s",
 	),
+}
+
+// errf 按消息键取当前语言的格式串并交给 fmt.Errorf
+// 取的是未填充的格式串而不是已渲染的文本，使 %w 仍由 fmt.Errorf 处理，错误链得以保留
+// 这些错误会经 %w 嵌入 main 的日志行，因此文案同样取自目录
+//
+// errf takes the format string of a message key in the current language and hands it to fmt.Errorf
+// The unfilled format string is used rather than rendered text, so a %w verb is still handled by fmt.Errorf and the error chain survives
+// main embeds these errors in a log line through %w, so their text comes from the catalogue as well
+func errf(key i18n.Key, args ...any) error {
+	return fmt.Errorf(i18n.T(key), args...)
 }
 
 // init 登记本包的消息，使任何日志调用之前目录已经就绪

@@ -18,7 +18,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"github.com/MarchSnow-1/OptiRoute/logx"
 	"github.com/MarchSnow-1/OptiRoute/protocol"
 	"github.com/MarchSnow-1/OptiRoute/util"
@@ -75,7 +74,7 @@ func (n *Node) runBusinessServer(ctx context.Context) error {
 	addr := util.JoinHostPort("", n.cfg.Self.BusinessPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("业务端口监听失败 %s: %w", addr, err)
+		return errf(KeyBusinessListenFailed, addr, err)
 	}
 	logx.Infof(KeyBusinessPortListening, addr)
 

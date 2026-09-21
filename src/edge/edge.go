@@ -517,7 +517,7 @@ func (c *CenterClient) WaitRegistration(timeout time.Duration) error {
 	ch := c.regCh
 	c.regMu.Unlock()
 	if ch == nil {
-		return fmt.Errorf("注册流程尚未启动")
+		return errf(KeyRegistrationFlowNotStarted)
 	}
 
 	timer := time.NewTimer(timeout)
@@ -525,9 +525,9 @@ func (c *CenterClient) WaitRegistration(timeout time.Duration) error {
 	select {
 	case <-ch:
 	case <-c.done:
-		return fmt.Errorf("连接已关闭，未收到注册结果")
+		return errf(KeyRegistrationConnClosed)
 	case <-timer.C:
-		return fmt.Errorf("等待注册结果超时")
+		return errf(KeyRegistrationWaitTimeout)
 	}
 
 	c.regMu.Lock()

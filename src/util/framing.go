@@ -7,7 +7,6 @@ package util
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -25,7 +24,7 @@ const MaxFrameSize = 1 << 20
 // The length is len(data), and an argument above MaxFrameSize fails before the header is written, so nothing is left on the connection
 func WriteFrame(conn net.Conn, data []byte) error {
 	if len(data) > MaxFrameSize {
-		return fmt.Errorf("帧过大: %d", len(data))
+		return errf(KeyFrameTooLarge, len(data))
 	}
 	hdr := make([]byte, 4)
 	binary.BigEndian.PutUint32(hdr, uint32(len(data)))
@@ -53,7 +52,7 @@ func WriteWithDeadline(conn net.Conn, data []byte, timeout time.Duration) error 
 			return err
 		}
 		if n <= 0 {
-			return fmt.Errorf("连接写入 0 字节")
+			return errf(KeyWriteZeroBytes)
 		}
 		data = data[n:]
 	}
@@ -90,7 +89,7 @@ func ReadFrame(conn net.Conn, deadline time.Duration) ([]byte, error) {
 	}
 	size := binary.BigEndian.Uint32(hdr)
 	if size > MaxFrameSize {
-		return nil, fmt.Errorf("帧长度超限: %d", size)
+		return nil, errf(KeyFrameLengthExceeded, size)
 	}
 	buf := make([]byte, size)
 	if _, err := io.ReadFull(conn, buf); err != nil {

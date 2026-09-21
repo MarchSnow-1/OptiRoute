@@ -12,7 +12,6 @@ import (
 	"crypto/subtle"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -55,13 +54,13 @@ const requiredCommSecretLen = 32
 // It confirms the data-plane secret is usable before listening, which keeps a secret that would let a zero-length comparison admit every peer out of the service
 func (a *ServerAgent) Start(ctx context.Context) error {
 	if len(a.cfg.Remote.CommSecret) != requiredCommSecretLen {
-		return fmt.Errorf("数据面密钥长度必须是 %d 字节，当前 %d 字节", requiredCommSecretLen, len(a.cfg.Remote.CommSecret))
+		return errf(KeyServerSecretLengthInvalid, requiredCommSecretLen, len(a.cfg.Remote.CommSecret))
 	}
 
 	addr := util.JoinHostPort(a.cfg.Self.ListenAddr, a.cfg.Self.ListenPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("Server Agent 监听失败 %s: %w", addr, err)
+		return errf(KeyServerListenFailed, addr, err)
 	}
 	logx.Infof(KeyServerListening, addr)
 

@@ -1,6 +1,6 @@
 module github.com/MarchSnow-1/OptiRoute
 
-go 1.26.3
+go 1.27.3
 
 require (
 	github.com/donnie4w/go-logger v0.28.0
